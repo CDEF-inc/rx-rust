@@ -1,0 +1,12 @@
+[package]
+name = "rx-rt"
+version = "0.1.0"
+edition = "2024"
+description = "Startup code, vector tables and linker script for Renesas RX"
+links = "rx-rt"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/CDEF-inc/rx-rust"
+
+[lib]
+test = false
+bench = false

@@ -1,0 +1,71 @@
+/* Linker script for rx-rt. The application provides memory.x with two
+   regions, RAM and ROM; ROM must end at 0xFFFFFFFF (the fixed vector table
+   occupies its last 128 bytes).
+
+   C and Rust symbols carry a leading underscore on RX, so `_rx_data_start`
+   here is `rx_data_start` in Rust. */
+
+INCLUDE memory.x
+
+ENTRY(_rx_reset)
+EXTERN(_rx_reset)
+EXTERN(_rx_vectors)
+EXTERN(_rx_fixed_vectors)
+
+@PROVIDE@
+PROVIDE(_rx_stack_top = ORIGIN(RAM) + LENGTH(RAM));
+
+SECTIONS
+{
+  .text ORIGIN(ROM) :
+  {
+    KEEP(*(.text.rx_reset))
+    *(.text .text.*)
+    *(P P.*)
+  } > ROM
+
+  .rodata : ALIGN(4)
+  {
+    *(.rodata .rodata.*)
+    *(C C.* C_1 C_1.* C_2 C_2.* W W.* L L.*)
+    . = ALIGN(4);
+  } > ROM
+
+  .rx_vectors : ALIGN(4)
+  {
+    KEEP(*(.rx_vectors))
+  } > ROM
+
+  .data : ALIGN(4)
+  {
+    _rx_data_start = .;
+    *(.data .data.*)
+    *(D D.* D_1 D_1.* D_2 D_2.*)
+    . = ALIGN(4);
+    _rx_data_end = .;
+  } > RAM AT > ROM
+  _rx_data_load = LOADADDR(.data);
+
+  .bss (NOLOAD) : ALIGN(4)
+  {
+    _rx_bss_start = .;
+    *(.bss .bss.*)
+    *(B B.* B_1 B_1.* B_2 B_2.*)
+    *(COMMON)
+    . = ALIGN(4);
+    _rx_bss_end = .;
+  } > RAM
+
+  .rx_fixed_vectors 0xFFFFFF80 :
+  {
+    KEEP(*(.rx_fixed_vectors))
+  } > ROM
+
+  /DISCARD/ :
+  {
+    *(.eh_frame .eh_frame_hdr)
+    *(.note.GNU-stack)
+  }
+}
+
+ASSERT(_rx_fixed_vectors == 0xFFFFFF80, "rx-rt: ROM must end at 0xFFFFFFFF");

@@ -1,0 +1,7 @@
+# Build output and the reference GNU toolchain (scripts/build-gnu.sh).
+/build/
+/gnu/
+target/
+
+# Vendor manuals (copyrighted; not redistributed).
+/ref/

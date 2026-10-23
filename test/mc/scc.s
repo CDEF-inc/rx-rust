@@ -1,0 +1,14 @@
+sceq.l r1
+scne.l r15
+scgeu.l r2
+scltu.l r3
+scgtu.l r4
+scleu.l r5
+scpz.l r6
+scn.l r7
+scge.l r8
+sclt.l r9
+scgt.l r10
+scle.l r11
+sco.l r12
+scno.l r13

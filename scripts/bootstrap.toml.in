@@ -1,0 +1,26 @@
+# rustc with the RX backend. scripts/setup.sh writes this to rust/bootstrap.toml
+# with @ROOT@ replaced by the repository root.
+change-id = "ignore"
+
+[llvm]
+# Use the LLVM built in build/llvm (with the RX target) instead of building
+# or downloading one.
+download-ci-llvm = false
+
+[build]
+# Do not let bootstrap reset src/llvm-project (it carries the RX backend).
+submodules = false
+docs = false
+extended = false
+# rustc crates need 1-3 GB of memory each.
+jobs = 4
+
+[rust]
+download-rustc = false
+lld = false
+# build/llvm only has the libraries, llc and llvm-mc.
+llvm-tools = false
+debug-assertions = false
+
+[target.x86_64-unknown-linux-gnu]
+llvm-config = "@ROOT@/build/llvm/bin/llvm-config"
