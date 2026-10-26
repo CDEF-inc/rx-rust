@@ -70,7 +70,9 @@
 ### M4 rustc 統合 ✅ 2026-10-23（詳細 `NOTES-rustc.md`）
 - [x] `rustc_llvm` に RX 初期化、bootstrap は外部 LLVM（build/llvm の llvm-config）
 - [x] `rustc_target`: `Arch::Rx`、ターゲット仕様 `rx-none-elf`、callconv（`callconv/rx.rs`）
-- [x] atomics: `max_atomic_width=32`, `atomic_cas=false`（load/store は MOV、fence はコンパイラバリア）
+- [x] atomics: `max_atomic_width=32`（load/store は MOV、fence はコンパイラバリア）
+- [x] CAS / RMW: `atomic_cas=true`。RXv2+ は movli/movco ループ、RXv1 は割り込みを止めた列（CMPXCHG32、issue #1）。
+  atomic.ll 1080 チェック、core-smoke の CAS / fetch_* も QEMU（RXv1）で通過。RXv2 経路の実行検証は未
 - [x] `-Zbuild-std=core` で `core` がビルドでき、テスト crate を GCC とリンクして QEMU で 80 チェック全通過（release/dev）
 - [ ] インライン asm、alloc の確認、tidy/UI テスト/ドキュメント（上流化する場合）
 

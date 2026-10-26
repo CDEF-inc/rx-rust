@@ -18,9 +18,11 @@
 - llvm_target `rx-none-elf`、pointer_width 32、data_layout `e-m:o-p:32:32-i64:32-f64:32-n8:16:32-S32`（LLVM と一致必須）
 - cpu `rxv3`（既定）、features `+64bit-doubles`（e_flags を GCC -m64bit-doubles と揃える）
 - linker `rx-elf-gcc`（LLD は RX 非対応）、panic=abort、relocation-model=static、eh_frame_header なし
-- アトミック: `max_atomic_width = 32`、`atomic_cas = false` → `target_has_atomic_load_store` = 8/16/32/ptr のみ
+- アトミック: `max_atomic_width = 32`、`atomic_cas = true` → `target_has_atomic` = 8/16/32/ptr（CAS・fetch_* あり）
   - LLVM 側: 32bit 以下の atomic load/store は通常の MOV（メモリオペランドに atomic 情報が残るので巻き上げられない）、
-    fence は MEMBARRIER（コンパイラバリア）。RX はシングルコア前提。RMW/CAS は命令がないため非対応。
+    fence は MEMBARRIER（コンパイラバリア）。RX はシングルコア前提。
+  - CAS は RXv2 以上で movli/movco ループ、RXv1 では割り込みを止めた load/compare/store（NOTES-codegen.md の「アトミック」）。
+    RXv1 の方式はスーパーバイザモードでのみアトミック。`-C target-cpu=rxv1` でも CAS を使うコードはコンパイルできる。
   - `singlethread` は使わない（LLVM の ThreadModel::Single は一部ターゲットしか見ておらず、また
     LowerAtomic で通常ロードにすると割り込み待ちループが巻き上げで壊れる）
 
@@ -34,7 +36,7 @@
   __muloti4）。i128 と checked_mul が core で使われるため。実体は compiler_builtins。
   - `__mulodi4` が無いと SMULO i64 の展開で LegalizeTypes のアサーション失敗（"Invalid type for expanded integer"）になった。
 - ISD::TRAP / DEBUGTRAP を Legal にして `brk`（既定だと `abort()` 呼び出しになり、libc がないとリンクできない）。
-- atomic load/store のパターン、ATOMIC_FENCE → MEMBARRIER。
+- atomic load/store のパターン、ATOMIC_FENCE → MEMBARRIER。CAS / RMW は issue #1 で追加（CMPXCHG32）。
 
 ## ビルド手順
 ```
@@ -51,15 +53,19 @@ bash scripts/run-rust-test.sh     # -Zbuild-std=core でテスト crate をビ�
 ## 検証
 `test/rust/core-smoke`（lib.rs + main.c）: `#![no_std]` staticlib を -Zbuild-std=core でビルドし、GCC のドライバ・libgcc
 （64-bit-double multilib）と `--gc-sections` でリンク、QEMU の SDRAM（0x01000000）で実行。
-- **80 チェック全通過（release / dev とも）**
+- **233 チェック全通過（release / dev とも、`-C target-cpu=rxv1`）**。うち 153 は CAS / RMW（issue #1 で追加）
 - 内容: i32/i64 演算、u128 の乗除算（__multi3/__udivti3）、f64/f32、構造体の値渡し（S3 byval + 後続 R2、S8 レジスタ）、
   構造体戻り値（S20 sret / S8 レジスタ）、Rust → C の構造体付き呼び出し、core::fmt による整形（u128 を含む）、
-  slice::sort_unstable、AtomicU32 の load/store、checked_mul（__mulodi4）
+  slice::sort_unstable、AtomicU32 の load/store、checked_mul（__mulodi4）、
+  AtomicU32 の compare_exchange / fetch_{add,sub,and,or,xor,nand,max,min} / swap / try_update、
+  隣接する AtomicU8 ×4 の fetch_add（隣のバイトが変わらないこと）、AtomicU16 の fetch_max と compare_exchange_weak ループ
+- 既定 CPU（rxv3）でビルドすると同じ crate に movli/movco ループが 14 個、rxv1 では clrpsw の列が 14 個入ることを確認
 - サイズ: text 18 KB（release, opt-level=s, gc-sections）。gc-sections なしだと 277 KB で内蔵 RAM に入らなかった。
 - 既存の LLVM レベルのテスト（i32 4131 / m3 3964 / struct 142）も全通過。
 
 ## 注意・未対応
-- 実行検証は QEMU（RXv1 命令のみ）。rustc の既定 CPU は rxv3 だが、現状のコード生成は RXv1 命令しか使わないので動く。
-  RXv2/v3 命令を使い始めたら別の検証手段が必要。
+- 実行検証は QEMU（RXv1 命令のみ）。rustc の既定 CPU は rxv3 で、アトミックは movli/movco（RXv2）になるため、
+  `scripts/run-rust-test.sh` は `-C target-cpu=rxv1` でビルドする（qemu-demo は .cargo/config.toml で指定済み）。
+  RXv2/v3 経路の実行には別の検証手段が必要。
 - インライン asm（`asm!`）は M5 で対応（NOTES-rt.md）。alloc / std は未試験。
 - tidy・UI テスト・platform-support のドキュメントは未対応（上流化する場合に必要）。

@@ -20,6 +20,9 @@ int rs_call_c(int);
 int rs_format(char *, unsigned, int, u32, u64, u64);
 u32 rs_sort(int *, unsigned);
 u32 rs_atomic(u32);
+u32 rs_cas32(u32, u32), rs_get32(void), rs_rmw32(u32, u32);
+u32 rs_rmw8(u32, unsigned char), rs_get8(void);
+u32 rs_rmw16(unsigned short), rs_get16(void);
 i64 rs_checked(i64, i64);
 
 /* Called from Rust. */
@@ -98,5 +101,46 @@ int main(void) {
 
   check((int)rs_atomic(5), 5);
   check((int)rs_atomic(10), 15);
+
+  /* compare-and-swap and read-modify-write atomics */
+  check((int)rs_cas32(0, 7), 1);
+  check((int)rs_cas32(0, 9), 0);
+  check((int)rs_get32(), 7);
+  u32 a = 7;
+  static const u32 vals[] = {3, 0xfffffff0, 0x55, 0x80000001, 12, 1};
+  for (u32 op = 0; op < 10; op++)
+    for (int j = 0; j < 6; j++) {
+      u32 v = vals[j], want;
+      switch (op) {
+      case 0: want = a + v; break;
+      case 1: want = a - v; break;
+      case 2: want = a & v; break;
+      case 3: want = a | v; break;
+      case 4: want = a ^ v; break;
+      case 5: want = ~(a & v); break;
+      case 6: want = v; break;
+      case 7: want = a > v ? a : v; break;
+      case 8: want = a < v ? a : v; break;
+      default: want = (a * 3) ^ v; break;
+      }
+      check((int)rs_rmw32(op, v), (int)a);
+      check((int)rs_get32(), (int)want);
+      a = want;
+    }
+  u32 bytes = 0;
+  for (u32 i = 0; i < 4; i++)
+    for (u32 k = 1; k < 4; k++) {
+      u32 old = (bytes >> (8 * i)) & 0xff;
+      check((int)rs_rmw8(i, (unsigned char)(0x61 * k + i)), (int)old);
+      bytes = (bytes & ~(0xffu << (8 * i))) |
+              (((old + 0x61 * k + i) & 0xff) << (8 * i));
+      check((int)rs_get8(), (int)bytes);
+    }
+  check((int)rs_rmw16(0x1234), 0);
+  check((int)rs_get16(), 0x2468);
+  check((int)rs_rmw16(0x100), 0x2468);
+  check((int)rs_get16(), 0x48d0);
+  check((int)rs_rmw16(0x9000), 0x48d0);
+  check((int)rs_get16(), 0x2000);
   return failures;
 }
