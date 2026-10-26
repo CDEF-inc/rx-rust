@@ -6,6 +6,10 @@
 # operand order was checked against the RXv3 manual (DSUB src, src2, dest:
 # dest = src2 - src; DCMPcm src, src2: RES = src2 cm src; MVFDR: Z = RES).
 #
+# GNU as 2.43 swaps the register fields of ftod / itod / utod (see
+# docs/NOTES-mc.md), so their register numbers are exchanged in the copy
+# given to GNU as, which then produces the encoding the manual specifies.
+#
 #   check-dfpu.sh [-u]   (-u rewrites dfpu.expected)
 set -eu
 
@@ -21,7 +25,9 @@ status=0
 for o in 0 2; do
   $LLC -O$o -verify-machineinstrs "$ll" -o "$tmp/d.s"
   $LLC -O$o -filetype=obj "$ll" -o "$tmp/obj.o"
-  "$G/rx-elf-as" -mcpu=rxv3-dfpu -o "$tmp/as.o" "$tmp/d.s"
+  sed -E 's/^\t(ftod|itod|utod)\tr([0-9]+), dr([0-9]+)$/\t\1\tr\3, dr\2/' \
+    "$tmp/d.s" > "$tmp/gas.s"
+  "$G/rx-elf-as" -mcpu=rxv3-dfpu -o "$tmp/as.o" "$tmp/gas.s"
   for v in as obj; do
     "$G/rx-elf-objcopy" -O binary -j .text -j P "$tmp/$v.o" "$tmp/$v.bin"
   done

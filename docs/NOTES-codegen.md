@@ -189,7 +189,8 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   （EQ → Z、NE → !Z。GT/GE はオペランドを入れ替えて LT/LE）。
 - DPSW などの DFPU 制御レジスタを予約レジスタに追加（暗黙の Uses が未定義使用として MachineVerifier に落とされるため）。
 - 検証（QEMU に DFPU がないので実行はしていない）: `scripts/check-dfpu.sh` が `test/codegen/dfpu.ll` を rxv3 でコンパイルし、
-  -verify-machineinstrs、GNU as でのアセンブル（直接出力の .o と同一）、関数ごとの DFPU 命令列を
+  -verify-machineinstrs、GNU as でのアセンブル（直接出力の .o と同一。GNU as は itod / utod / ftod のレジスタ欄を
+  入れ替える誤りがあるので、渡す .s ではその 2 つのレジスタ番号を入れ替えておく。NOTES-mc.md）、関数ごとの DFPU 命令列を
   `test/codegen/dfpu.expected`（マニュアルの意味と照合済み）と比較。四則・平方根・計算の連鎖・6 種の比較・select・分岐・
   int → double・呼び出しをまたぐ値、IEEE 側が libcall のままであること。f64 の多数の演算（fops.ll の double 版）も
   rxv1〜rxv3 の -O0 / -O2 でコンパイル・アセンブルできることを確認。
