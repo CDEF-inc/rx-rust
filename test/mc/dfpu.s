@@ -16,9 +16,13 @@ dcmpun dr1, dr2
 dcmpeq dr3, dr4
 dcmplt dr5, dr6
 dcmple dr7, dr15
-ftod r1, dr2
-itod r3, dr4
-utod r15, dr0
+# GNU as 2.43 swaps the Rs and DRd / DCRd fields of ftod / itod / utod / mvtdc
+# (its own objdump decodes "itod r3, dr4" as "itod r4, dr3"); these lines
+# are checked against the RXv3 manual (section 4: 1000 rs[3:0] rd[3:0] op).
+ftod r1, dr2  ; bytes: fd 77 81 2a
+itod r3, dr4  ; bytes: fd 77 83 49
+itod r1, dr2  ; bytes: fd 77 81 29
+utod r15, dr0  ; bytes: fd 77 8f 0d
 dmov.d r1, drh2
 dmov.l r3, drh4
 dmov.l r5, drl6
@@ -48,11 +52,12 @@ dpushm.l dpsw-depc
 dpushm.l dcr1-dcr2
 dpopm.l dpsw-depc
 dpopm.l dcmr-dcmr
-mvtdc r1, dpsw
-mvtdc r2, dcmr
-mvtdc r3, decnt
-mvtdc r4, depc
-mvtdc r5, dcr0
+mvtdc r1, dpsw  ; bytes: fd 77 81 04
+mvtdc r2, dcmr  ; bytes: fd 77 82 14
+mvtdc r3, decnt  ; bytes: fd 77 83 24
+mvtdc r4, depc  ; bytes: fd 77 84 34
+mvtdc r5, dcr0  ; bytes: fd 77 85 04
+mvtdc r7, dcmr  ; bytes: fd 77 87 14
 mvfdc dpsw, r6
 mvfdc depc, r7
 mvfdc dcr2, r8
