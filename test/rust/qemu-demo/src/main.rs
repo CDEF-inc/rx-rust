@@ -94,8 +94,8 @@ impl Write for Sci0 {
     }
 }
 
-// rx-none-elf has no compare-and-swap, so no fetch_add; a handler is not
-// re-entered, and the main loop only reads.
+// A handler is not re-entered and the main loop only reads, so a load and a
+// store are enough (fetch_add would also work).
 extern "C" fn cmi0() {
     TICKS.store(TICKS.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
 }

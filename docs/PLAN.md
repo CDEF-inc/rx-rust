@@ -82,4 +82,6 @@
 
 ### M5 実機
 - [x] リンカスクリプト・起動コード（`rx-rt` クレート）、`asm!` 対応、Rust だけのプログラムを QEMU でリセット起動（NOTES-rt.md）
+- [x] 割り込み入口で FPSW（fpu）、DR0/DR1/DPSW/DCMR（dfpu）、ACC（`save-acc`）を退避、起動時に FPSW/DPSW = 0x100。
+  rustc に RX の target feature を追加して cfg で切り替え（issue #1）。isr-save 19 チェック通過（rxv1+fpu）
 - [ ] RX72N 等で L チカ

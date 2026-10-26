@@ -23,7 +23,8 @@ What works:
   directions between Rust/LLVM and GCC-compiled C;
 - atomics up to 32 bits, including compare-and-swap and `fetch_*`
   (`movli`/`movco` on RXv2+, interrupts masked on RXv1), inline assembly,
-  interrupts;
+  interrupts (whose entries save FPSW, the DFPU registers the compiler uses
+  and, with `save-acc`, the accumulators, depending on the target features);
 - the assembler for the RXv1 and system-control instructions, the
   single-precision FPU, the DSP (accumulator) instructions, the RXv2 and RXv3
   additions and the RXv3 double-precision FPU.
@@ -75,6 +76,7 @@ ATTRS=+fpu scripts/run-codegen-test.sh test/codegen/fpu.ll test/codegen/fpu_main
 scripts/check-dfpu.sh                        # DFPU code (not run: no DFPU in QEMU)
 scripts/run-rust-test.sh                     # test/rust/core-smoke
 scripts/run-rust-rom.sh                      # test/rust/qemu-demo, boots a ROM image
+scripts/run-rust-rom.sh test/rust/isr-save   # FPSW / ACC saved by interrupt entries
 ```
 
 ## Writing a program

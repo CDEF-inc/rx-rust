@@ -145,7 +145,7 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - サブターゲット機能 `fpu`（rxv2 / rxv3 / rxv3e の既定。rxv1 は FPU のない RX100/RX200 もあるので既定では無効）。
   アセンブラは従来どおり CPU に関係なく FPU 命令を受け付ける。
 - RX の FPU は NaN・無限大を IEEE どおりに扱わず（GCC は FPU 使用時に -ffinite-math-only を強制する）、
-  非正規化数は FPSW.DN = 0 で「未実装処理」例外、DN = 1（リセット値）で同符号の 0 扱いになる。そこで
+  非正規化数は FPSW.DN = 0 で「未実装処理」例外、DN = 1（リセット値。rx-rt も設定する）で同符号の 0 扱いになる。そこで
   **nnan と ninf の両方が付き、かつ関数の float の非正規化数環境が preserve-sign（`denormal_fpenv(float: preservesign)`、
   clang なら `-fdenormal-fp-math=preserve-sign`）の演算だけ** FPU 命令にし、それ以外は従来どおりソフトフロート
   （__addsf3 など）で IEEE の意味を保つ。nnan / ninf だけでは非正規化数の正しい扱いは免除されない（llvm-project#4 のレビュー）。
@@ -207,7 +207,7 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - LLVM 側で定義する可変長関数（va_start / va_arg）
 - DFPU の実行検証（QEMU も GDB の RX シミュレータも RXv2/v3 命令を持たない）、f64 の DR への常駐（fast-math の連鎖で
   毎回 GPR を経由する）、dtoi / dtof / ftod（非正規化数・DDN の扱いのため libcall のまま）
-- FPU のメモリオペランド形式（fadd [r1], r2 など）と RXv2 の 3 オペランド形式の選択、FPSW.DN の設定（rx-rt）
+- FPU のメモリオペランド形式（fadd [r1], r2 など）と RXv2 の 3 オペランド形式の選択
 - emulu を使った i64 乗算の高速化
 - 動的 alloca、フレームポインタ、CFI/アンワインド（GNU as が .cfi_* 非対応）、ジャンプテーブル
 - アトミックの RXv2 経路（movli/movco ループ）の実行検証
