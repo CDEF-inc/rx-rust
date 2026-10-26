@@ -21,6 +21,8 @@ double f_ext(float);
 float f_trunc(double), f_const(int), f_load(float *, int);
 void f_store(float *, float);
 float f_args(float, float, float, float, float, float);
+float fa_add_ieee(float, float);
+int fa_olt_ieee(float, float);
 
 float c_fmul(float a, float b) { return a * b; }
 
@@ -122,6 +124,15 @@ int main(void) {
   check(f_uno(nan, 1.0f), 1);
   check(f_uno(1.0f, nan), 1);
   check(f_olt(ninf, inf), 1);
+
+  /* nnan ninf with the IEEE denormal environment: denormals stay exact
+     (the expected values are written out, GCC's FPU code would flush). */
+  float dmin = from_bits(0x00000001), d2 = from_bits(0x00000002);
+  check((int)bits(fa_add_ieee(dmin, dmin)), 0x00000002);
+  check((int)bits(fa_add_ieee(from_bits(0x007fffff), dmin)), 0x00800000);
+  check(fa_olt_ieee(dmin, d2), 1);
+  check(fa_olt_ieee(0.0f, dmin), 1);
+  check_f(fa_add_ieee(1.5f, 2.25f), 3.75f);
   check((int)bits(f_sel(nan, 1.0f)), (int)bits(1.0f));
   check((int)bits(f_neg(nan)), (int)(QNAN | 0x80000000u));
 
