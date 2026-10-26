@@ -33,6 +33,8 @@
 - `rx_rt::interrupt!(28, handler)` で `_rx_vector_28` を定義（`extern "C" fn()` を要求）。入口は
   `pushm r1-r5 / pushm r14-r15 / bsr.a handler / popm / rte`（GCC ABI の caller-saved のみ。soft-float なので FPSW は触らない）。
   RXv2/v3 で FPU や DSP（ACC）を使うコードを割り込みで動かす場合は FPSW / ACC の退避を足す必要がある。
+  コード生成が FPU を使うのは fast-math の f32 演算と int→float 変換（`+fpu`、rxv2 以上の既定）。FPSW.DN = 0 のままだと
+  非正規化数で例外になるので、fast-math で使う場合は起動時に FPSW.DN = 1 にしておくとよい（issue #1 のステップ 5）。
 - 使う側のクレートにも `#![feature(asm_experimental_arch)]` が必要。
 - `atomic_cas = true` なので `fetch_add` / `compare_exchange` 等が使える。RXv2 以上では movli/movco で割り込みと
   競合しても正しく動く。RXv1 では割り込みを止めて実行する（スーパーバイザモードが前提）。

@@ -7,7 +7,8 @@
 # The program is built twice: llc -> .s -> GNU as, and llc -> .o directly.
 # The driver must define `checks`, `failures`, `first_failure`, `got_value`
 # and `want_value` (see qemu-run.sh). Set KEEP_DIR=dir to keep the build
-# files there, OPT=0..3 for the llc optimization level (default 2).
+# files there, OPT=0..3 for the llc optimization level (default 2), and
+# ATTRS for extra llc features (e.g. ATTRS=+fpu; QEMU's RX62N has the FPU).
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -17,7 +18,7 @@ G=$root/gnu/install/bin
 # LLVM's double is always 64 bits, so everything is built for GCC's
 # -m64bit-doubles ABI (and linked with that libgcc multilib).
 LLC="$root/build/llvm/bin/llc -mtriple=rx-none-elf -mcpu=rxv1"
-LLC="$LLC -mattr=+64bit-doubles -O${OPT:-2}"
+LLC="$LLC -mattr=+64bit-doubles${ATTRS:+,$ATTRS} -O${OPT:-2}"
 GCCFLAGS="-mcpu=rx600 -m64bit-doubles"
 libgcc=$("$G/rx-elf-gcc" $GCCFLAGS -print-libgcc-file-name)
 

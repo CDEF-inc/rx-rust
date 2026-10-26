@@ -65,7 +65,9 @@
 - [x] GCC との相互呼び出しテスト（m3.ll + m3_main.c、3964 チェック全通過、-O0〜-O3）
 - [x] 構造体の値渡し（整数パーツ / byval）・戻り（レジスタ / R15 sret、R1 にアドレス返却）。struct.ll + struct_main.c 142 チェック全通過
 - [ ] LLVM 側の可変長関数定義（va_start / va_arg）
-- [ ] FPU 命令（fast-math 時のみ。GCC は FPU 使用時に -ffinite-math-only を強制する）、DFPU（RXv3）
+- [x] 単精度 FPU（`+fpu`、rxv2 以上の既定）: nnan+ninf の演算だけ fadd/fsub/fmul/fdiv/fsqrt/fcmp、int→float は itof/utof、
+  それ以外はソフトフロート（issue #1）。fpu.ll 3137 チェック、core-smoke も `+fpu` で通過
+- [ ] DFPU（RXv3）による f64 演算
 
 ### M4 rustc 統合 ✅ 2026-10-23（詳細 `NOTES-rustc.md`）
 - [x] `rustc_llvm` に RX 初期化、bootstrap は外部 LLVM（build/llvm の llvm-config）
