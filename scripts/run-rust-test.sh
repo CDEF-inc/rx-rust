@@ -22,6 +22,8 @@ libgcc=$("$G/rx-elf-gcc" $GCCFLAGS -print-libgcc-file-name)
 # -Zbuild-std reads the library sources of the stage1 sysroot.
 export RUSTC=$stage1/bin/rustc
 export RUSTC_BOOTSTRAP=1
+# QEMU models an RX62N (RXv1); the target's default CPU is rxv3.
+export RUSTFLAGS="-C target-cpu=rxv1"
 export PATH=$G:$PATH
 (cd "$crate" && "$cargo" build --profile "$profile" --target rx-none-elf \
   -Zbuild-std=core -Zbuild-std-features=compiler-builtins-mem \

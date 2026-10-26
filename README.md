@@ -18,7 +18,8 @@ What works:
 - i8/i16/i32/i64 integer code, `f32`/`f64` (soft-float, GCC `-m64bit-doubles`
   compatible), structs by value and `sret`, calls in both directions between
   Rust/LLVM and GCC-compiled C;
-- 32-bit atomic loads and stores (no compare-and-swap), inline assembly,
+- atomics up to 32 bits, including compare-and-swap and `fetch_*`
+  (`movli`/`movco` on RXv2+, interrupts masked on RXv1), inline assembly,
   interrupts;
 - the assembler for the RXv1 and system-control instructions, the
   single-precision FPU, the DSP (accumulator) instructions, the RXv2 and RXv3
@@ -65,6 +66,7 @@ scripts/mc-diff.sh file test/mc/branch.s     # also symbol.s
 scripts/run-codegen-test.sh test/codegen/i32.ll test/codegen/main.c
 scripts/run-codegen-test.sh test/codegen/m3.ll test/codegen/m3_main.c
 scripts/run-codegen-test.sh test/codegen/struct.ll test/codegen/struct_main.c
+scripts/run-codegen-test.sh test/codegen/atomic.ll test/codegen/atomic_main.c
 scripts/run-rust-test.sh                     # test/rust/core-smoke
 scripts/run-rust-rom.sh                      # test/rust/qemu-demo, boots a ROM image
 ```

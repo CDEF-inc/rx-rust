@@ -34,8 +34,8 @@
   `pushm r1-r5 / pushm r14-r15 / bsr.a handler / popm / rte`（GCC ABI の caller-saved のみ。soft-float なので FPSW は触らない）。
   RXv2/v3 で FPU や DSP（ACC）を使うコードを割り込みで動かす場合は FPSW / ACC の退避を足す必要がある。
 - 使う側のクレートにも `#![feature(asm_experimental_arch)]` が必要。
-- `atomic_cas = false` なので `fetch_add` 等は無い（thumbv6m と同じ）。単一コアで割り込みハンドラは再入しないので
-  ハンドラ内では load + store、メインからは `interrupt::free` で囲む。
+- `atomic_cas = true` なので `fetch_add` / `compare_exchange` 等が使える。RXv2 以上では movli/movco で割り込みと
+  競合しても正しく動く。RXv1 では割り込みを止めて実行する（スーパーバイザモードが前提）。
 
 ## rustc 側の変更（M5）
 - `compiler/rustc_target/src/asm/rx.rs`: レジスタクラス `reg`（r1〜r15、型 i8/i16/i32/f32）。r0 / sp はエラー。

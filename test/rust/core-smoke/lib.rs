@@ -5,7 +5,7 @@
 #![no_std]
 
 use core::fmt::Write;
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU8, AtomicU16, AtomicU32, Ordering};
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
@@ -143,6 +143,76 @@ pub extern "C" fn rs_atomic(v: u32) -> u32 {
     let old = COUNTER.load(Ordering::Acquire);
     COUNTER.store(old.wrapping_add(v), Ordering::Release);
     COUNTER.load(Ordering::Relaxed)
+}
+
+static A32: AtomicU32 = AtomicU32::new(0);
+static A16: AtomicU16 = AtomicU16::new(0);
+// Four adjacent bytes: the 8-bit atomics work on the containing word and
+// must not disturb the neighbours.
+static A8: [AtomicU8; 4] = [const { AtomicU8::new(0) }; 4];
+
+/// compare_exchange on A32: 1 if it swapped.
+#[unsafe(no_mangle)]
+pub extern "C" fn rs_cas32(current: u32, new: u32) -> u32 {
+    A32.compare_exchange(current, new, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok() as u32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rs_get32() -> u32 {
+    A32.load(Ordering::Relaxed)
+}
+
+/// A read-modify-write operation on A32; returns the old value.
+#[unsafe(no_mangle)]
+pub extern "C" fn rs_rmw32(op: u32, v: u32) -> u32 {
+    let o = Ordering::SeqCst;
+    match op {
+        0 => A32.fetch_add(v, o),
+        1 => A32.fetch_sub(v, o),
+        2 => A32.fetch_and(v, o),
+        3 => A32.fetch_or(v, o),
+        4 => A32.fetch_xor(v, o),
+        5 => A32.fetch_nand(v, o),
+        6 => A32.swap(v, o),
+        7 => A32.fetch_max(v, o),
+        8 => A32.fetch_min(v, o),
+        _ => A32.try_update(o, o, |x| Some(x.wrapping_mul(3) ^ v)).unwrap(),
+    }
+}
+
+/// fetch_add on byte `i` of A8; returns the old value.
+#[unsafe(no_mangle)]
+pub extern "C" fn rs_rmw8(i: u32, v: u8) -> u32 {
+    A8[i as usize & 3].fetch_add(v, Ordering::SeqCst) as u32
+}
+
+/// The four bytes of A8 as a little-endian word.
+#[unsafe(no_mangle)]
+pub extern "C" fn rs_get8() -> u32 {
+    u32::from_le_bytes(A8.each_ref().map(|b| b.load(Ordering::Relaxed)))
+}
+
+/// fetch_max on A16 (unsigned) and then a compare_exchange_weak loop that
+/// doubles it; returns the old value from fetch_max.
+#[unsafe(no_mangle)]
+pub extern "C" fn rs_rmw16(v: u16) -> u32 {
+    let old = A16.fetch_max(v, Ordering::SeqCst);
+    let mut cur = A16.load(Ordering::Relaxed);
+    while let Err(x) = A16.compare_exchange_weak(
+        cur,
+        cur.wrapping_mul(2),
+        Ordering::SeqCst,
+        Ordering::Relaxed,
+    ) {
+        cur = x;
+    }
+    old as u32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rs_get16() -> u32 {
+    A16.load(Ordering::Relaxed) as u32
 }
 
 /// Checked arithmetic that overflows into Option::None.

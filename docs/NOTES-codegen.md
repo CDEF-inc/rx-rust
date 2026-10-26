@@ -126,10 +126,26 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - sret の R1 返却は GCC のインラインアセンブリで `bsr.a _L_r20` 後の R1 を読んで確認
 - 生成コードのオフセット（L_g4 の 6[r0] と R2、L_g5 の 9/11[r0] と R4、L_g7 の 4/8[r0]）が GCC と一致することも目視で確認
 
+## アトミック（CAS / RMW、issue #1）
+- 32bit の cmpxchg を擬似命令 `CMPXCHG32`（出力 dst / tmp は early-clobber、入力 ptr / cmp / new、PSW を破壊、16 バイト）で選択し、
+  RXAsmPrinter が展開する。レジスタ割り付け後に展開するので、列の途中にスピルが入らない。
+  - RXv2 以上: `1: movli [ptr], dst / cmp cmp, dst / bne.b 2f / mov.l new, tmp / movco tmp, [ptr] / cmp #0, tmp / bne.b 1b / 2:`。
+    割り込み・例外を受けると LI がクリアされ movco が失敗（tmp = 1）してやり直す。
+  - RXv1（movli なし）: `mvfc psw, tmp / clrpsw i / mov.l [ptr], dst / cmp cmp, dst / bne.b 2f / mov.l new, [ptr] / 2: mvtc tmp, psw`。
+    割り込みを止めるのでスーパーバイザモードでのみアトミック（ユーザモードでは CLRPSW I が効かない）。
+- `setMinCmpXchgSizeInBits(32)` で 8/16bit の cmpxchg は AtomicExpand が含むワードの CAS に変換。
+  atomicrmw はすべて `AtomicExpansionKind::CmpXChg`（CAS ループ）。success フラグは既定の展開（読んだ値と cmp の比較）。
+- 検証: `test/codegen/atomic.ll` + `atomic_main.c` を QEMU（RXv1 経路）で **1080 チェック全通過**（-O0 / -O2、.s 経由・.o 直接とも）。
+  32bit cmpxchg（strong / weak）、8/16bit cmpxchg（ワード内の全位置、隣のバイトが変わらないこと）、
+  atomicrmw 全種（add〜umin、uinc_wrap）、8/16bit の RMW、値を多く生かしたままの CAS ループ。
+  RXv2 / RXv3 経路は `llc -mcpu=rxv2|rxv3` の出力が movli/movco ループになり、GNU as でアセンブルでき、
+  直接出力した .o と同一バイト列であることを確認（実行は QEMU では不可）。
+
 ## 未対応（M4 以降）
 - LLVM が戻り値を自動で sret 化する場合（16 バイト超のスカラー集合）の R15 渡しは未検証
 - LLVM 側で定義する可変長関数（va_start / va_arg）
 - FPU 命令による f32 演算（fast-math 時のみ）、DFPU による f64 演算（RXv3、QEMU では検証不可）
 - emulu を使った i64 乗算の高速化
-- 動的 alloca、フレームポインタ、CFI/アンワインド（GNU as が .cfi_* 非対応）、ジャンプテーブル、atomics
+- 動的 alloca、フレームポインタ、CFI/アンワインド（GNU as が .cfi_* 非対応）、ジャンプテーブル
+- アトミックの RXv2 経路（movli/movco ループ）の実行検証
 - プロローグ/エピローグの最適化（pushm/popm、rtsd）、mulhs/mulhu（emul の利用）
