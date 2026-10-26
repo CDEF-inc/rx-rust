@@ -18,9 +18,9 @@ What works:
 - i8/i16/i32/i64 integer code, `f32`/`f64` (soft-float, GCC `-m64bit-doubles`
   compatible; with the `fpu` feature, on by default for rxv2+, fast-math
   `f32` operations in functions that allow flushing denormals, and
-  int-to-float conversions, use the FPU), structs by
-  value and `sret`, calls in both directions between Rust/LLVM and
-  GCC-compiled C;
+  int-to-float conversions, use the FPU, and with `dfpu` (rxv3) the same
+  holds for `f64` and the DFPU), structs by value and `sret`, calls in both
+  directions between Rust/LLVM and GCC-compiled C;
 - atomics up to 32 bits, including compare-and-swap and `fetch_*`
   (`movli`/`movco` on RXv2+, interrupts masked on RXv1), inline assembly,
   interrupts;
@@ -28,8 +28,9 @@ What works:
   single-precision FPU, the DSP (accumulator) instructions, the RXv2 and RXv3
   additions and the RXv3 double-precision FPU.
 
-Not yet: the DFPU in code generation, `alloc`/`std`, debug info checks, real
-hardware.
+Not yet: running RXv2/RXv3 code (QEMU models RXv1 only; the DFPU and the
+`movli`/`movco` atomics are checked by their instruction sequences),
+`alloc`/`std`, debug info checks, real hardware.
 
 ## Layout
 
@@ -71,6 +72,7 @@ scripts/run-codegen-test.sh test/codegen/m3.ll test/codegen/m3_main.c
 scripts/run-codegen-test.sh test/codegen/struct.ll test/codegen/struct_main.c
 scripts/run-codegen-test.sh test/codegen/atomic.ll test/codegen/atomic_main.c
 ATTRS=+fpu scripts/run-codegen-test.sh test/codegen/fpu.ll test/codegen/fpu_main.c
+scripts/check-dfpu.sh                        # DFPU code (not run: no DFPU in QEMU)
 scripts/run-rust-test.sh                     # test/rust/core-smoke
 scripts/run-rust-rom.sh                      # test/rust/qemu-demo, boots a ROM image
 ```

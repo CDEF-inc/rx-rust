@@ -174,10 +174,39 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   fpu.ll を -O0 にすると `fa_max` の前にスタック確保の `add` が入ってこれに当たり失敗する（ISA 上は正しいコード）。
   そのため fpu.ll の実行は -O1〜-O3 で行う。実機では問題にならない。
 
+## 倍精度 DFPU（`+dfpu`、issue #1）
+- RXv3 ソフトウェアマニュアル（R01US0316EJ0100）で確認した意味:
+  `DADD/DSUB/DMUL/DDIV src, src2, dest` は `dest = src2 op src`、`DCMPcm src, src2` は `DCMR.RES = src2 cm src`
+  （cm = UN/EQ/LT/LE）、`MVFDR` は `PSW.Z = DCMR.RES`、`ITOD/UTOD` は 32bit 整数 → double（正確）、
+  `DTOI` は 0 方向に丸めて下位 32bit。NaN・無限大は IEEE どおりだが、非正規化数は DPSW.DDN = 0 だとマスクできない
+  未実装処理例外、DDN = 1 だと 0 扱い（**DPSW.DDN のリセット値は 1**）。
+- f64 は従来どおりソフトフロート（GCC の ABI どおり汎用レジスタ対、下位ワードが先）のまま。f64 を DR の合法型にすると
+  IEEE の通常の double（大半のコード）まで呼び出しのたびに GPR↔DR の転送と DR の退避が入るため。
+- **型合法化の前**の PerformDAGCombine（LLVM 23 の SoftenFloatResult はターゲットのカスタム処理を呼ばない）で、
+  nnan+ninf かつ double の非正規化数環境が preserve-sign（単精度 FPU と同じ canUseFPU）の
+  FADD/FSUB/FMUL/FDIV/FSQRT、f64 比較（SETCC / SELECT_CC / BR_CC）と、常に i32 → f64 の
+  SINT_TO_FP / UINT_TO_FP を、ワード対を受け渡しする RXISD::DARITH / DSQRT / DCMP / ITOD / UTOD に置き換える
+  （`bitcast(build_pair(lo, hi))` で f64 に戻すので、以降の型合法化はそのまま）。
+  BR_CC を f64 で Custom にしているのは、DAGCombiner が brcond + setcc から fast-math フラグ付きの BR_CC を作るようにするため。
+- 擬似命令 DARITH_P / DSQRT_P / ITOD_P / UTOD_P / DCMP_P は DR0 / DR1 を固定の作業レジスタとして Defs に持ち、
+  RXAsmPrinter が展開する（DR の値は擬似命令の外では生きていないので、レジスタ割り付け・退避の対象にならない）:
+  `dmov.l alo, drl0 / dmov.l ahi, drh0 / dmov.l blo, drl1 / dmov.l bhi, drh1 / d<op> dr1, dr0, dr0 /
+  dmov.l drl0, lo / dmov.l drh0, hi`（28 バイト）。比較は `... / dcmp<cm> dr1, dr0 / mvfdr` で Z に結果
+  （EQ → Z、NE → !Z。GT/GE はオペランドを入れ替えて LT/LE）。
+- DPSW などの DFPU 制御レジスタを予約レジスタに追加（暗黙の Uses が未定義使用として MachineVerifier に落とされるため）。
+- 検証（QEMU に DFPU がないので実行はしていない）: `scripts/check-dfpu.sh` が `test/codegen/dfpu.ll` を rxv3 でコンパイルし、
+  -verify-machineinstrs、GNU as でのアセンブル（直接出力の .o と同一。GNU as は itod / utod / ftod のレジスタ欄を
+  入れ替える誤りがあるので、渡す .s ではその 2 つのレジスタ番号を入れ替えておく。NOTES-mc.md）、関数ごとの DFPU 命令列を
+  `test/codegen/dfpu.expected`（マニュアルの意味と照合済み）と比較。四則・平方根・計算の連鎖・6 種の比較・select・分岐・
+  int → double・呼び出しをまたぐ値、IEEE 側が libcall のままであること（nnan+ninf でも IEEE 環境の
+  da_add_ieee / da_olt_ieee を含め 25 関数）。f64 の多数の演算（fops.ll の double 版）も
+  rxv1〜rxv3 の -O0 / -O2 でコンパイル・アセンブルできることを確認。
+
 ## 未対応（M4 以降）
 - LLVM が戻り値を自動で sret 化する場合（16 バイト超のスカラー集合）の R15 渡しは未検証
 - LLVM 側で定義する可変長関数（va_start / va_arg）
-- DFPU による f64 演算（RXv3、QEMU では検証不可）
+- DFPU の実行検証（QEMU も GDB の RX シミュレータも RXv2/v3 命令を持たない）、f64 の DR への常駐（fast-math の連鎖で
+  毎回 GPR を経由する）、dtoi / dtof / ftod（非正規化数・DDN の扱いのため libcall のまま）
 - FPU のメモリオペランド形式（fadd [r1], r2 など）と RXv2 の 3 オペランド形式の選択、FPSW.DN の設定（rx-rt）
 - emulu を使った i64 乗算の高速化
 - 動的 alloca、フレームポインタ、CFI/アンワインド（GNU as が .cfi_* 非対応）、ジャンプテーブル
