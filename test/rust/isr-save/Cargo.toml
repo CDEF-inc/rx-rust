@@ -1,0 +1,20 @@
+[package]
+name = "isr-save"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rx-rt = { path = "../../../crates/rx-rt", features = ["save-acc"] }
+
+[[bin]]
+name = "isr-save"
+test = false
+bench = false
+
+[profile.release]
+opt-level = "s"
+debug = true
+
+[profile.dev]
+opt-level = 1

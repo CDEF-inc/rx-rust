@@ -10,3 +10,8 @@ repository = "https://github.com/CDEF-inc/rx-rust"
 [lib]
 test = false
 bench = false
+
+[features]
+# Save the DSP accumulator(s) in interrupt entries (compiled code does not use
+# them; inline assembly might).
+save-acc = []

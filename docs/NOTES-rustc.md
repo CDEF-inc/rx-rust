@@ -63,7 +63,11 @@ bash scripts/run-rust-test.sh     # -Zbuild-std=core でテスト crate をビ�
 - `-C target-cpu=rxv1 -C target-feature=+fpu`（f32 が合法型になる経路）でも 233 チェック全通過（itof 10 箇所）。
   rxv3（既定で fpu あり）でも core / compiler_builtins がビルドできる。Rust の通常の f32 演算は fast-math フラグが
   付かないので libcall のまま（FPU を使うのは int→float と `core::intrinsics::fadd_fast` 等）。
-  rustc は RX の target feature を知らないので `+fpu` / `-fpu` は「unknown feature」の警告付きで LLVM に渡る。
+- RX の target feature（rxv2 / rxv3 / rxv3e / fpu / dfpu）を `rustc_target/src/target_features.rs` に追加
+  （unstable `rx_target_feature`。`rustc_feature` と `rustc_span` にも登録、`tests/ui/check-cfg/target_feature.stderr` も更新）。
+  `-C target-feature=±fpu` の警告が出なくなり、`cfg(target_feature = "dfpu")` などで分岐できる（rx-rt が使う）。
+  `--print cfg`: rxv1 → なし、rxv1 + fpu → fpu、rxv2 → fpu / rxv2、rxv3 → dfpu / fpu / rxv2 / rxv3。
+  rustc_span のシンボルが変わると古い rustc でビルドした core のメタデータが合わず ICE になるので、`build/rust-*` を消す。
 - サイズ: text 18 KB（release, opt-level=s, gc-sections）。gc-sections なしだと 277 KB で内蔵 RAM に入らなかった。
 - 既存の LLVM レベルのテスト（i32 4131 / m3 3964 / struct 142）も全通過。
 

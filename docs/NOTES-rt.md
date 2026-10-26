@@ -30,13 +30,27 @@
   `sym` オペランドは LLVM の Mangler を通るので自動で `_` が付く。
 
 ## 割り込み
-- `rx_rt::interrupt!(28, handler)` で `_rx_vector_28` を定義（`extern "C" fn()` を要求）。入口は
-  `pushm r1-r5 / pushm r14-r15 / bsr.a handler / popm / rte`（GCC ABI の caller-saved のみ。soft-float なので FPSW は触らない）。
-  RXv2/v3 で FPU や DSP（ACC）を使うコードを割り込みで動かす場合は FPSW / ACC の退避を足す必要がある。
-  コード生成が FPU を使うのは fast-math の f32 演算と int→float 変換（`+fpu`、rxv2 以上の既定）。FPSW.DN = 0 のままだと
-  非正規化数で例外になるので、fast-math で使う場合は起動時に FPSW.DN = 1 にしておくとよい（issue #1 のステップ 5）。
-  `+dfpu`（rxv3 の既定）では fast-math の f64 演算と int→double 変換が DR0 / DR1 と DPSW を壊す。割り込みハンドラ側で
-  これらを使うコードがあれば退避が要る（DPSW.DDN はリセット値 1 で非正規化数を 0 扱い）。
+- `rx_rt::interrupt!(28, handler)` で `_rx_vector_28` を定義（`extern "C" fn()` を要求）。ベクタごとの入口は
+  `pushm r1-r5 / pushm r14-r15 / mov.l #handler, r5 / bra.a _rx_isr_common`（GCC ABI の caller-saved）。
+  rx-rt の共通部 `_rx_isr_common` が、rx-rt をビルドしたときの target feature に応じて退避してから `jsr r5` し、
+  逆順に戻して `popm / rte`（issue #1 のステップ 5）:
+  - `fpu`（rxv2 以上の既定）: FPSW（`mvfc fpsw` + push）。コード生成は fast-math の f32 演算と int→float 変換で FPU を使う
+  - `dfpu`（rxv3 / rxv3e）: `dpushm.d dr0-dr1` と `dpushm.l dpsw-dcmr`。コード生成の DFPU 列は DR0 / DR1 / DPSW / DCMR
+    を使い、割り込みは列の途中にも入りうる（DR2〜DR15 はコード生成が使わないので退避しない）
+  - Cargo feature `save-acc`: DSP アキュムレータ。RXv1 は GCC の `-msave-acc-in-interrupts` と同じく ACC の
+    63〜16 ビット（mvfachi / mvfacmi、戻すときは mvtachi と shll #16 + mvtaclo で下位 16 ビットは 0）、RXv2 以上は
+    A0 / A1 の 72 ビット全部（mvfacgu / mvfachi / mvfaclo）。コード生成は DSP 命令を使わないので既定では無効
+  - ハンドラは FPSW / DPSW = 0x100（最近接丸め、例外マスク、非正規化数は 0 扱い）で始まる。
+- 起動時（`_rx_reset`）に `fpu` なら `mvtc #0x100, fpsw`、`dfpu` なら DPSW も 0x100 にする。
+  RXv3 マニュアルでは FPSW.DN も DPSW.DDN もリセット値は 1（非正規化数を 0 扱いし、未実装処理例外を出さない）だが、
+  ブートローダなどが変えている場合に備えて明示的に設定する。
+- 判定は `cfg(target_feature = "fpu" / "dfpu" / "rxv2")`。そのため rustc に RX の target feature
+  （rxv2 / rxv3 / rxv3e / fpu / dfpu、unstable `rx_target_feature`）を追加した。
+- 検証: `test/rust/isr-save`（rxv1 + fpu + save-acc、`scripts/run-rust-rom.sh test/rust/isr-save`）が QEMU で 19 チェック全通過
+  （release / dev）。割り込まれる側の FPSW（向き 0 丸め）と ACC がハンドラ（FPSW を変え、itof を使い、ACC を書き換える）の
+  後も残ること、ハンドラ開始時の FPSW が 0x100 であること、起動時の FPSW が 0x100 であること。
+  QEMU では MVTC で FPSW の要因フラグ（CV など）を立てられないので、それは使っていない。
+  rxv2 / rxv3 向けの `_rx_isr_common` は逆アセンブルで確認（DFPU と RXv2 の ACC 命令は QEMU で動かない）。
 - 使う側のクレートにも `#![feature(asm_experimental_arch)]` が必要。
 - `atomic_cas = true` なので `fetch_add` / `compare_exchange` 等が使える。RXv2 以上では movli/movco で割り込みと
   競合しても正しく動く。RXv1 では割り込みを止めて実行する（スーパーバイザモードが前提）。
