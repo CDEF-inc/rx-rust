@@ -141,10 +141,44 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   RXv2 / RXv3 経路は `llc -mcpu=rxv2|rxv3` の出力が movli/movco ループになり、GNU as でアセンブルでき、
   直接出力した .o と同一バイト列であることを確認（実行は QEMU では不可）。
 
+## 単精度 FPU（`+fpu`、issue #1）
+- サブターゲット機能 `fpu`（rxv2 / rxv3 / rxv3e の既定。rxv1 は FPU のない RX100/RX200 もあるので既定では無効）。
+  アセンブラは従来どおり CPU に関係なく FPU 命令を受け付ける。
+- RX の FPU は NaN・無限大を IEEE どおりに扱わず（GCC は FPU 使用時に -ffinite-math-only を強制する）、
+  非正規化数は FPSW.DN = 0 で「未実装処理」例外、DN = 1（リセット値）で同符号の 0 扱いになる。そこで
+  **nnan と ninf の両方が付き、かつ関数の float の非正規化数環境が preserve-sign（`denormal_fpenv(float: preservesign)`、
+  clang なら `-fdenormal-fp-math=preserve-sign`）の演算だけ** FPU 命令にし、それ以外は従来どおりソフトフロート
+  （__addsf3 など）で IEEE の意味を保つ。nnan / ninf だけでは非正規化数の正しい扱いは免除されない（llvm-project#4 のレビュー）。
+  rustc は非正規化数環境を指定しないので、Rust から FPU の四則・比較が使われることはない（int → float の変換だけ）。
+- `+fpu` のとき f32 は GPR の合法型（`GPR` を [i32, f32] に）。FPU は汎用レジスタで演算し、ABI も float を整数レジスタで
+  渡すので、呼び出し規約は変わらない（RetCC に f32 を追加しただけ。引数は analyzeRXArguments が型に依らない）。
+  - FADD/FSUB/FMUL/FDIV（と RXv2 の FSQRT）は Custom: 上の条件（canUseFPU）を満たせばそのまま（fadd 等を選択）、
+    でなければ libcall。
+    FPU のない RXv1 の FSQRT は sqrtf を呼ぶ。
+  - SETCC / BR_CC / SELECT_CC の float 比較: 同じ条件なら `fcmp`（O フラグが立たないので符号付きの条件がそのまま使える）、
+    でなければ softenSetCCOperands（__ltsf2 など）+ 整数比較。DAGCombiner が作る BR_CC / SELECT_CC にもフラグが残ることを確認。
+  - int → float は `itof`（RXv2 では `utof` も）を常に使う（入力が整数なので常に正確。丸めは FPSW.RM = 最近接）。
+    float → int は非正規化数で例外になりうる `ftoi` を使わず libcall（__fixsfsi）。
+  - FNEG / FABS / FCOPYSIGN はビット演算、その他（frem、fma、min/max、丸め、超越関数、half 変換など）は Expand（libcall）。
+  - 定数は `mov.l #ビット列`（isFPImmLegal）、ロード・ストア・bitcast・select は整数と同じ命令。
+  - パターン述語を使うため RXDAGToDAGISel に `Subtarget` メンバを追加。
+- 検証: `test/codegen/fpu.ll` + `fpu_main.c`（`ATTRS=+fpu`）を QEMU で **3141 チェック全通過（-O1〜-O3、.s 経由・.o 直接とも）**、
+  `+fpu` なしでも全通過。fast-math（preserve-sign の関数）の四則・比較・select・分岐が GCC（FPU 使用）とビット単位で一致、
+  IEEE 側は NaN / ±無限大 / ±0 を含めて正しいこと、nnan+ninf でも IEEE 環境の関数（fa_add_ieee / fa_olt_ieee）は
+  libcall のままで非正規化数の加算・比較が正確なこと、ビット演算・変換・定数・メモリ・6 引数（スタック渡し）の呼び出し。
+  既存の i32 / m3 / struct / atomic も `+fpu` 付きで全通過。多数の f32 演算（frem、fma、min/max、丸め、sin、powi、
+  飽和変換、i64 変換、is.fpclass、ldexp、lrint、half 変換、canonicalize、ベクトル、atomic）が rxv1+fpu / rxv2 / rxv3 の
+  -O0 / -O2 でコンパイルでき GNU as でアセンブルできることも確認。
+- **QEMU 8.2.2 のバグ**: 同じ変換ブロック内で直前にフラグを変える整数命令があると、`fcmp` の後の条件分岐が古いフラグを見る
+  （`mov.l #1, r3 / add #1, r3 / mov.l #0, r4 / mov.l #0, r5 / fcmp r4, r5 / bne` が分岐する。`fcmp` 単独なら正しい）。
+  fpu.ll を -O0 にすると `fa_max` の前にスタック確保の `add` が入ってこれに当たり失敗する（ISA 上は正しいコード）。
+  そのため fpu.ll の実行は -O1〜-O3 で行う。実機では問題にならない。
+
 ## 未対応（M4 以降）
 - LLVM が戻り値を自動で sret 化する場合（16 バイト超のスカラー集合）の R15 渡しは未検証
 - LLVM 側で定義する可変長関数（va_start / va_arg）
-- FPU 命令による f32 演算（fast-math 時のみ）、DFPU による f64 演算（RXv3、QEMU では検証不可）
+- DFPU による f64 演算（RXv3、QEMU では検証不可）
+- FPU のメモリオペランド形式（fadd [r1], r2 など）と RXv2 の 3 オペランド形式の選択、FPSW.DN の設定（rx-rt）
 - emulu を使った i64 乗算の高速化
 - 動的 alloca、フレームポインタ、CFI/アンワインド（GNU as が .cfi_* 非対応）、ジャンプテーブル
 - アトミックの RXv2 経路（movli/movco ループ）の実行検証

@@ -60,6 +60,10 @@ bash scripts/run-rust-test.sh     # -Zbuild-std=core でテスト crate をビ�
   AtomicU32 の compare_exchange / fetch_{add,sub,and,or,xor,nand,max,min} / swap / try_update、
   隣接する AtomicU8 ×4 の fetch_add（隣のバイトが変わらないこと）、AtomicU16 の fetch_max と compare_exchange_weak ループ
 - 既定 CPU（rxv3）でビルドすると同じ crate に movli/movco ループが 14 個、rxv1 では clrpsw の列が 14 個入ることを確認
+- `-C target-cpu=rxv1 -C target-feature=+fpu`（f32 が合法型になる経路）でも 233 チェック全通過（itof 10 箇所）。
+  rxv3（既定で fpu あり）でも core / compiler_builtins がビルドできる。Rust の通常の f32 演算は fast-math フラグが
+  付かないので libcall のまま（FPU を使うのは int→float と `core::intrinsics::fadd_fast` 等）。
+  rustc は RX の target feature を知らないので `+fpu` / `-fpu` は「unknown feature」の警告付きで LLVM に渡る。
 - サイズ: text 18 KB（release, opt-level=s, gc-sections）。gc-sections なしだと 277 KB で内蔵 RAM に入らなかった。
 - 既存の LLVM レベルのテスト（i32 4131 / m3 3964 / struct 142）も全通過。
 
