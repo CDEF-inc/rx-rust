@@ -162,7 +162,7 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   - FNEG / FABS / FCOPYSIGN はビット演算、その他（frem、fma、min/max、丸め、超越関数、half 変換など）は Expand（libcall）。
   - 定数は `mov.l #ビット列`（isFPImmLegal）、ロード・ストア・bitcast・select は整数と同じ命令。
   - パターン述語を使うため RXDAGToDAGISel に `Subtarget` メンバを追加。
-- 検証: `test/codegen/fpu.ll` + `fpu_main.c`（`ATTRS=+fpu`）を QEMU で **3142 チェック全通過（-O1〜-O3、.s 経由・.o 直接とも）**、
+- 検証: `test/codegen/fpu.ll` + `fpu_main.c`（`ATTRS=+fpu`）を QEMU で **3141 チェック全通過（-O1〜-O3、.s 経由・.o 直接とも）**、
   `+fpu` なしでも全通過。fast-math（preserve-sign の関数）の四則・比較・select・分岐が GCC（FPU 使用）とビット単位で一致、
   IEEE 側は NaN / ±無限大 / ±0 を含めて正しいこと、nnan+ninf でも IEEE 環境の関数（fa_add_ieee / fa_olt_ieee）は
   libcall のままで非正規化数の加算・比較が正確なこと、ビット演算・変換・定数・メモリ・6 引数（スタック渡し）の呼び出し。
