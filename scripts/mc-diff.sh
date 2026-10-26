@@ -13,7 +13,9 @@ set -u
 root=$(cd "$(dirname "$0")/.." && pwd)
 GNU=$root/gnu/install/bin
 LLVM=$root/build/llvm/bin
-GAS="$GNU/rx-elf-as -mcpu=rxv3"
+# LLVM's rxv3 includes the DFPU; GNU as needs rxv3-dfpu for the DFPU
+# instructions (same e_flags as rxv3).
+GAS="$GNU/rx-elf-as -mcpu=rxv3-dfpu"
 MC="$LLVM/llvm-mc -triple=rx-none-elf -mcpu=rxv3 -filetype=obj"
 
 tmp=$(mktemp -d)
