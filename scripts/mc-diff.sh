@@ -7,7 +7,10 @@
 #                             .text bytes and the relocation list
 #
 # Lines starting with '#' or ';' and empty lines are skipped. A line may end
-# with "  ; xfail" to record a known difference (reported, not counted).
+# with "  ; xfail" to record a known difference (reported, not counted), or
+# with "  ; bytes: fd 77 81 2a" to compare LLVM with those bytes (taken from
+# the RX manual) instead of GNU as, where GNU as encodes the instruction
+# wrongly; such lines are reported if GNU as starts to agree.
 set -u
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -37,6 +40,7 @@ src=$2
 pass=0
 fail=0
 xfail=0
+manual=0
 
 case $mode in
 lines)
@@ -49,6 +53,20 @@ lines)
     printf '\t%s\n' "$insn" > "$tmp/t.s"
     g=$($GAS -o "$tmp/g.o" "$tmp/t.s" 2>&1) && g=$(text_hex "$tmp/g.o") || g="ERROR: $g"
     l=$($MC -o "$tmp/l.o" "$tmp/t.s" 2>&1) && l=$(text_hex "$tmp/l.o") || l="ERROR: $l"
+    if [[ $line == *"; bytes:"* ]]; then
+      want=$(echo "${line##*; bytes:}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+      manual=$((manual + 1))
+      [ "$g" == "$want" ] && echo "NOTE   GNU as now agrees with the manual: $insn"
+      if [ "$l" == "$want" ]; then
+        pass=$((pass + 1))
+      else
+        fail=$((fail + 1))
+        echo "FAIL   $insn"
+        echo "manual: $want"
+        echo "  llvm: $l"
+      fi
+      continue
+    fi
     if [ "$g" == "$l" ]; then
       pass=$((pass + 1))
       [ $expect_fail = 1 ] && echo "XPASS  $insn"
@@ -95,5 +113,5 @@ file)
   ;;
 esac
 
-echo "$(basename "$src"): $pass passed, $fail failed, $xfail expected failures"
+echo "$(basename "$src"): $pass passed ($manual against the manual), $fail failed, $xfail expected failures"
 [ $fail = 0 ]

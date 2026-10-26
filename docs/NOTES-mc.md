@@ -41,11 +41,12 @@
 | `test/mc/fpu.s`（lines） | 単精度 FPU と RXv2 の追加命令、dsp8/dsp16 の境界 | 55/55 一致 |
 | `test/mc/dsp.s`（lines） | DSP の RXv1 形式と A0/A1 指定形式 | 51/51 一致 |
 | `test/mc/v2.s`（lines） | stz/stnz、movli/movco | 19/19 一致 |
-| `test/mc/dfpu.s`（lines） | DFPU 全命令、dmov.d の dsp8/dsp16 境界、レジスタ範囲 | 57/57 一致 |
+| `test/mc/dfpu.s`（lines） | DFPU 全命令、dmov.d の dsp8/dsp16 境界、レジスタ範囲 | 59/59（うち 10 行はマニュアルの符号と比較） |
 | `test/mc/v3.s`（lines） | bfmov/bfmovz、save/rstr | 17/17 一致 |
 - fpu.s / dsp.s / v2.s の `# RXv2` より後の行は `-mcpu=rxv1` で拒否され、前の行は受け付けられることを確認
 - dfpu.s は `-mcpu=rxv2` と `-mcpu=rxv3 -mattr=-dfpu` で、v3.s は `-mcpu=rxv2` で全行拒否。rxv3e では全行受け付け
-- llvm-mc のアセンブリ出力を GNU as で再アセンブルしても同一バイト列（basic/branch/symbol、fpu/dsp/v2、dfpu/v3）
+- llvm-mc のアセンブリ出力を GNU as で再アセンブルしても同一バイト列（basic/branch/symbol、fpu/dsp/v2、dfpu/v3。
+  ただし下記の ftod/itod/utod/mvtdc は GNU as 側が誤るので除く）
 - GCC（-m64bit-doubles）のオブジェクトと `rx-elf-ld` でリンクでき、呼び出しが解決されることを確認
 
 実行方法:
@@ -58,6 +59,11 @@ bash scripts/mc-diff.sh lines test/mc/fpu.s   # dsp.s, v2.s, dfpu.s, v3.s も同
 ```
 
 ## gas との既知の違い
+- **GNU as 2.43 の誤り: ftod / itod / utod / mvtdc**。RXv3 マニュアル（4 章、p.376・378）の符号は
+  `1111 1101 0111 0111 1000 rs[3:0] rd[3:0] op`（dmov.l Rs, DRHd と同じく汎用レジスタが 2 バイト目の下位）だが、
+  gas はこの 2 つのフィールドを入れ替えて出力する（`itod r3, dr4` → `fd 77 84 39`。binutils 自身の objdump は
+  これを `itod r4, dr3` と読む。mvtdc は objdump も同じ向きに誤っている）。LLVM はマニュアルどおりに符号化し、
+  dfpu.s のこれらの行は `; bytes:` でマニュアルの符号と比較する（mc-diff.sh）。llvm-project#2 のレビューで判明。
 - **サイズ指定なしの分岐**（`bra label`、`beq label`、`bsr label`）は未対応。gas は距離に応じて緩和する。
   M2 では codegen 側でサイズ付き分岐を出し、BranchRelaxation パスで伸ばす方針。
 - **定数の分岐先**: gas は `bra.b 8` の 8 を絶対番地として扱うが、LLVM は変位として扱う（実用上は使わない）。
