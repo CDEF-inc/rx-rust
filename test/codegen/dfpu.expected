@@ -1,0 +1,174 @@
+_da_add
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dadd dr1, dr0, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
+_da_sub
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dsub dr1, dr0, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
+_da_mul
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dmul dr1, dr0, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
+_da_div
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  ddiv dr1, dr0, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
+_da_sqrt
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dsqrt dr0, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
+_da_chain
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dmul dr1, dr0, dr0
+  dmov.l drl0, r3
+  dmov.l drh0, r4
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r14, drl1
+  dmov.l r5, drh1
+  dsub dr1, dr0, dr0
+  dmov.l drl0, r3
+  dmov.l drh0, r4
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  ddiv dr1, dr0, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
+_da_olt
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dcmplt dr1, dr0
+  mvfdr
+
+_da_ole
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dcmple dr1, dr0
+  mvfdr
+
+_da_ogt
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmplt dr1, dr0
+  mvfdr
+
+_da_oge
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmple dr1, dr0
+  mvfdr
+
+_da_oeq
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dcmpeq dr1, dr0
+  mvfdr
+
+_da_une
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dcmpeq dr1, dr0
+  mvfdr
+
+_da_max
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmplt dr1, dr0
+  mvfdr
+
+_da_branch
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmple dr1, dr0
+  mvfdr
+
+_d_fromi
+  itod r1, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
+_d_fromu
+  utod r1, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
+_d_add
+  bsr.a ___adddf3
+
+_d_olt
+  bsr.a ___ltdf2
+
+_d_uno
+  bsr.a ___unorddf2
+
+_d_sqrt
+  bsr.a _sqrt
+
+_d_fromll
+  bsr.a ___floatdidf
+
+_d_toi
+  bsr.a ___fixdfsi
+
+_da_call
+  dmov.l r7, drl0
+  dmov.l r6, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dadd dr1, dr0, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+  bsr.a _ext
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r7, drl1
+  dmov.l r6, drh1
+  dmul dr1, dr0, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2

@@ -35,6 +35,8 @@
   RXv2/v3 で FPU や DSP（ACC）を使うコードを割り込みで動かす場合は FPSW / ACC の退避を足す必要がある。
   コード生成が FPU を使うのは fast-math の f32 演算と int→float 変換（`+fpu`、rxv2 以上の既定）。FPSW.DN = 0 のままだと
   非正規化数で例外になるので、fast-math で使う場合は起動時に FPSW.DN = 1 にしておくとよい（issue #1 のステップ 5）。
+  `+dfpu`（rxv3 の既定）では fast-math の f64 演算と int→double 変換が DR0 / DR1 と DPSW を壊す。割り込みハンドラ側で
+  これらを使うコードがあれば退避が要る（DPSW.DDN はリセット値 1 で非正規化数を 0 扱い）。
 - 使う側のクレートにも `#![feature(asm_experimental_arch)]` が必要。
 - `atomic_cas = true` なので `fetch_add` / `compare_exchange` 等が使える。RXv2 以上では movli/movco で割り込みと
   競合しても正しく動く。RXv1 では割り込みを止めて実行する（スーパーバイザモードが前提）。
