@@ -67,7 +67,7 @@
 - [ ] LLVM 側の可変長関数定義（va_start / va_arg）
 - [x] 単精度 FPU（`+fpu`、rxv2 以上の既定）: nnan+ninf かつ非正規化数環境が preserve-sign の演算だけ
   fadd/fsub/fmul/fdiv/fsqrt/fcmp、int→float は itof/utof、それ以外はソフトフロート（issue #1）。
-  fpu.ll 3142 チェック、core-smoke も `+fpu` で通過
+  fpu.ll 3141 チェック、core-smoke も `+fpu` で通過
 - [ ] DFPU（RXv3）による f64 演算
 
 ### M4 rustc 統合 ✅ 2026-10-23（詳細 `NOTES-rustc.md`）
