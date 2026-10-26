@@ -22,6 +22,13 @@
     mvtac{hi,lo,gu}、mvfac{hi,mi,lo,gu} #0〜2、racw/rdacw/racl/rdacl #1〜2
   - RXv2 の排他アクセス: movli [Rs], Rd / movco Rs, [Rd]
   - RXv2 の命令は `-mcpu=rxv2` 以上（`+rxv2`）でのみ受け付ける。FPU 命令は CPU で制限しない（gas も rx100/rx200 以外は通す）
+  - RXv3: bfmov/bfmovz #slsb, #dlsb, #width, Rs, Rd、save/rstr（Rs、#uimm8）
+  - DFPU（`+dfpu`、rxv3 / rxv3e の既定）: dadd/dsub/dmul/ddiv、dabs/dneg/dsqrt/dround/dtoi/dtou/dtof、
+    dcmp{un,eq,lt,le}、ftod/itod/utod、dmov.d（DR↔DR、[Rb]/dsp8/dsp16（8 倍）、Rs→DRHn、#imm32→DRHn）、
+    dmov.l（Rs↔DRHn/DRLn、#imm32→DRHn/DRLn）、dpushm/dpopm.{d,l}、mvtdc/mvfdc、mvfdr
+  - レジスタ: DR0〜DR15、半分を指す drh0〜15 / drl0〜15（dmov.l 用、アセンブラのみ）、
+    DFPU 制御レジスタ dpsw/dcmr/decnt/depc（別名 dcr0〜dcr3）
+  - gas は DFPU 命令に `-mcpu=rxv3-dfpu` が要る（e_flags は rxv3 と同じ）。mc-diff.sh は gas 側をこれで動かす
 - フィックスアップ: pcrel3（.S、オペコード内）、pcrel8/16/24（命令先頭+1、値は命令先頭基準）、FK_Data_1/2/4
 - e_flags: gas と同じ（E_FLAG_RX_ABI、V2/V3、`-mattr=+64bit-doubles` で E_FLAG_RX_64BIT_DOUBLES）
 
@@ -34,8 +41,12 @@
 | `test/mc/fpu.s`（lines） | 単精度 FPU と RXv2 の追加命令、dsp8/dsp16 の境界 | 55/55 一致 |
 | `test/mc/dsp.s`（lines） | DSP の RXv1 形式と A0/A1 指定形式 | 51/51 一致 |
 | `test/mc/v2.s`（lines） | stz/stnz、movli/movco | 19/19 一致 |
+| `test/mc/dfpu.s`（lines） | DFPU 全命令、dmov.d の dsp8/dsp16 境界、レジスタ範囲 | 59/59（うち 10 行はマニュアルの符号と比較） |
+| `test/mc/v3.s`（lines） | bfmov/bfmovz、save/rstr | 17/17 一致 |
 - fpu.s / dsp.s / v2.s の `# RXv2` より後の行は `-mcpu=rxv1` で拒否され、前の行は受け付けられることを確認
-- llvm-mc のアセンブリ出力を GNU as で再アセンブルしても同一バイト列（basic/branch/symbol、fpu/dsp/v2）
+- dfpu.s は `-mcpu=rxv2` と `-mcpu=rxv3 -mattr=-dfpu` で、v3.s は `-mcpu=rxv2` で全行拒否。rxv3e では全行受け付け
+- llvm-mc のアセンブリ出力を GNU as で再アセンブルしても同一バイト列（basic/branch/symbol、fpu/dsp/v2、dfpu/v3。
+  ただし下記の ftod/itod/utod/mvtdc は GNU as 側が誤るので除く）
 - GCC（-m64bit-doubles）のオブジェクトと `rx-elf-ld` でリンクでき、呼び出しが解決されることを確認
 
 実行方法:
@@ -44,10 +55,15 @@ bash scripts/build-mc.sh                      # パッチ適用 + llvm-mc/llc �
 bash scripts/mc-diff.sh lines test/mc/basic.s
 bash scripts/mc-diff.sh file  test/mc/branch.s
 bash scripts/mc-diff.sh file  test/mc/symbol.s
-bash scripts/mc-diff.sh lines test/mc/fpu.s   # dsp.s, v2.s も同様
+bash scripts/mc-diff.sh lines test/mc/fpu.s   # dsp.s, v2.s, dfpu.s, v3.s も同様
 ```
 
 ## gas との既知の違い
+- **GNU as 2.43 の誤り: ftod / itod / utod / mvtdc**。RXv3 マニュアル（4 章、p.376・378）の符号は
+  `1111 1101 0111 0111 1000 rs[3:0] rd[3:0] op`（dmov.l Rs, DRHd と同じく汎用レジスタが 2 バイト目の下位）だが、
+  gas はこの 2 つのフィールドを入れ替えて出力する（`itod r3, dr4` → `fd 77 84 39`。binutils 自身の objdump は
+  これを `itod r4, dr3` と読む。mvtdc は objdump も同じ向きに誤っている）。LLVM はマニュアルどおりに符号化し、
+  dfpu.s のこれらの行は `; bytes:` でマニュアルの符号と比較する（mc-diff.sh）。llvm-project#2 のレビューで判明。
 - **サイズ指定なしの分岐**（`bra label`、`beq label`、`bsr label`）は未対応。gas は距離に応じて緩和する。
   M2 では codegen 側でサイズ付き分岐を出し、BranchRelaxation パスで伸ばす方針。
 - **定数の分岐先**: gas は `bra.b 8` の 8 を絶対番地として扱うが、LLVM は変位として扱う（実用上は使わない）。
@@ -61,6 +77,5 @@ bash scripts/mc-diff.sh lines test/mc/fpu.s   # dsp.s, v2.s も同様
 - mov #imm → メモリ、メモリ → メモリ、`[Rn+]`/`[-Rn]`、インデックス `[Ri, Rb]`
 - ビット操作（bset/bclr/btst/bnot/bm<cc>）、xchg、string 命令
 - itof/utof のメモリオペランド（memex でサイズを指定する形式）
-- DFPU（dadd 等）、RXv3 の追加命令（bfmov/bfmovz、save/rstr）
 - RXv3e の Protect Zone 命令（NOTES-rxv3e.md）
 - 逆アセンブラ（当面は rx-elf-objdump を使う）

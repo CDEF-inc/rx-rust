@@ -42,7 +42,9 @@
 - [x] 検証: `scripts/mc-diff.sh` で GNU as と .text・e_flags・リロケーションを比較（basic 210/210、branch、symbol 一致）
 - [x] 単精度 FPU、DSP（A0/A1）、stz/stnz、RXv2 の追加命令（fsqrt/ftou/utof、FPU 3 オペランド、movli/movco、DSP 拡張）。
   fpu 55/55、dsp 51/51、v2 19/19 一致（issue #1）
-- [ ] memex・06 プレフィクス形式（itof/utof のメモリ形式を含む）、ビット操作、DFPU と RXv3 の追加命令、string 命令
+- [x] RXv3 の追加命令（bfmov/bfmovz、save/rstr）と DFPU 全命令（DR / DRH / DRL / DCR レジスタ）。
+  dfpu 57/57、v3 17/17 一致（issue #1）
+- [ ] memex・06 プレフィクス形式（itof/utof のメモリ形式を含む）、ビット操作、string 命令
 - [x] codegen はサイズ付き分岐 + BranchRelaxation で対応（M2）。アセンブラ入力のサイズ指定なし分岐は未対応のまま
 - [x] `sc<cond>.l`（M2 で追加、gas と 14/14 一致）
 - [ ] RXv3e の Protect Zone 命令（trcall/trmvfc/trmvtc/trrte）と mvfc/mvtc の追加レジスタ。binutils 未対応なのでマニュアルの符号表で検証
