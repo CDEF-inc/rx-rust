@@ -183,7 +183,8 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - f64 は従来どおりソフトフロート（GCC の ABI どおり汎用レジスタ対、下位ワードが先）のまま。f64 を DR の合法型にすると
   IEEE の通常の double（大半のコード）まで呼び出しのたびに GPR↔DR の転送と DR の退避が入るため。
 - **型合法化の前**の PerformDAGCombine（LLVM 23 の SoftenFloatResult はターゲットのカスタム処理を呼ばない）で、
-  nnan+ninf の FADD/FSUB/FMUL/FDIV/FSQRT、f64 比較（SETCC / SELECT_CC / BR_CC）と、常に i32 → f64 の
+  nnan+ninf かつ double の非正規化数環境が preserve-sign（単精度 FPU と同じ canUseFPU）の
+  FADD/FSUB/FMUL/FDIV/FSQRT、f64 比較（SETCC / SELECT_CC / BR_CC）と、常に i32 → f64 の
   SINT_TO_FP / UINT_TO_FP を、ワード対を受け渡しする RXISD::DARITH / DSQRT / DCMP / ITOD / UTOD に置き換える
   （`bitcast(build_pair(lo, hi))` で f64 に戻すので、以降の型合法化はそのまま）。
   BR_CC を f64 で Custom にしているのは、DAGCombiner が brcond + setcc から fast-math フラグ付きの BR_CC を作るようにするため。
@@ -197,7 +198,8 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   -verify-machineinstrs、GNU as でのアセンブル（直接出力の .o と同一。GNU as は itod / utod / ftod のレジスタ欄を
   入れ替える誤りがあるので、渡す .s ではその 2 つのレジスタ番号を入れ替えておく。NOTES-mc.md）、関数ごとの DFPU 命令列を
   `test/codegen/dfpu.expected`（マニュアルの意味と照合済み）と比較。四則・平方根・計算の連鎖・6 種の比較・select・分岐・
-  int → double・呼び出しをまたぐ値、IEEE 側が libcall のままであること。f64 の多数の演算（fops.ll の double 版）も
+  int → double・呼び出しをまたぐ値、IEEE 側が libcall のままであること（nnan+ninf でも IEEE 環境の
+  da_add_ieee / da_olt_ieee を含め 25 関数）。f64 の多数の演算（fops.ll の double 版）も
   rxv1〜rxv3 の -O0 / -O2 でコンパイル・アセンブルできることを確認。
 
 ## 未対応（M4 以降）
