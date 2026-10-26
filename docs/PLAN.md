@@ -65,10 +65,11 @@
 - [x] GCC との相互呼び出しテスト（m3.ll + m3_main.c、3964 チェック全通過、-O0〜-O3）
 - [x] 構造体の値渡し（整数パーツ / byval）・戻り（レジスタ / R15 sret、R1 にアドレス返却）。struct.ll + struct_main.c 142 チェック全通過
 - [ ] LLVM 側の可変長関数定義（va_start / va_arg）
-- [x] 単精度 FPU（`+fpu`、rxv2 以上の既定）: nnan+ninf の演算だけ fadd/fsub/fmul/fdiv/fsqrt/fcmp、int→float は itof/utof、
-  それ以外はソフトフロート（issue #1）。fpu.ll 3137 チェック、core-smoke も `+fpu` で通過
-- [x] DFPU（RXv3）による f64 演算: nnan+ninf の四則・平方根・比較と int→double を DR0/DR1 経由の列に（issue #1）。
-  命令列を dfpu.expected と照合（実行環境がないため未実行）
+- [x] 単精度 FPU（`+fpu`、rxv2 以上の既定）: nnan+ninf かつ非正規化数環境が preserve-sign の演算だけ
+  fadd/fsub/fmul/fdiv/fsqrt/fcmp、int→float は itof/utof、それ以外はソフトフロート（issue #1）。
+  fpu.ll 3142 チェック、core-smoke も `+fpu` で通過
+- [x] DFPU（RXv3）による f64 演算: nnan+ninf かつ非正規化数環境が preserve-sign の四則・平方根・比較と
+  int→double を DR0/DR1 経由の列に（issue #1）。命令列を dfpu.expected と照合（実行環境がないため未実行）
 
 ### M4 rustc 統合 ✅ 2026-10-23（詳細 `NOTES-rustc.md`）
 - [x] `rustc_llvm` に RX 初期化、bootstrap は外部 LLVM（build/llvm の llvm-config）

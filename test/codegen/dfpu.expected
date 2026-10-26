@@ -141,6 +141,12 @@ _d_fromu
 _d_add
   bsr.a ___adddf3
 
+_da_add_ieee
+  bsr.a ___adddf3
+
+_da_olt_ieee
+  bsr.a ___ltdf2
+
 _d_olt
   bsr.a ___ltdf2
 

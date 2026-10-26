@@ -145,23 +145,27 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - サブターゲット機能 `fpu`（rxv2 / rxv3 / rxv3e の既定。rxv1 は FPU のない RX100/RX200 もあるので既定では無効）。
   アセンブラは従来どおり CPU に関係なく FPU 命令を受け付ける。
 - RX の FPU は NaN・無限大を IEEE どおりに扱わず（GCC は FPU 使用時に -ffinite-math-only を強制する）、
-  非正規化数は FPSW.DN = 0 で「未実装処理」例外、DN = 1（リセット値。rx-rt も設定する）で 0 扱いになる。
-  そこで **nnan と ninf の両方が付いた演算だけ** FPU 命令にし、
-  それ以外は従来どおりソフトフロート（__addsf3 など）で IEEE の意味を保つ。
+  非正規化数は FPSW.DN = 0 で「未実装処理」例外、DN = 1（リセット値。rx-rt も設定する）で同符号の 0 扱いになる。そこで
+  **nnan と ninf の両方が付き、かつ関数の float の非正規化数環境が preserve-sign（`denormal_fpenv(float: preservesign)`、
+  clang なら `-fdenormal-fp-math=preserve-sign`）の演算だけ** FPU 命令にし、それ以外は従来どおりソフトフロート
+  （__addsf3 など）で IEEE の意味を保つ。nnan / ninf だけでは非正規化数の正しい扱いは免除されない（llvm-project#4 のレビュー）。
+  rustc は非正規化数環境を指定しないので、Rust から FPU の四則・比較が使われることはない（int → float の変換だけ）。
 - `+fpu` のとき f32 は GPR の合法型（`GPR` を [i32, f32] に）。FPU は汎用レジスタで演算し、ABI も float を整数レジスタで
   渡すので、呼び出し規約は変わらない（RetCC に f32 を追加しただけ。引数は analyzeRXArguments が型に依らない）。
-  - FADD/FSUB/FMUL/FDIV（と RXv2 の FSQRT）は Custom: nnan+ninf ならそのまま（fadd 等を選択）、でなければ libcall。
+  - FADD/FSUB/FMUL/FDIV（と RXv2 の FSQRT）は Custom: 上の条件（canUseFPU）を満たせばそのまま（fadd 等を選択）、
+    でなければ libcall。
     FPU のない RXv1 の FSQRT は sqrtf を呼ぶ。
-  - SETCC / BR_CC / SELECT_CC の float 比較: nnan+ninf なら `fcmp`（O フラグが立たないので符号付きの条件がそのまま使える）、
+  - SETCC / BR_CC / SELECT_CC の float 比較: 同じ条件なら `fcmp`（O フラグが立たないので符号付きの条件がそのまま使える）、
     でなければ softenSetCCOperands（__ltsf2 など）+ 整数比較。DAGCombiner が作る BR_CC / SELECT_CC にもフラグが残ることを確認。
   - int → float は `itof`（RXv2 では `utof` も）を常に使う（入力が整数なので常に正確。丸めは FPSW.RM = 最近接）。
     float → int は非正規化数で例外になりうる `ftoi` を使わず libcall（__fixsfsi）。
   - FNEG / FABS / FCOPYSIGN はビット演算、その他（frem、fma、min/max、丸め、超越関数、half 変換など）は Expand（libcall）。
   - 定数は `mov.l #ビット列`（isFPImmLegal）、ロード・ストア・bitcast・select は整数と同じ命令。
   - パターン述語を使うため RXDAGToDAGISel に `Subtarget` メンバを追加。
-- 検証: `test/codegen/fpu.ll` + `fpu_main.c`（`ATTRS=+fpu`）を QEMU で **3137 チェック全通過（-O1〜-O3、.s 経由・.o 直接とも）**、
-  `+fpu` なしでも全通過。fast-math の四則・比較・select・分岐が GCC（FPU 使用）とビット単位で一致、
-  IEEE 側は NaN / ±無限大 / ±0 を含めて正しいこと、ビット演算・変換・定数・メモリ・6 引数（スタック渡し）の呼び出し。
+- 検証: `test/codegen/fpu.ll` + `fpu_main.c`（`ATTRS=+fpu`）を QEMU で **3142 チェック全通過（-O1〜-O3、.s 経由・.o 直接とも）**、
+  `+fpu` なしでも全通過。fast-math（preserve-sign の関数）の四則・比較・select・分岐が GCC（FPU 使用）とビット単位で一致、
+  IEEE 側は NaN / ±無限大 / ±0 を含めて正しいこと、nnan+ninf でも IEEE 環境の関数（fa_add_ieee / fa_olt_ieee）は
+  libcall のままで非正規化数の加算・比較が正確なこと、ビット演算・変換・定数・メモリ・6 引数（スタック渡し）の呼び出し。
   既存の i32 / m3 / struct / atomic も `+fpu` 付きで全通過。多数の f32 演算（frem、fma、min/max、丸め、sin、powi、
   飽和変換、i64 変換、is.fpclass、ldexp、lrint、half 変換、canonicalize、ベクトル、atomic）が rxv1+fpu / rxv2 / rxv3 の
   -O0 / -O2 でコンパイルでき GNU as でアセンブルできることも確認。
@@ -179,7 +183,8 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - f64 は従来どおりソフトフロート（GCC の ABI どおり汎用レジスタ対、下位ワードが先）のまま。f64 を DR の合法型にすると
   IEEE の通常の double（大半のコード）まで呼び出しのたびに GPR↔DR の転送と DR の退避が入るため。
 - **型合法化の前**の PerformDAGCombine（LLVM 23 の SoftenFloatResult はターゲットのカスタム処理を呼ばない）で、
-  nnan+ninf の FADD/FSUB/FMUL/FDIV/FSQRT、f64 比較（SETCC / SELECT_CC / BR_CC）と、常に i32 → f64 の
+  nnan+ninf かつ double の非正規化数環境が preserve-sign（単精度 FPU と同じ canUseFPU）の
+  FADD/FSUB/FMUL/FDIV/FSQRT、f64 比較（SETCC / SELECT_CC / BR_CC）と、常に i32 → f64 の
   SINT_TO_FP / UINT_TO_FP を、ワード対を受け渡しする RXISD::DARITH / DSQRT / DCMP / ITOD / UTOD に置き換える
   （`bitcast(build_pair(lo, hi))` で f64 に戻すので、以降の型合法化はそのまま）。
   BR_CC を f64 で Custom にしているのは、DAGCombiner が brcond + setcc から fast-math フラグ付きの BR_CC を作るようにするため。
@@ -193,7 +198,8 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   -verify-machineinstrs、GNU as でのアセンブル（直接出力の .o と同一。GNU as は itod / utod / ftod のレジスタ欄を
   入れ替える誤りがあるので、渡す .s ではその 2 つのレジスタ番号を入れ替えておく。NOTES-mc.md）、関数ごとの DFPU 命令列を
   `test/codegen/dfpu.expected`（マニュアルの意味と照合済み）と比較。四則・平方根・計算の連鎖・6 種の比較・select・分岐・
-  int → double・呼び出しをまたぐ値、IEEE 側が libcall のままであること。f64 の多数の演算（fops.ll の double 版）も
+  int → double・呼び出しをまたぐ値、IEEE 側が libcall のままであること（nnan+ninf でも IEEE 環境の
+  da_add_ieee / da_olt_ieee を含め 25 関数）。f64 の多数の演算（fops.ll の double 版）も
   rxv1〜rxv3 の -O0 / -O2 でコンパイル・アセンブルできることを確認。
 
 ## 未対応（M4 以降）

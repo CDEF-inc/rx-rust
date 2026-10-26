@@ -17,9 +17,10 @@ What works:
 
 - i8/i16/i32/i64 integer code, `f32`/`f64` (soft-float, GCC `-m64bit-doubles`
   compatible; with the `fpu` feature, on by default for rxv2+, fast-math
-  `f32` operations and int-to-float conversions use the FPU, and with `dfpu`
-  (rxv3) the same holds for `f64` and the DFPU), structs by value and `sret`,
-  calls in both directions between Rust/LLVM and GCC-compiled C;
+  `f32` operations in functions that allow flushing denormals, and
+  int-to-float conversions, use the FPU, and with `dfpu` (rxv3) the same
+  holds for `f64` and the DFPU), structs by value and `sret`, calls in both
+  directions between Rust/LLVM and GCC-compiled C;
 - atomics up to 32 bits, including compare-and-swap and `fetch_*`
   (`movli`/`movco` on RXv2+, interrupts masked on RXv1), inline assembly,
   interrupts (whose entries save FPSW, the DFPU registers the compiler uses

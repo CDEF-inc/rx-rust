@@ -34,7 +34,8 @@
   `pushm r1-r5 / pushm r14-r15 / mov.l #handler, r5 / bra.a _rx_isr_common`（GCC ABI の caller-saved）。
   rx-rt の共通部 `_rx_isr_common` が、rx-rt をビルドしたときの target feature に応じて退避してから `jsr r5` し、
   逆順に戻して `popm / rte`（issue #1 のステップ 5）:
-  - `fpu`（rxv2 以上の既定）: FPSW（`mvfc fpsw` + push）。コード生成は fast-math の f32 演算と int→float 変換で FPU を使う
+  - `fpu`（rxv2 以上の既定）: FPSW（`mvfc fpsw` + push）。コード生成は fast-math（かつ非正規化数を 0 にしてよい関数）の f32 演算と
+    int→float 変換で FPU を使う
   - `dfpu`（rxv3 / rxv3e）: `dpushm.d dr0-dr1` と `dpushm.l dpsw-dcmr`。コード生成の DFPU 列は DR0 / DR1 / DPSW / DCMR
     を使い、割り込みは列の途中にも入りうる（DR2〜DR15 はコード生成が使わないので退避しない）
   - Cargo feature `save-acc`: DSP アキュムレータ。RXv1 は GCC の `-msave-acc-in-interrupts` と同じく ACC の
