@@ -20,9 +20,12 @@ What works:
   Rust/LLVM and GCC-compiled C;
 - 32-bit atomic loads and stores (no compare-and-swap), inline assembly,
   interrupts;
-- the assembler for the RXv1 and system-control instructions.
+- the assembler for the RXv1 and system-control instructions, the
+  single-precision FPU, the DSP (accumulator) instructions and the RXv2
+  additions.
 
-Not yet: RXv2/RXv3 instructions in code generation, the FPU/DFPU, `alloc`/`std`,
+Not yet: RXv2/RXv3 instructions in code generation, the FPU/DFPU in code
+generation, the DFPU and RXv3 instructions in the assembler, `alloc`/`std`,
 debug info checks, real hardware.
 
 ## Layout
@@ -58,7 +61,7 @@ scripts/build-rustc.sh    # stage1 rustc using build/llvm
 ## Testing
 
 ```sh
-scripts/mc-diff.sh lines test/mc/basic.s     # also scc.s, system.s
+scripts/mc-diff.sh lines test/mc/basic.s     # also scc.s, system.s, fpu.s, dsp.s, v2.s
 scripts/mc-diff.sh file test/mc/branch.s     # also symbol.s
 scripts/run-codegen-test.sh test/codegen/i32.ll test/codegen/main.c
 scripts/run-codegen-test.sh test/codegen/m3.ll test/codegen/m3_main.c
