@@ -91,7 +91,9 @@ int main(void) {
     }
   for (unsigned i = 0; i < NV; i++) {
     float a = vals[i];
-    check_f(fa_poly(a), ((a * a) * from_bits(0x3eaaaaab) - 2.5f) * a + 1.0f);
+    /* fa_poly is cubic: a^3 / 3 overflows (poison under ninf) for |a| >= ~1e13 */
+    if (a > -1e12f && a < 1e12f)
+      check_f(fa_poly(a), ((a * a) * from_bits(0x3eaaaaab) - 2.5f) * a + 1.0f);
     check_f(f_neg(a), from_bits(bits(a) ^ 0x80000000u));
     check_f(f_abs(a), from_bits(bits(a) & 0x7fffffffu));
     if (a > -2e9f && a < 2e9f)
