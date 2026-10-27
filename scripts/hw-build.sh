@@ -10,8 +10,8 @@
 #   codegen  test/codegen (llc -mcpu=rxv3, -O0 / -O2), in RAM -> build/hw/codegen
 #   rust     test/rust/core-smoke (target-cpu=rxv3,  -> build/hw/rust
 #            release / dev), in RAM
-#   rt       rx-rt applications, test/rust/isr-save and -> build/hw/rt
-#            test/rust/hw-irq (target-cpu=rxv3, release / dev), in the code
+#   rt       rx-rt applications, test/rust/isr-save,    -> build/hw/rt
+#            hw-irq and hw-pac (target-cpu=rxv3, release / dev), in the code
 #            flash with test/hw/rx72m-memory.x, booted from the reset vector
 #
 # Each NAME.elf gets a NAME.sym with the symbols the runner needs. The
@@ -97,7 +97,7 @@ for g in "${groups[@]}"; do
     rt)
       d=$out/rt; mkdir -p "$d"
       host=x86_64-unknown-linux-gnu
-      for crate in isr-save hw-irq; do
+      for crate in isr-save hw-irq hw-pac; do
         for profile in release dev; do
           # RUSTFLAGS replaces the crate's rustflags (isr-save's are for QEMU's
           # rx62n), so it gives the linker script too.

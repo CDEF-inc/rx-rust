@@ -1,0 +1,31 @@
+[package]
+name = "hw-pac"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rx-rt = { path = "../../../crates/rx-rt", features = ["critical-section"] }
+rx72m-pac = { path = "../../../crates/rx72m-pac", features = ["critical-section"] }
+critical-section = "1.2"
+
+[[bin]]
+name = "hw-pac"
+test = false
+bench = false
+
+[profile.release]
+opt-level = "s"
+debug = true
+
+[profile.dev]
+opt-level = 1
+
+# The generated PAC is about 23 MB of source: with debug info rustc takes
+# over ten minutes on it, without it about half a minute.
+[profile.release.package.rx72m-pac]
+debug = false
+
+[profile.dev.package.rx72m-pac]
+debug = false
+opt-level = "s"
