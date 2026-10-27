@@ -66,4 +66,31 @@ _ix_glob
   mov.l #_ix_table, r2
   mov.l [r1, r2], r1
 
+_pi_sum_l
+  mov.l r1, r3
+  mov.l #0, r1
+  mov.l [r3+], r4
+
+_pi_sum_sw
+  mov.l r1, r3
+  mov.l #0, r1
+  mov.w [r3+], r4
+
+_pi_sum_ub
+  mov.l r1, r3
+  mov.l #0, r1
+  movu.b [r3+], r4
+
+_pi_fill_w
+  mov.l #0, r3
+  mov.w r3, [r1+]
+
+_pd_fill_l
+  mov.l #0, r3
+  mov.l r3, [r1]
+
+_pd_sum_sb
+  mov.l #0, r1
+  mov.b [r3], r4
+
 _ix_table

@@ -9,6 +9,9 @@ int ix_ld_sb(signed char *, int), ix_ld_ub(signed char *, int);
 void ix_st_l(int *, int, int), ix_st_w(short *, int, int);
 void ix_st_b(signed char *, int, int);
 int ix_glob(int);
+int pi_sum_l(int *, int), pi_sum_sw(short *, int);
+int pi_sum_ub(unsigned char *, int), pd_sum_sb(signed char *, int);
+void pi_fill_w(short *, int), pd_fill_l(int *, int);
 
 int checks, failures, first_failure = -1;
 int got_value, want_value;
@@ -104,6 +107,36 @@ int main(void) {
     check(b[5], 6);
     for (int i = 0; i < 8; i++)
       check(ix_glob(i), (i + 1) * 10);
+  }
+
+  /* post-increment / pre-decrement */
+  {
+    static int l[5] = {1, -20, 300, -4000, 0x10000};
+    static short w[4] = {-1, 32767, -32768, 2};
+    static unsigned char ub[4] = {255, 128, 1, 0};
+    static signed char sb[4] = {-1, -128, 127, 5};
+    check(pi_sum_l(l, 5), 1 - 20 + 300 - 4000 + 0x10000);
+    check(pi_sum_l(l, 1), 1);
+    check(pi_sum_sw(w, 4), -1 + 32767 - 32768 + 2);
+    check(pi_sum_ub(ub, 4), 255 + 128 + 1);
+    check(pd_sum_sb(sb + 4, 4), -1 - 128 + 127 + 5);
+    check(pd_sum_sb(sb + 4, 1), 5);
+
+    fill(0x55);
+    pi_fill_w((short *)buf.b + 1, 3);
+    check(w16(0), 0x5555);
+    check(w16(2), 0);
+    check(w16(4), 1);
+    check(w16(6), 2);
+    check(w16(8), 0x5555);
+
+    fill(0x55);
+    pd_fill_l(&buf.l[5], 3);
+    check(buf.l[4], 0);
+    check(buf.l[3], 1);
+    check(buf.l[2], 2);
+    check(buf.l[1], 0x55555555);
+    check(buf.l[5], 0x55555555);
   }
   return 0;
 }
