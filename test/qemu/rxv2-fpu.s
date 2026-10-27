@@ -60,6 +60,18 @@ _main:
 	EXPECT	r6, 0xffffff00
 	and	#6, r8
 	EXPECT	r8, 4			; S from bit 31 of the result
+	mov.l	#0x4f000000, r4		; 2147483648.0
+	ftou	r4, r6
+	mvfc	psw, r8
+	EXPECT	r6, 0x80000000
+	and	#6, r8
+	EXPECT	r8, 4			; S, but not Z: Z is for 0 only
+	mov.l	#0x3f000000, r4		; 0.5
+	ftou	r4, r6
+	mvfc	psw, r8
+	EXPECT	r6, 0
+	and	#6, r8
+	EXPECT	r8, 2			; Z
 	mov.l	#0xbf000000, r4		; -0.5
 	ftou	r4, r6
 	EXPECT	r6, 0

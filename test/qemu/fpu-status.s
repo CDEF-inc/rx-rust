@@ -83,6 +83,24 @@ _main:
 	EXPECT	r5, 0x7fffffff
 	EXPECT_FPSW 0x84000104		; invalid
 
+	; Z and S of an integer result: Z only for 0, also for 80000000h
+	mvtc	#0x100, fpsw
+	mov.l	#0xcf000000, r4		; -2147483648.0
+	ftoi	r4, r5
+	mvfc	psw, r8
+	EXPECT	r5, 0x80000000
+	and	#6, r8
+	EXPECT	r8, 4			; S, not Z
+	round	r4, r5
+	mvfc	psw, r8
+	and	#6, r8
+	EXPECT	r8, 4
+	mov.l	#0, r4
+	ftoi	r4, r5
+	mvfc	psw, r8
+	and	#6, r8
+	EXPECT	r8, 2			; Z
+
 	; MVTC cannot set the cause flags, only clear them; FS is read-only.
 	mvtc	#0x100, fpsw
 	mvtc	#0x800001fc, fpsw
