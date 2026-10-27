@@ -172,18 +172,14 @@ _back_in_root:
 	; IVC.UIR = 01 restricts int to #0-#15 (no int Rs)
 	mov.l	#0x10000, r4
 	mvtc	r4, ivc
-	mvfc	psw, r4
-	or	#0x00100000, r4		; PM = 1
-	push.l	r4
-	mov.l	#1f, r4
-	push.l	r4
-	rte
-1:	TRAPS	4, trcall #0
+	USER_MODE
+	TRAPS	4, trcall #0
 	TRAPS	4, trmvfc trctb, r9
 	mov.l	#3, r4
 	TRAPS	4, int r4
 	TRAPS	4, int #20
 	TRAPS	6, int #3		; allowed: the handler sets r13 = 6
+	SUPERVISOR_MODE
 
 	mov.l	#0, r1
 	rts

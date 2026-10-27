@@ -177,16 +177,18 @@ _main:
 
 	; save / rstr are privileged: in user mode they trap (vector 20)
 	mov.l	#_resume, r11
+	USER_MODE
 	mvfc	psw, r4
-	or	#0x00100000, r4		; PM = 1
-	push.l	r4
-	mov.l	#1f, r4
-	push.l	r4
-	rte
-1:	TRY	save #0
+	and	#0x00120000, r4
+	EXPECT	r4, 0x00120000		; PM and U (the switch sets U)
+	TRY	save #0
 	EXPECT	r13, 4
 	TRY	rstr #0
 	EXPECT	r13, 4
+	SUPERVISOR_MODE
+	mvfc	psw, r4
+	and	#0x00120000, r4
+	EXPECT	r4, 0
 
 	mov.l	#0, r1
 	rts

@@ -13,6 +13,30 @@
 9999:
 	.endm
 
+; USER_MODE: switch to user mode with RTE (PSW.PM = 1). The switch sets
+; PSW.U, so the stack becomes the USP; it is pointed at the harness's user
+; stack first. Clobbers r4.
+	.macro	USER_MODE
+	mvtc	#_ustack, usp
+	mvfc	psw, r4
+	or	#0x00100000, r4
+	push.l	r4
+	mov.l	#9998f, r4
+	push.l	r4
+	rte
+9998:
+	.endm
+
+; SUPERVISOR_MODE: back from user mode to supervisor mode (PSW.PM = 0,
+; PSW.U = 0) through the privileged instruction exception of an RTE. Needs
+; r11 = #_resume; clobbers r12 and r13.
+	.macro	SUPERVISOR_MODE
+	mov.l	#_to_supervisor, r13
+	mov.l	#1, r12
+	mov.l	r12, [r13]
+	TRY	rte
+	.endm
+
 ; EXPECT reg, want: check a register against a value.
 	.macro	EXPECT reg, want
 	mov.l	\reg, r1
