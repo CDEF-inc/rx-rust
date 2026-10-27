@@ -12,6 +12,9 @@ int ix_glob(int);
 int pi_sum_l(int *, int), pi_sum_sw(short *, int);
 int pi_sum_ub(unsigned char *, int), pd_sum_sb(signed char *, int);
 void pi_fill_w(short *, int), pd_fill_l(int *, int);
+void sm_copy(void *, const void *, int), sm_copy400(void *, const void *);
+void sm_set(void *, int, int), sm_zero400(void *), sm_ff401(void *);
+int sm_live(void *, const void *, int, int);
 
 int checks, failures, first_failure = -1;
 int got_value, want_value;
@@ -137,6 +140,58 @@ int main(void) {
     check(buf.l[2], 2);
     check(buf.l[1], 0x55555555);
     check(buf.l[5], 0x55555555);
+  }
+
+  /* memcpy / memset through the string instructions */
+  {
+    static unsigned char src[512];
+    for (int i = 0; i < 512; i++)
+      src[i] = (unsigned char)(i * 7 + 1);
+    int ok;
+
+    fill(0x55);
+    sm_copy(buf.b + 1, src + 3, 37);
+    ok = u8(0) == 0x55 && u8(38) == 0x55;
+    for (int i = 0; i < 37; i++)
+      ok &= u8(1 + i) == src[3 + i];
+    check(ok, 1);
+    sm_copy(buf.b + 1, src, 0);
+    check(u8(1), src[3]);
+
+    fill(0x55);
+    sm_copy400(buf.l + 1, src);
+    ok = l32(0) == 0x55555555 && l32(404) == 0x55555555;
+    for (int i = 0; i < 400; i++)
+      ok &= u8(4 + i) == src[i];
+    check(ok, 1);
+
+    fill(0x55);
+    sm_set(buf.b + 3, 0x1a7, 9);
+    ok = u8(2) == 0x55 && u8(12) == 0x55;
+    for (int i = 0; i < 9; i++)
+      ok &= u8(3 + i) == 0xa7;
+    check(ok, 1);
+    sm_set(buf.b + 3, 0, 0);
+    check(u8(3), 0xa7);
+
+    fill(0x55);
+    sm_zero400(buf.l + 2);
+    ok = l32(4) == 0x55555555 && l32(408) == 0x55555555;
+    for (int i = 0; i < 100; i++)
+      ok &= buf.l[2 + i] == 0;
+    check(ok, 1);
+
+    fill(0);
+    sm_ff401(buf.b + 1);
+    ok = u8(0) == 0 && u8(402) == 0;
+    for (int i = 0; i < 401; i++)
+      ok &= u8(1 + i) == 0xff;
+    check(ok, 1);
+
+    fill(0);
+    check(sm_live(buf.b, src, 5, 100), 105);
+    check(u8(4), src[4]);
+    check(u8(5), 0);
   }
   return 0;
 }
