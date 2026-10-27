@@ -2,7 +2,8 @@
 # Builds the tests for the RX72M (AP-RX72M-0A board: RXv3 with the FPU and
 # the DFPU) into build/hw, for scripts/hw-run.sh to run on the board.
 #
-#   hw-build.sh [insns] [rom] [codegen] [rust] [rt]     default: all five
+#   hw-build.sh [insns] [rom] [codegen] [rust] [rt] [examples]
+#                                                   default: all six
 #
 #   insns    test/qemu instruction tests, in RAM       -> build/hw/insns
 #   rom      rxv2-insns, in the code flash (it moves   -> build/hw/rom
@@ -13,6 +14,10 @@
 #   rt       rx-rt applications, test/rust/isr-save,    -> build/hw/rt
 #            hw-irq, hw-pac, hw-hal, hw-uart (target-cpu=rxv3, release / dev), in the code
 #            flash with test/hw/rx72m-memory.x, booted from the reset vector
+#   examples examples/* (blinky; release), in the code  -> build/hw/examples
+#            flash. They run until stopped; hw-run.sh runs one for
+#            HW_TIMEOUT seconds and leaves it running (not part of its
+#            default list)
 #
 # Each NAME.elf gets a NAME.sym with the symbols the runner needs. The
 # start-up code, harness and linker scripts are in test/hw.
@@ -22,7 +27,7 @@ G=$root/gnu/install/bin
 MC=$root/build/llvm/bin/llvm-mc
 T=$root/test/hw
 out=$root/build/hw
-groups=("$@"); [ ${#groups[@]} -gt 0 ] || groups=(insns rom codegen rust rt)
+groups=("$@"); [ ${#groups[@]} -gt 0 ] || groups=(insns rom codegen rust rt examples)
 GCCFLAGS="-mcpu=rx600 -m64bit-doubles"
 libgcc=$("$G/rx-elf-gcc" $GCCFLAGS -print-libgcc-file-name)
 # The RX72M has the RXv2 and RXv3 instructions, the FPU and the DFPU.
@@ -113,8 +118,23 @@ for g in "${groups[@]}"; do
           echo "built $d/$crate-$profile.elf"
         done
       done ;;
+    examples)
+      d=$out/examples; mkdir -p "$d"
+      host=x86_64-unknown-linux-gnu
+      for crate in blinky; do
+        # The crate's .cargo/config.toml has the target, its rustflags and
+        # build-std.
+        (cd "$root/examples/$crate" &&
+         RUSTC=$root/rust/build/$host/stage1/bin/rustc RUSTC_BOOTSTRAP=1 \
+         PATH=$G:$PATH \
+         "$root/rust/build/$host/stage0/bin/cargo" build -q --release \
+           --target-dir "$root/build/examples")
+        cp "$root/build/examples/rx-none-elf/release/$crate" "$d/$crate.elf"
+        sym "$d/$crate.elf"
+        echo "built $d/$crate.elf"
+      done ;;
     *)
-      echo "unknown group $g (insns, rom, codegen, rust, rt)" >&2
+      echo "unknown group $g (insns, rom, codegen, rust, rt, examples)" >&2
       exit 2 ;;
   esac
 done
