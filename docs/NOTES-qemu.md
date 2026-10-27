@@ -300,6 +300,7 @@ llvm-mc（`-mcpu=rxv3e`）でアセンブルする。
 `test/qemu` の命令テストを、RX72M（RXv3 + DFPU）の評価ボード AP-RX72M-0A で E2 Lite と
 e² studio の GDB サーバーを使って実行し、QEMU と違った点を直した（2026-10-27〜）。
 テストは RAM（0x4000〜）にリンクし、EXTB を RAM の固定ベクタテーブルに向けて自由実行した。
+実行方法（`scripts/hw-build.sh`、`scripts/hw-run.sh`）と最新の結果は [NOTES-hw.md](NOTES-hw.md)。
 
 | 項目 | 実機の動作 | 対応 |
 |---|---|---|

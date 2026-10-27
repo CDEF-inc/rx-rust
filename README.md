@@ -4,16 +4,18 @@ A Rust toolchain for Renesas RX microcontrollers: an LLVM backend for RX and
 an `rx-none-elf` target for rustc, compatible with the GCC (`rx-elf`) ABI.
 
 Status: experimental. Rust programs (`core`, `-Zbuild-std`) build, link with
-GNU ld and run on QEMU (RXv1, RXv2, RXv3 and RXv3e cores of CDEF-inc/qemu);
-real hardware has not been tried yet.
+GNU ld and run on QEMU (RXv1, RXv2, RXv3 and RXv3e cores of CDEF-inc/qemu)
+and on a real RX72M (RXv3 with the double-precision FPU, on an
+AP-RX72M-0A board): the instruction, codegen and Rust tests pass on both
+(see [`docs/NOTES-hw.md`](docs/NOTES-hw.md)).
 
 | Component | Where | State |
 |---|---|---|
-| LLVM RX backend (MC layer, CodeGen) | [CDEF-inc/llvm-project](https://github.com/CDEF-inc/llvm-project/tree/rx/23.1) `rx/23.1` | RXv1 instructions; object files match GNU as |
+| LLVM RX backend (MC layer, CodeGen) | [CDEF-inc/llvm-project](https://github.com/CDEF-inc/llvm-project/tree/rx/23.1) `rx/23.1` | RXv1 / RXv2 / RXv3 / RXv3e instructions, FPU, DSP, DFPU; object files match GNU as (and Renesas CC-RX where GNU as is wrong) |
 | rustc `rx-none-elf` target, callconv, `asm!` | [CDEF-inc/rust](https://github.com/CDEF-inc/rust/tree/rx-none-elf) `rx-none-elf` | `core` builds; tier 3 |
 | Startup code, vector tables, linker script | [`crates/rx-rt`](crates/rx-rt) | boots from the reset vector on QEMU |
-| QEMU with RXv2 / RXv3 / RXv3e CPU models | [CDEF-inc/qemu](https://github.com/CDEF-inc/qemu/tree/rx/v11.1) `rx/v11.1` | RXv2 / RXv3 / RXv3e instructions, DFPU, Protect Zone (CPU side) |
-| Build and test scripts, tests | [`scripts`](scripts), [`test`](test) | |
+| QEMU with RXv2 / RXv3 / RXv3e CPU models | [CDEF-inc/qemu](https://github.com/CDEF-inc/qemu/tree/rx/v11.1) `rx/v11.1` | RXv2 / RXv3 / RXv3e instructions, DFPU, Protect Zone (CPU side); instruction tests checked against an RX72M |
+| Build and test scripts, tests | [`scripts`](scripts), [`test`](test) | QEMU and the RX72M board |
 
 What works:
 
@@ -27,12 +29,17 @@ What works:
   (`movli`/`movco` on RXv2+, interrupts masked on RXv1), inline assembly,
   interrupts (whose entries save FPSW, the DFPU registers the compiler uses
   and, with `save-acc`, the accumulators, depending on the target features);
+- memory access with the RX addressing modes: post-increment and
+  pre-decrement (`[Rn+]`, `[-Rn]`), register-indexed (`[Ri, Rb]`),
+  immediate and memory-to-memory `mov`, and the string instructions
+  (`smovf`, `sstr`) for `memcpy` / `memset`;
 - the assembler for the RXv1 and system-control instructions, the
   single-precision FPU, the DSP (accumulator) instructions, the RXv2 and RXv3
   additions and the RXv3 double-precision FPU.
 
 Not yet:
-`alloc`/`std`, debug info checks, real hardware.
+`alloc`/`std`, debug info checks, `rx-rt` and interrupts on real hardware
+(the board tests run with their own start-up code).
 
 ## Layout
 
@@ -43,7 +50,8 @@ crates/rx-rt/   runtime: reset handler, vector tables, link.x
 scripts/        build and test scripts
 test/mc/        assembler tests, compared with GNU as
 test/codegen/   LLVM IR + C tests run on QEMU (Rust/LLVM <-> GCC calls)
-test/qemu/      instruction tests for the QEMU CPU models
+test/qemu/      instruction tests for the QEMU CPU models (also run on the board)
+test/hw/        start-up code, harness and linker scripts for the RX72M board
 test/rust/      Rust tests: core-smoke (with a C driver), qemu-demo (Rust only)
 docs/           design notes and plan (in Japanese)
 ```
@@ -104,6 +112,20 @@ scripts/run-qemu-test.sh rxv3-insns rxv3 rxv3e
 scripts/run-qemu-test.sh dfpu-insns rxv3 rxv3e
 scripts/run-qemu-test.sh rxv3e-insns rxv3e
 RX_CPU=rxv2 scripts/run-codegen-test.sh test/codegen/atomic.ll test/codegen/atomic_main.c
+```
+
+### On the board
+
+The instruction tests (RXv3 parts), the codegen tests (`llc -mcpu=rxv3`,
+-O0 and -O2) and core-smoke (`target-cpu=rxv3`) also run on an
+AP-RX72M-0A board through an E2 Lite and the GDB server of Renesas
+e² studio, on Windows. The board needs JSW3 = SGL and JSW2 = SCI.
+[`docs/NOTES-hw.md`](docs/NOTES-hw.md) has the setup, the server's
+quirks and the last results.
+
+```sh
+scripts/hw-build.sh       # in WSL: build the tests into build/hw
+scripts/hw-run.sh         # in Git Bash on Windows: run them on the board
 ```
 
 ## Writing a program
