@@ -53,6 +53,8 @@ CMT、ICU を操作し、CMT0 の割り込みと critical_section::with を確�
   `into_pull_up_input`。`InputPin`（PIDR、どのモードでも）、`OutputPin` / `StatefulOutputPin`（PODR）。
   ポートのレジスタは全ポート同じ並びなので、アドレスで直接扱う。同じレジスタの読み書きは critical-section の中。
   周辺機能の端子設定（MPC の PFS）は、それを使うドライバで扱う。
+  P35（NMI）は入力専用（PDR / PODR / PMR / PCR のビットがない）なので、`into_*` は `IoCapable`（P35 以外の
+  136 本に実装）を持つ端子だけにあり、P35 は `InputPin` としてだけ使える（P35 の `into_*` はコンパイルエラー）。
 
 確認: test/rust/hw-hal（ボード、rt グループ、17 チェック、release / dev とも通る）。
 - PLL 240 MHz への切り替え後のレジスタ（CKSEL、MOOVF / PLOVF、MEMWAIT、STC、MODRV2、SCKCR）。

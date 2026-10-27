@@ -7,6 +7,9 @@
 //! (PCR = 1). Every mode is a general I/O port (PMR = 0); the peripheral
 //! functions (MPC PFS) are for the drivers that need them.
 //!
+//! P35 (NMI) is input only: it has no PDR, PODR, PMR or PCR bit, so it has
+//! no `into_*` (they need [`IoCapable`]) and is only an `InputPin`.
+//!
 //! The port registers have the same layout for every port (PDR at
 //! 0x8C000 + port, PODR + 0x20, PIDR + 0x40, PMR + 0x60, PCR + 0xC0), so the
 //! pins use that layout directly. Bits of the same port register are
@@ -50,11 +53,24 @@ fn modify(base: usize, p: usize, bit: u8, set: bool) {
     });
 }
 
+/// Implemented (for `()`) for the pins that can be outputs and have a
+/// pull-up: every pin but P35.
+pub trait IoCapable<const P: usize, const N: u8> {}
+
 impl<const P: usize, const N: u8, MODE> Pin<P, N, MODE> {
     const fn new() -> Self {
         Pin { _mode: PhantomData }
     }
 
+    fn pin_is_high(&self) -> bool {
+        read(PIDR, P) & 1 << N != 0
+    }
+}
+
+impl<const P: usize, const N: u8, MODE> Pin<P, N, MODE>
+where
+    (): IoCapable<P, N>,
+{
     /// Push-pull output, starting at `high` (PODR is set before PDR).
     pub fn into_output(self, high: bool) -> Pin<P, N, Output> {
         modify(PMR, P, N, false);
@@ -83,10 +99,6 @@ impl<const P: usize, const N: u8, MODE> Pin<P, N, MODE> {
         modify(PDR, P, N, false);
         modify(PCR, P, N, true);
         Pin::new()
-    }
-
-    fn pin_is_high(&self) -> bool {
-        read(PIDR, P) & 1 << N != 0
     }
 }
 
@@ -312,3 +324,141 @@ parts! {
     pj3: 0x12, 3;
     pj5: 0x12, 5;
 }
+
+// Every pin but P35 (input only).
+impl IoCapable<0x00, 0> for () {}
+impl IoCapable<0x00, 1> for () {}
+impl IoCapable<0x00, 2> for () {}
+impl IoCapable<0x00, 3> for () {}
+impl IoCapable<0x00, 5> for () {}
+impl IoCapable<0x00, 7> for () {}
+impl IoCapable<0x01, 0> for () {}
+impl IoCapable<0x01, 1> for () {}
+impl IoCapable<0x01, 2> for () {}
+impl IoCapable<0x01, 3> for () {}
+impl IoCapable<0x01, 4> for () {}
+impl IoCapable<0x01, 5> for () {}
+impl IoCapable<0x01, 6> for () {}
+impl IoCapable<0x01, 7> for () {}
+impl IoCapable<0x02, 0> for () {}
+impl IoCapable<0x02, 1> for () {}
+impl IoCapable<0x02, 2> for () {}
+impl IoCapable<0x02, 3> for () {}
+impl IoCapable<0x02, 4> for () {}
+impl IoCapable<0x02, 5> for () {}
+impl IoCapable<0x02, 6> for () {}
+impl IoCapable<0x02, 7> for () {}
+impl IoCapable<0x03, 0> for () {}
+impl IoCapable<0x03, 1> for () {}
+impl IoCapable<0x03, 2> for () {}
+impl IoCapable<0x03, 3> for () {}
+impl IoCapable<0x03, 4> for () {}
+impl IoCapable<0x03, 6> for () {}
+impl IoCapable<0x03, 7> for () {}
+impl IoCapable<0x04, 0> for () {}
+impl IoCapable<0x04, 1> for () {}
+impl IoCapable<0x04, 2> for () {}
+impl IoCapable<0x04, 3> for () {}
+impl IoCapable<0x04, 4> for () {}
+impl IoCapable<0x04, 5> for () {}
+impl IoCapable<0x04, 6> for () {}
+impl IoCapable<0x04, 7> for () {}
+impl IoCapable<0x05, 0> for () {}
+impl IoCapable<0x05, 1> for () {}
+impl IoCapable<0x05, 2> for () {}
+impl IoCapable<0x05, 3> for () {}
+impl IoCapable<0x05, 4> for () {}
+impl IoCapable<0x05, 5> for () {}
+impl IoCapable<0x05, 6> for () {}
+impl IoCapable<0x05, 7> for () {}
+impl IoCapable<0x06, 0> for () {}
+impl IoCapable<0x06, 1> for () {}
+impl IoCapable<0x06, 2> for () {}
+impl IoCapable<0x06, 3> for () {}
+impl IoCapable<0x06, 4> for () {}
+impl IoCapable<0x06, 5> for () {}
+impl IoCapable<0x06, 6> for () {}
+impl IoCapable<0x06, 7> for () {}
+impl IoCapable<0x07, 0> for () {}
+impl IoCapable<0x07, 1> for () {}
+impl IoCapable<0x07, 2> for () {}
+impl IoCapable<0x07, 3> for () {}
+impl IoCapable<0x07, 4> for () {}
+impl IoCapable<0x07, 5> for () {}
+impl IoCapable<0x07, 6> for () {}
+impl IoCapable<0x07, 7> for () {}
+impl IoCapable<0x08, 0> for () {}
+impl IoCapable<0x08, 1> for () {}
+impl IoCapable<0x08, 2> for () {}
+impl IoCapable<0x08, 3> for () {}
+impl IoCapable<0x08, 4> for () {}
+impl IoCapable<0x08, 5> for () {}
+impl IoCapable<0x08, 6> for () {}
+impl IoCapable<0x08, 7> for () {}
+impl IoCapable<0x09, 0> for () {}
+impl IoCapable<0x09, 1> for () {}
+impl IoCapable<0x09, 2> for () {}
+impl IoCapable<0x09, 3> for () {}
+impl IoCapable<0x09, 4> for () {}
+impl IoCapable<0x09, 5> for () {}
+impl IoCapable<0x09, 6> for () {}
+impl IoCapable<0x09, 7> for () {}
+impl IoCapable<0x0a, 0> for () {}
+impl IoCapable<0x0a, 1> for () {}
+impl IoCapable<0x0a, 2> for () {}
+impl IoCapable<0x0a, 3> for () {}
+impl IoCapable<0x0a, 4> for () {}
+impl IoCapable<0x0a, 5> for () {}
+impl IoCapable<0x0a, 6> for () {}
+impl IoCapable<0x0a, 7> for () {}
+impl IoCapable<0x0b, 0> for () {}
+impl IoCapable<0x0b, 1> for () {}
+impl IoCapable<0x0b, 2> for () {}
+impl IoCapable<0x0b, 3> for () {}
+impl IoCapable<0x0b, 4> for () {}
+impl IoCapable<0x0b, 5> for () {}
+impl IoCapable<0x0b, 6> for () {}
+impl IoCapable<0x0b, 7> for () {}
+impl IoCapable<0x0c, 0> for () {}
+impl IoCapable<0x0c, 1> for () {}
+impl IoCapable<0x0c, 2> for () {}
+impl IoCapable<0x0c, 3> for () {}
+impl IoCapable<0x0c, 4> for () {}
+impl IoCapable<0x0c, 5> for () {}
+impl IoCapable<0x0c, 6> for () {}
+impl IoCapable<0x0c, 7> for () {}
+impl IoCapable<0x0d, 0> for () {}
+impl IoCapable<0x0d, 1> for () {}
+impl IoCapable<0x0d, 2> for () {}
+impl IoCapable<0x0d, 3> for () {}
+impl IoCapable<0x0d, 4> for () {}
+impl IoCapable<0x0d, 5> for () {}
+impl IoCapable<0x0d, 6> for () {}
+impl IoCapable<0x0d, 7> for () {}
+impl IoCapable<0x0e, 0> for () {}
+impl IoCapable<0x0e, 1> for () {}
+impl IoCapable<0x0e, 2> for () {}
+impl IoCapable<0x0e, 3> for () {}
+impl IoCapable<0x0e, 4> for () {}
+impl IoCapable<0x0e, 5> for () {}
+impl IoCapable<0x0e, 6> for () {}
+impl IoCapable<0x0e, 7> for () {}
+impl IoCapable<0x0f, 0> for () {}
+impl IoCapable<0x0f, 1> for () {}
+impl IoCapable<0x0f, 2> for () {}
+impl IoCapable<0x0f, 3> for () {}
+impl IoCapable<0x0f, 4> for () {}
+impl IoCapable<0x0f, 5> for () {}
+impl IoCapable<0x10, 0> for () {}
+impl IoCapable<0x10, 1> for () {}
+impl IoCapable<0x10, 2> for () {}
+impl IoCapable<0x10, 3> for () {}
+impl IoCapable<0x10, 4> for () {}
+impl IoCapable<0x10, 5> for () {}
+impl IoCapable<0x10, 6> for () {}
+impl IoCapable<0x10, 7> for () {}
+impl IoCapable<0x12, 0> for () {}
+impl IoCapable<0x12, 1> for () {}
+impl IoCapable<0x12, 2> for () {}
+impl IoCapable<0x12, 3> for () {}
+impl IoCapable<0x12, 5> for () {}
