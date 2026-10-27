@@ -11,7 +11,7 @@
 #   rust     test/rust/core-smoke (target-cpu=rxv3,  -> build/hw/rust
 #            release / dev), in RAM
 #   rt       rx-rt applications, test/rust/isr-save,    -> build/hw/rt
-#            hw-irq, hw-pac and hw-hal (target-cpu=rxv3, release / dev), in the code
+#            hw-irq, hw-pac, hw-hal, hw-uart (target-cpu=rxv3, release / dev), in the code
 #            flash with test/hw/rx72m-memory.x, booted from the reset vector
 #
 # Each NAME.elf gets a NAME.sym with the symbols the runner needs. The
@@ -30,7 +30,7 @@ defs=(--defsym V2=1 --defsym V3=1 --defsym V3E=0 --defsym FPU=1 --defsym DFPU=1)
 
 # sym ELF: write the runner's symbols next to the ELF
 sym() {
-  "$G/rx-elf-nm" "$1" | grep -E ' _(start|rx_reset|done|checks|failures|first_failure|got_value|want_value|exit_code|finished|faillog)$' > "${1%.elf}.sym"
+  "$G/rx-elf-nm" "$1" | grep -E ' _(start|rx_reset|done|checks|failures|first_failure|got_value|want_value|exit_code|finished|faillog|loopback)$' > "${1%.elf}.sym"
 }
 
 # insn_tests DIR START LDSCRIPT NAME...: instruction tests from test/qemu
@@ -97,7 +97,7 @@ for g in "${groups[@]}"; do
     rt)
       d=$out/rt; mkdir -p "$d"
       host=x86_64-unknown-linux-gnu
-      for crate in isr-save hw-irq hw-pac hw-hal; do
+      for crate in isr-save hw-irq hw-pac hw-hal hw-uart; do
         for profile in release dev; do
           # RUSTFLAGS replaces the crate's rustflags (isr-save's are for QEMU's
           # rx62n), so it gives the linker script too.

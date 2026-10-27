@@ -1,0 +1,32 @@
+[package]
+name = "hw-uart"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rx-rt = { path = "../../../crates/rx-rt", features = ["critical-section"] }
+embedded-io = { git = "https://github.com/CDEF-inc/embedded-hal", rev = "41f29f6bfced1cae0cbe712ba96ee32c075b3125" }
+rx72m-hal = { path = "../../../crates/rx72m-hal" }
+embedded-hal = { git = "https://github.com/CDEF-inc/embedded-hal", rev = "41f29f6bfced1cae0cbe712ba96ee32c075b3125" }
+
+[[bin]]
+name = "hw-uart"
+test = false
+bench = false
+
+[profile.release]
+opt-level = "s"
+debug = true
+
+[profile.dev]
+opt-level = 1
+
+# The generated PAC is about 23 MB of source: with debug info rustc takes
+# over ten minutes on it, without it about half a minute.
+[profile.release.package.rx72m-pac]
+debug = false
+
+[profile.dev.package.rx72m-pac]
+debug = false
+opt-level = "s"

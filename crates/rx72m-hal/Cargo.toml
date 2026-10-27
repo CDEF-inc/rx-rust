@@ -15,3 +15,4 @@ rx72m-pac = { path = "../rx72m-pac", features = ["critical-section"] }
 critical-section = "1.2"
 # CDEF-inc's fork of rust-embedded/embedded-hal (the same as upstream 1.0).
 embedded-hal = { git = "https://github.com/CDEF-inc/embedded-hal", rev = "41f29f6bfced1cae0cbe712ba96ee32c075b3125" }
+embedded-io = { git = "https://github.com/CDEF-inc/embedded-hal", rev = "41f29f6bfced1cae0cbe712ba96ee32c075b3125" }

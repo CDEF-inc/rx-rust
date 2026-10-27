@@ -53,6 +53,7 @@ CMT、ICU を操作し、CMT0 の割り込みと critical_section::with を確�
   `into_pull_up_input`。`InputPin`（PIDR、どのモードでも）、`OutputPin` / `StatefulOutputPin`（PODR）。
   ポートのレジスタは全ポート同じ並びなので、アドレスで直接扱う。同じレジスタの読み書きは critical-section の中。
   周辺機能の端子設定（MPC の PFS）は、それを使うドライバで扱う。
+  `into_function(psel)` は MPC の PFS.PSEL を書き（PWPR の B0WI = 0、PFSWE = 1 で保護を外して戻す）、PMR = 1 にする。
   P35（NMI）は入力専用（PDR / PODR / PMR / PCR のビットがない）なので、`into_*` は `IoCapable`（P35 以外の
   136 本に実装）を持つ端子だけにあり、P35 は `InputPin` としてだけ使える（P35 の `into_*` はコンパイルエラー）。
 
@@ -64,11 +65,25 @@ CMT、ICU を操作し、CMT0 の割り込みと critical_section::with を確�
 - LD1 / LD2（PJ0 / PJ1）の出力と読み返し、PJ5（拡張コネクタだけにつながる）のプルアップ。
 - PLL のまま終わったあとに書き込んだテスト（LOCO で動くもの）も通る（hw-run.sh の書き込み後のリセットで戻る）。
 
+- `delay`: `Delay::new(p.cmt2, &clocks)`。CMT2（ユニット 1、MSTPCRA.MSTPA14）を PCLKB / 8 で回し続け
+  （CMCOR = FFFFh）、CMCNT の差分で待つ `DelayNs`。CMT0 / CMT1 はアプリケーション用に空けておく。
+- `serial`: `Serial::sci2(p.sci2, pins.p13, pins.p12, 115_200, &clocks)`。SCI2（MSTPCRB.MSTPB29）を CN8 の
+  P13 = TXD2 / P12 = RXD2（PSEL 0Ah）で、8N1 の UART にする。ボーレートは SMR.CKS、SEMR.ABCS / BGDM、BRR から
+  誤差の最も小さい組み合わせ（PCLKB 60 MHz で 115200 bps: ABCS = BGDM = 1、BRR = 64、115385 bps、+0.16%）。
+  `embedded-io` の Read / Write / ReadReady / WriteReady。送受信の待ちは、Renesas の FIT ドライバと同じく SSR の
+  bit 7 / 6 ではなく、TIE / RIE を立てて（ICU の割り込みは許可しない）IR063（TXI2）/ IR062（RXI2）を見る。
+  RXD2 は内蔵プルアップを入れる（CN8 に何もつながっていないと RXD が浮いて FER が立つ。プルアップなしで SSR = 94h だった）。
+
+確認: test/rust/hw-uart（ボード、rt グループ、13 チェック、release / dev とも通る）。
+- `delay_ms(5)` / `delay_us(100)` / `delay_ns(1000)` を CMT0（同じ PCLKB / 8）で計る: 37500 / 750 / 8 カウント以上で、
+  余分はわずか。
+- MPC: P12PFS / P13PFS の PSEL = 0Ah、PMR。TE と TIE を立てると IR063 だけが立つ（TXI2 はベクタ 63）。
+- 1 行送って TEND。0 を送っている間に TXD（P13 の PIDR）が Low になり、終われば High（PSEL 0Ah で TXD2 が P13 に出る）。
+- 受信エラーなし（RXD のプルアップ）。CN8 の 1・2 番（RXD・TXD）をつなぐと送った 6 バイトが戻ることを確かめる
+  （つないでいないので `loopback=0`、受信と RXI2 = ベクタ 62 はまだ実機で確かめていない）。
+
 ## 予定
 
-1. ~~クロック設定~~、~~GPIO~~（2026-10-28）
-2. MPC（PFS）の端子機能の設定
-3. 遅延（`DelayNs`、CMT または CMTW）
-4. UART（SCI2、`embedded-io` の Read / Write、`embedded-hal-nb` の serial）。CN8 の折り返しで確かめる
-5. SPI（RSPI）、I2C（RIIC）、PWM（MTU / GPTW）、ADC（S12AD）
-6. 必要なら async（embassy の time driver を CMT で）
+1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）。UART の受信は CN8 の折り返しで確かめる
+2. SPI（RSPI）、I2C（RIIC）、PWM（MTU / GPTW）、ADC（S12AD）
+3. 必要なら async（embassy の time driver を CMT で）、embedded-hal-nb の serial

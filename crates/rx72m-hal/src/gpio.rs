@@ -4,8 +4,8 @@
 //! AP-RX72M-0A manual's I/O tables: ports 0-9, A-G and J) once, as a
 //! [`Pin`] in [`Input`] mode, the state after reset. A pin changes mode with
 //! `into_*`: [`Output`] (push-pull, PDR = 1), [`Input`] or [`PullUpInput`]
-//! (PCR = 1). Every mode is a general I/O port (PMR = 0); the peripheral
-//! functions (MPC PFS) are for the drivers that need them.
+//! (PCR = 1), all general I/O port modes (PMR = 0), or [`Function`]
+//! (`into_function(psel)`: MPC PFS.PSEL, PMR = 1) for a peripheral.
 //!
 //! P35 (NMI) is input only: it has no PDR, PODR, PMR or PCR bit, so it has
 //! no `into_*` (they need [`IoCapable`]) and is only an `InputPin`.
@@ -34,6 +34,11 @@ pub struct Input;
 pub struct PullUpInput;
 /// Push-pull output (PDR = 1).
 pub struct Output;
+/// A peripheral function (PMR = 1, the function chosen by PFS.PSEL).
+pub struct Function;
+
+const PWPR: *mut u8 = 0x0008_c11f as _;
+const PFS: usize = 0x0008_c140;
 
 /// Pin `N` of port `P` (port numbers as in the register addresses: 0-9,
 /// 0x0A-0x10 for A-G, 0x12 for J).
@@ -99,6 +104,31 @@ where
         modify(PDR, P, N, false);
         modify(PCR, P, N, true);
         Pin::new()
+    }
+
+    /// A peripheral function: PMR = 0, PFS.PSEL = `psel` (through the
+    /// PWPR write protection: B0WI = 0, PFSWE = 1, then back), PMR = 1.
+    /// The PSEL values are in the hardware manual's MPC chapter; the drivers
+    /// in this crate set their own pins.
+    pub fn into_function(self, psel: u8) -> Pin<P, N, Function> {
+        assert!(psel < 64);
+        modify(PMR, P, N, false);
+        critical_section::with(|_| unsafe {
+            write_volatile(PWPR, 0x00);
+            write_volatile(PWPR, 0x40);
+            write_volatile((PFS + P * 8 + N as usize) as *mut u8, psel);
+            write_volatile(PWPR, 0x00);
+            write_volatile(PWPR, 0x80);
+        });
+        modify(PMR, P, N, true);
+        Pin::new()
+    }
+}
+
+impl<const P: usize, const N: u8> Pin<P, N, Function> {
+    /// PFS.PSEL of the pin.
+    pub fn psel(&self) -> u8 {
+        unsafe { read_volatile((PFS + P * 8 + N as usize) as *const u8) & 0x3f }
     }
 }
 

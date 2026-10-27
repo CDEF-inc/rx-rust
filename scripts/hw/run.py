@@ -71,6 +71,9 @@ def run(r, elf, seconds):
     if v["failures"]:
         first = " first=%d got=%#x want=%#x" % (
             v["first_failure"], v["got_value"], v["want_value"])
+    # hw-uart: whether CN8's RXD / TXD were found wired together
+    if "loopback" in syms:
+        first += " loopback=%d" % r.word(syms["loopback"])
     print("[%s/rx72m] checks=%d failures=%d%s (%.1f s)"
           % (name, v["checks"], v["failures"], first, el))
     if "faillog" in syms and v["failures"]:
