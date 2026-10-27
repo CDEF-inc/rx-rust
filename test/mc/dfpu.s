@@ -31,13 +31,18 @@ dmov.l drl9, r10
 dmov.l drh15, r0
 dmov.d dr1, [r2]
 dmov.d dr1, 0[r2]
-dmov.d dr3, 8[r4]
-dmov.d dr3, 2040[r4]
-dmov.d dr5, 2048[r6]
-dmov.d dr5, 524280[r6]
+# dmov.d scales dsp by 4, not 8 as the manual's note says (RX72M and
+# Renesas CC-RX; GNU as follows the manual): bytes from CC-RX V3.08
+dmov.d dr3, 4[r4]  ; bytes: fc 79 48 01 30
+dmov.d dr3, 8[r4]  ; bytes: fc 79 48 02 30
+dmov.d dr3, 1020[r4]  ; bytes: fc 79 48 ff 30
+dmov.d dr5, 1024[r6]  ; bytes: fc 7a 68 00 01 50
+dmov.d dr5, 262140[r6]  ; bytes: fc 7a 68 ff ff 50
 dmov.d [r7], dr8
-dmov.d 16[r7], dr8
-dmov.d 4096[r9], dr10
+dmov.d 16[r7], dr8  ; bytes: fc c9 78 04 80
+dmov.d 1020[r7], dr8  ; bytes: fc c9 78 ff 80
+dmov.d 4096[r9], dr10  ; bytes: fc ca 98 00 04 a0
+dmov.d 262140[r9], dr10  ; bytes: fc ca 98 ff ff a0
 dmov.d #0, drh1
 dmov.d #0x3ff00000, drh2
 dmov.l #0x12345678, drh3
