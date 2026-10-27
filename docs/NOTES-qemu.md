@@ -245,8 +245,8 @@ MCPU=rxv3 QEMU_CPU=rxv3 scripts/run-codegen-test.sh test/codegen/dfpu.ll test/co
 （WINTB、BITW、BWINM）、secure 例外、IVC.NSIC（non-secure で優先度 16 以上の割り込みを I = 0 でも受ける。
 RX62N の ICU は優先度 15 まで）、WPRI の割り込み判定への反映。
 
-llvm-mc はまだ RXv3e の命令（trcall / trrte / trmvfc / trmvtc / int Rs / 5 ビットの mvtipl）と IVC / WID / WPRI /
-TRCTB / WINTB を受け付けないので、テストはバイト列で書いている。
+RXv3e の命令（trcall / trrte / trmvfc / trmvtc / int Rs / 5 ビットの mvtipl）と IVC / WID / WPRI / TRCTB / WINTB は
+llvm-mc（`-mcpu=rxv3e`）でアセンブルする。
 
 テスト: `scripts/run-qemu-test.sh rxv3e-insns rxv3e`（43 チェック）
 
