@@ -79,6 +79,8 @@ for cpu in "${cpus[@]}"; do
     run "$cpu rust core-smoke $p" env PROFILE=$p bash "$S/run-rust-test.sh"
     run "$cpu rust qemu-demo $p" env PROFILE=$p bash "$S/run-rust-rom.sh"
     run "$cpu rust isr-save $p" env PROFILE=$p bash "$S/run-rust-rom.sh" "$root/test/rust/isr-save"
+    run "$cpu rust hw-irq $p" env PROFILE=$p RX_MEMORY_X="$root/test/rust/qemu-demo/memory.x" \
+      bash "$S/run-rust-rom.sh" "$root/test/rust/hw-irq"
   done
 done
 

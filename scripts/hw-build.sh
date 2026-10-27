@@ -2,7 +2,7 @@
 # Builds the tests for the RX72M (AP-RX72M-0A board: RXv3 with the FPU and
 # the DFPU) into build/hw, for scripts/hw-run.sh to run on the board.
 #
-#   hw-build.sh [insns] [rom] [codegen] [rust]     default: all four
+#   hw-build.sh [insns] [rom] [codegen] [rust] [rt]     default: all five
 #
 #   insns    test/qemu instruction tests, in RAM       -> build/hw/insns
 #   rom      rxv2-insns, in the code flash (it moves   -> build/hw/rom
@@ -10,6 +10,9 @@
 #   codegen  test/codegen (llc -mcpu=rxv3, -O0 / -O2), in RAM -> build/hw/codegen
 #   rust     test/rust/core-smoke (target-cpu=rxv3,  -> build/hw/rust
 #            release / dev), in RAM
+#   rt       rx-rt applications, test/rust/isr-save and -> build/hw/rt
+#            test/rust/hw-irq (target-cpu=rxv3, release / dev), in the code
+#            flash with test/hw/rx72m-memory.x, booted from the reset vector
 #
 # Each NAME.elf gets a NAME.sym with the symbols the runner needs. The
 # start-up code, harness and linker scripts are in test/hw.
@@ -19,7 +22,7 @@ G=$root/gnu/install/bin
 MC=$root/build/llvm/bin/llvm-mc
 T=$root/test/hw
 out=$root/build/hw
-groups=("$@"); [ ${#groups[@]} -gt 0 ] || groups=(insns rom codegen rust)
+groups=("$@"); [ ${#groups[@]} -gt 0 ] || groups=(insns rom codegen rust rt)
 GCCFLAGS="-mcpu=rx600 -m64bit-doubles"
 libgcc=$("$G/rx-elf-gcc" $GCCFLAGS -print-libgcc-file-name)
 # The RX72M has the RXv2 and RXv3 instructions, the FPU and the DFPU.
@@ -27,7 +30,7 @@ defs=(--defsym V2=1 --defsym V3=1 --defsym V3E=0 --defsym FPU=1 --defsym DFPU=1)
 
 # sym ELF: write the runner's symbols next to the ELF
 sym() {
-  "$G/rx-elf-nm" "$1" | grep -E ' _(start|done|checks|failures|first_failure|got_value|want_value|exit_code|finished|faillog)$' > "${1%.elf}.sym"
+  "$G/rx-elf-nm" "$1" | grep -E ' _(start|rx_reset|done|checks|failures|first_failure|got_value|want_value|exit_code|finished|faillog)$' > "${1%.elf}.sym"
 }
 
 # insn_tests DIR START LDSCRIPT NAME...: instruction tests from test/qemu
@@ -91,8 +94,27 @@ for g in "${groups[@]}"; do
         sym "$d/core-smoke-$profile.elf"
         echo "built $d/core-smoke-$profile.elf"
       done ;;
+    rt)
+      d=$out/rt; mkdir -p "$d"
+      host=x86_64-unknown-linux-gnu
+      for crate in isr-save hw-irq; do
+        for profile in release dev; do
+          # RUSTFLAGS replaces the crate's rustflags (isr-save's are for QEMU's
+          # rx62n), so it gives the linker script too.
+          (cd "$root/test/rust/$crate" &&
+           RUSTC=$root/rust/build/$host/stage1/bin/rustc RUSTC_BOOTSTRAP=1 \
+           RUSTFLAGS="-C link-arg=-Tlink.x -C target-cpu=rxv3" \
+           RX_MEMORY_X=$T/rx72m-memory.x PATH=$G:$PATH \
+           "$root/rust/build/$host/stage0/bin/cargo" build -q --profile "$profile" \
+             --target-dir "$root/build/hw/rt-target")
+          cp "$root/build/hw/rt-target/rx-none-elf/$([ "$profile" = dev ] && echo debug || echo "$profile")/$crate" \
+            "$d/$crate-$profile.elf"
+          sym "$d/$crate-$profile.elf"
+          echo "built $d/$crate-$profile.elf"
+        done
+      done ;;
     *)
-      echo "unknown group $g (insns, rom, codegen, rust)" >&2
+      echo "unknown group $g (insns, rom, codegen, rust, rt)" >&2
       exit 2 ;;
   esac
 done

@@ -13,7 +13,7 @@ AP-RX72M-0A board): the instruction, codegen and Rust tests pass on both
 |---|---|---|
 | LLVM RX backend (MC layer, CodeGen) | [CDEF-inc/llvm-project](https://github.com/CDEF-inc/llvm-project/tree/rx/23.1) `rx/23.1` | RXv1 / RXv2 / RXv3 / RXv3e instructions, FPU, DSP, DFPU; object files match GNU as (and Renesas CC-RX where GNU as is wrong) |
 | rustc `rx-none-elf` target, callconv, `asm!` | [CDEF-inc/rust](https://github.com/CDEF-inc/rust/tree/rx-none-elf) `rx-none-elf` | `core` builds; tier 3 |
-| Startup code, vector tables, linker script | [`crates/rx-rt`](crates/rx-rt) | boots from the reset vector on QEMU |
+| Startup code, vector tables, linker script | [`crates/rx-rt`](crates/rx-rt) | boots from the reset vector and takes interrupts (peripheral, software, nested) on QEMU and the RX72M |
 | QEMU with RXv2 / RXv3 / RXv3e CPU models | [CDEF-inc/qemu](https://github.com/CDEF-inc/qemu/tree/rx/v11.1) `rx/v11.1` | RXv2 / RXv3 / RXv3e instructions, DFPU, Protect Zone (CPU side); instruction tests checked against an RX72M |
 | Build and test scripts, tests | [`scripts`](scripts), [`test`](test) | QEMU and the RX72M board |
 
@@ -38,8 +38,7 @@ What works:
   additions and the RXv3 double-precision FPU.
 
 Not yet:
-`alloc`/`std`, debug info checks, `rx-rt` and interrupts on real hardware
-(the board tests run with their own start-up code).
+`alloc`/`std`, debug info checks, peripheral drivers (HAL).
 
 ## Layout
 
@@ -101,6 +100,8 @@ RX_CPU=rxv3 scripts/run-codegen-test.sh test/codegen/dfpu.ll test/codegen/dfpu_m
 scripts/run-rust-test.sh                     # test/rust/core-smoke
 scripts/run-rust-rom.sh                      # test/rust/qemu-demo, boots a ROM image
 scripts/run-rust-rom.sh test/rust/isr-save   # FPSW / ACC / A1 / DFPU saved by interrupt entries
+# CMT interrupts; hw-irq is built for rxv3 (the RX72M), so give the QEMU core
+RX_CPU=rxv3 RX_MEMORY_X=$PWD/test/rust/qemu-demo/memory.x scripts/run-rust-rom.sh test/rust/hw-irq
 scripts/run-qemu-test.sh fcmp-flags rx62n rxv2 rxv3 rxv3e
 scripts/run-qemu-test.sh cpu-features rx62n rxv1 rxv2 rxv3 rxv3e
 scripts/run-qemu-test.sh fpu-status rx62n rxv2 rxv3 rxv3e
@@ -119,9 +120,10 @@ RX_CPU=rxv2 scripts/run-codegen-test.sh test/codegen/atomic.ll test/codegen/atom
 ### On the board
 
 The instruction tests (RXv3 parts), the codegen tests (`llc -mcpu=rxv3`,
--O0 and -O2) and core-smoke (`target-cpu=rxv3`) also run on an
-AP-RX72M-0A board through an E2 Lite and the GDB server of Renesas
-e² studio, on Windows. The board needs JSW3 = SGL and JSW2 = SCI.
+-O0 and -O2), core-smoke (`target-cpu=rxv3`) and the rx-rt interrupt tests
+(isr-save, and hw-irq with CMT interrupts, booted from the code flash) also
+run on an AP-RX72M-0A board through an E2 Lite and the GDB server of
+Renesas e² studio, on Windows. The board needs JSW3 = SGL and JSW2 = SCI.
 [`docs/NOTES-hw.md`](docs/NOTES-hw.md) has the setup, the server's
 quirks and the last results.
 

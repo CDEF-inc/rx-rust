@@ -1,0 +1,20 @@
+[package]
+name = "hw-irq"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rx-rt = { path = "../../../crates/rx-rt" }
+
+[[bin]]
+name = "hw-irq"
+test = false
+bench = false
+
+[profile.release]
+opt-level = "s"
+debug = true
+
+[profile.dev]
+opt-level = 1

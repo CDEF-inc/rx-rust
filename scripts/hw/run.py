@@ -47,7 +47,8 @@ def run(r, elf, seconds):
         launch(r)
         r.launched = True
     r.cmd("Z1,%x,1" % syms["done"])
-    if syms["start"] < 0xffc00000:
+    # rx-rt applications have no _start; they boot from the reset vector.
+    if syms.get("start", 0xffffffff) < 0xffc00000:
         r.setreg(PC, syms["start"])
     t0 = time.time()
     r.cmd("vCont;c")
@@ -58,7 +59,8 @@ def run(r, elf, seconds):
     el = time.time() - t0
     pc = r.getreg(PC)
     r.cmd("z1,%x,1" % syms["done"])
-    v = {k: r.word(syms[k]) for k in
+    # The Rust tests have no got_value / want_value.
+    v = {k: r.word(syms[k]) if k in syms else 0 for k in
          ("finished", "checks", "failures", "first_failure",
           "got_value", "want_value")}
     if v["finished"] != 1:

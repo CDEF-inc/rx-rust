@@ -34,7 +34,7 @@ scripts/hw-run.sh build/hw/insns/dsp-v2.elf        # 1 本だけ
 
 出力は 1 テスト 1 行で、QEMU の `qemu-run.sh` と同じ変数（checks、failures、失敗があれば
 first_failure、got、want）と実行時間を表示し、最後に `== N passed, M failed` を出す。
-全 26 本で約 1 分 20 秒（書き込みを含む。実行時間は 1 本 5 秒以内）。失敗した命令テストは、
+全 31 本で約 1 分 30 秒（書き込みを含む。実行時間は 1 本 5 秒以内）。失敗した命令テストは、
 `build/hw/insns/NAME.fail` に失敗したチェックの番号・値・`bsr.a _check` のアドレスを最大 64 件書く。
 
 | グループ | 内容 | 配置 |
@@ -43,8 +43,21 @@ first_failure、got、want）と実行時間を表示し、最後に `== N passe
 | rom | rxv2-insns（EXTB を書き換えるので RAM 版の起動処理と両立しない） | コードフラッシュ、リセットベクタから起動 |
 | codegen | test/codegen の i32、m3、struct、atomic、fpu、dfpu、mem（`llc -mcpu=rxv3`、-O0 と -O2）と GCC でコンパイルした C ドライバ | RAM |
 | rust | test/rust/core-smoke（`-C target-cpu=rxv3`、release と dev） | RAM |
+| rt | rx-rt のアプリケーション: test/rust/isr-save（ソフトウェア割り込みで FPSW・A0/A1・DR0/DR1・DPSW/DCMR の退避を確かめる）と test/rust/hw-irq（CMT0/CMT1 の割り込み、`interrupt::free`、IPL によるマスク、多重割り込み）。`-C target-cpu=rxv3`、release と dev | コードフラッシュ（test/hw/rx72m-memory.x）、rx-rt の `_rx_reset` からリセット起動 |
 
 dsp-v1（RXv1 の DSP）と rxv3e-insns は RX72M の ISA と合わないので実行しない。
+
+rx-rt のアプリケーションは `_start` を持たないので、run.py はリセットベクタから走らせ、`main` の最後で
+呼ぶ `done` で止める（isr-save と hw-irq に `done` を置いた）。hw-irq は QEMU でも動く（CMT と ICU の該当
+レジスタのアドレスが RX62N と同じ。run-all-tests.sh は QEMU の memory.x を RX_MEMORY_X で渡す）。
+
+RX72M の割り込みで分かったこと:
+- CMI0 / CMI1（ベクタ 28 / 29）の優先度は IPR004 / IPR005（0x87304 / 0x87305）。IPR はベクタ番号ごと
+  （IPR028 = 0x8731C）ではなく、低いベクタでは周辺ごとに並ぶ（RX62N と同じ）。IPR が 0 だと IR が立っても
+  受け付けない。
+- CMT はリセット後モジュールストップ（MSTPCRA.MSTPA15）で、MSTPCRA は PRCR（A502h）で書き込みを許可してから書く。
+- CMCR の bit 7 はコンペアマッチで 1 になり（CMIE が 0 でも）、CMCR を書くまで残る（止めても残る）。1 は書けない。
+  QEMU にも入れた（test/qemu/cmt.s で確かめる）。
 
 ## ファイル
 
@@ -80,15 +93,16 @@ GDB は使わず、Python から直接リモートプロトコルを話す。e²
 
 ## 結果
 
-2026-10-28、rx-rust main（llvm-project ced046c、rust d482ce7）に test/qemu/cmt.s を足したもの。
-hw-run.sh で 26 本、計 35,416 チェックがすべて失敗 0。同日に足した memex-insns（59）も実機で失敗 0。
-QEMU（CMT を直した CDEF-inc/qemu）の run-all-tests.sh も 116 / 116。
+2026-10-28、rx-rust main（llvm-project 417e313、rust 534e54e）に rt グループと cmt の CMCR bit 7 の
+チェックを足したもの。hw-run.sh で 31 本、計 35,560 チェックがすべて失敗 0。
+QEMU（CMCR bit 7 を入れた CDEF-inc/qemu）の run-all-tests.sh も 126 / 126（hw-irq を含む）。
 
 | グループ | テスト | チェック数 |
 |---|---|---|
-| insns | cpu-features 59、fcmp-flags 9、fpu-status 29、rxv2-fpu 40、dsp-v2 1512、dfpu-insns 128、rxv3-insns 64、mem-insns 84、cmt 13、memex-insns 59 | 1997 |
+| insns | cpu-features 59、fcmp-flags 9、fpu-status 29、rxv2-fpu 40、dsp-v2 1512、dfpu-insns 128、rxv3-insns 64、mem-insns 84、cmt 18、memex-insns 59 | 2002 |
 | rom | rxv2-insns | 16 |
 | codegen（-O0 と -O2 のそれぞれ） | i32 4131、m3 3957、struct 142、atomic 1080、fpu 3110、dfpu 4000、mem 78 | 32996（2 回分） |
 | rust | core-smoke release 233、dev 233 | 466 |
+| rt | isr-save release 29、dev 29、hw-irq release 11、dev 11 | 80 |
 
 codegen と core-smoke のチェック数は QEMU のものと同じ。

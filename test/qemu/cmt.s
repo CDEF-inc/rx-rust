@@ -2,7 +2,8 @@
 ; the RX62N and the RX72M): register read-back, CMCNT counting and holding,
 ; and the compare match period. Run on every core (the peripherals are the
 ; RX62N's in QEMU). The expected values are the RX72M board's: only CKS and
-; CMIE of CMCR can be written, and a compare match comes every CMCOR + 1
+; CMIE of CMCR can be written (bit 7 reads as 1 after a compare match until
+; CMCR is written), and a compare match comes every CMCOR + 1
 ; counts (CMT1, started with CMT0, is 1000 ahead of CMT0 with CMCOR = 99
 ; after ten compare matches).
 	.include "harness.inc"
@@ -124,4 +125,29 @@ _main:
 	sub	r4, r5			; CMT1 - CMT0 = 10 periods, however
 	EXPECT	r8, 10			; late the last match was seen
 	EXPECT	r5, 1000
+
+	; --- CMCR bit 7 reads as 1 after a compare match, with or without
+	; CMIE, and stays so (also when stopped) until CMCR is written
+	movu.w	CMCR0[r10], r6
+	EXPECT	r6, 0x00c3
+	movu.w	CMCR1[r10], r6		; CMT1 did not reach CMCOR1
+	EXPECT	r6, 0x0003
+	mov.w	#0x0043, CMCR0[r10]
+	movu.w	CMCR0[r10], r6
+	EXPECT	r6, 0x0043
+	mov.w	#9, CMCOR1[r10]
+	mov.w	#0, CMCNT1[r10]
+	mov.w	#2, [r10]		; CMT1 alone, no CMIE
+	mov.l	#20000000, r9
+4:	sub	#1, r9
+	beq.b	5f
+	movu.w	CMCR1[r10], r6
+	btst	#7, r6
+	beq.b	4b
+5:	mov.w	#0, [r10]
+	movu.w	CMCR1[r10], r6
+	EXPECT	r6, 0x0083
+	mov.w	#0x0003, CMCR1[r10]
+	movu.w	CMCR1[r10], r6
+	EXPECT	r6, 0x0003
 	rts
