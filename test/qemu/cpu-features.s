@@ -55,6 +55,16 @@ _main:
 	TRAPS	0, xor r4, r5
 	TRAPS	1 - V3, save #0
 	TRAPS	1 - V3, rstr #0		; restores what save #0 stored
+	; double-precision FPU (the pushm / popm pair keeps the stack balanced)
+	TRAPS	1 - DFPU, dadd dr0, dr0, dr1
+	TRAPS	1 - DFPU, dmov.l r4, drl1
+	TRAPS	1 - DFPU, dmov.l #0, drl1
+	TRAPS	1 - DFPU, mvfdc dpsw, r5
+	TRAPS	1 - DFPU, itod r4, dr1
+	TRAPS	1 - DFPU, dpushm.d dr0-dr0
+	TRAPS	1 - DFPU, dpopm.d dr0-dr0
+	TRAPS	1 - DFPU, mvfdr
+	TRAPS	1, .byte 0xf8, 0x43, 0, 0, 0, 0	; mov #imm, [r4] with size 3
 	; mov.<size> has no size 3: the other codes next to movco / movli
 	TRAPS	1, .byte 0xfd, 0x23, 0x65	; mov rs, [rd+] with size 3
 	TRAPS	1, .byte 0xfd, 0x2b, 0x65	; mov [rs+], rd with size 3

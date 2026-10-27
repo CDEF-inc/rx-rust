@@ -20,6 +20,13 @@
 	bsr.a	_check
 	.endm
 
+; EXPECT_REG reg, wreg: check a register against another one.
+	.macro	EXPECT_REG reg, wreg
+	mov.l	\reg, r1
+	mov.l	\wreg, r2
+	bsr.a	_check
+	.endm
+
 ; EXPECT_FPSW want: check FPSW against a value.
 	.macro	EXPECT_FPSW want
 	mvfc	fpsw, r1

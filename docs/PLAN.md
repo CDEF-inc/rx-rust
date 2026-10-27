@@ -69,7 +69,7 @@
   fadd/fsub/fmul/fdiv/fsqrt/fcmp、int→float は itof/utof、それ以外はソフトフロート（issue #1）。
   fpu.ll 3110 チェック、core-smoke も `+fpu` で通過
 - [x] DFPU（RXv3）による f64 演算: nnan+ninf かつ非正規化数環境が preserve-sign の四則・平方根・比較と
-  int→double を DR0/DR1 経由の列に（issue #1）。命令列を dfpu.expected と照合（実行環境がないため未実行）
+  int→double を DR0/DR1 経由の列に（issue #1）。命令列を dfpu.expected と照合し、CDEF-inc/qemu の rxv3 で dfpu_main.c と実行（4000 チェック）
 
 ### M4 rustc 統合 ✅ 2026-10-23（詳細 `NOTES-rustc.md`）
 - [x] `rustc_llvm` に RX 初期化、bootstrap は外部 LLVM（build/llvm の llvm-config）

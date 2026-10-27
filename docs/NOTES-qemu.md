@@ -179,6 +179,38 @@ mvtachi の OR の仕様でもガードビットは最後の mvtacgu で正し�
   戻した FPSW の丸めモード（0 方向）で fdiv の結果が変わること、ユーザーモードで特権命令例外（ベクタ 20）になること。
 - harness に特権命令例外のハンドラを追加（r13 = 4）。`cpu-features` に RXv3 の命令が RXv2 以前でトラップすることを追加。
 
+## 倍精度 FPU（Q5）
+
+- `dfpu`（rxv3 / rxv3e の既定）のコア: DR0〜DR15（64bit）、制御レジスタ DPSW / DCMR / DECNT / DEPC（DCR0〜3）、21 命令。
+- 符号はマニュアル 4 章と LLVM（GNU as は ftod / itod / utod / mvtdc のレジスタ欄を入れ替えて出す）:
+  演算 `76 90`、汎用レジスタとの転送 `fd 77` / `fd 75`、メモリ `fc 78〜7a` / `fc c8〜ca`（dsp の後に DR 番号のバイト、
+  dsp は 8 倍）、即値 `f9 03`（`mov #imm, dsp8[rd]` のサイズ 3 の位置。QEMU の mov はサイズ 3 を 64bit の
+  ストアとして実行していたので未定義にした）、dpushm / dpopm `75 a0〜b8`、mvfdr `75 90 1b`。
+- 演算はマニュアルの Operation のとおり（dest = src2 op src、DCMPcm は RES = src2 cm src、MVFDR は Z = RES）。
+  DPSW は FPSW と同じ配置で、例外の扱いも同じ（DDN、cause / flag、無効演算の結果 7FFFFFFFFFFFFFFFh、
+  NaN の整数変換は符号で決まる）。NaN の伝搬は表 1.14（SNaN を優先、次に src2）。
+- 例外: DEj = 1 の例外と未実装処理（DDN = 0 の非正規化数・アンダーフロー）では書き込み先を変えず、
+  DEPC に命令のアドレス、DECNT.EHM なら EHS = 1。EHM と EHS がともに 1 の間は DPSW / DEPC を更新しない。
+  マニュアルでは倍精度の例外は割り込みコントローラへの割り込み要求になるが、RX62N のボードには
+  その要求先がないので割り込みは起きない（ログだけ）。
+- dmov.l で上位 / 下位 32bit、dmov.d で上位に書くと下位は 0。dtoi / dtou / dround / dtof の上位 32bit は
+  マニュアルでは不定、QEMU では変えない。dpopm.l はそのまま書き込み（cause フラグも立つ）、
+  mvtdc は FPSW と同じく cause フラグは 0 にしかできず、DEPC は読み出し専用。
+
+テスト:
+
+```
+scripts/run-qemu-test.sh dfpu-insns rxv3 rxv3e                       # 119 チェック
+MCPU=rxv3 QEMU_CPU=rxv3 scripts/run-codegen-test.sh test/codegen/dfpu.ll test/codegen/dfpu_main.c
+```
+
+- dfpu-insns: dmov の全形式（メモリの dsp16 を含む）、四則・dsqrt、丸めモード（+ 方向、- 方向の x - x = -0）、
+  NaN の規則、dcmp と mvfdr、変換、dabs / dneg がフラグを変えないこと、DDN = 0 の未実装処理と DEPC / DECNT
+  （EHS 保持中は更新されない）、有効にした無効演算で書き込み先が変わらないこと、mvtdc / dpushm / dpopm。
+- dfpu.ll（LLVM が出す DFPU の列）を dfpu_main.c（GCC のソフトウェア浮動小数点の double と比較）で実行:
+  4000 チェックが -O0〜-O3 で通る。GNU as 経由のビルドでは ftod / itod / utod のレジスタを入れ替えて渡す
+  （check-dfpu.sh と同じ）。DFPU のないコア（rx62n、`-cpu rxv3,dfpu=off`）では DFPU の命令がトラップする。
+
 ## 予定
 
 | ステップ | 内容 |
