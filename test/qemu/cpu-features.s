@@ -34,6 +34,20 @@ _main:
 	TRAPS	1 - (V2 & FPU), fsqrt r4, r5
 	TRAPS	1 - (V2 & FPU), ftou r4, r5
 	TRAPS	1 - (V2 & FPU), utof r4, r5
+	; RXv2 DSP: A1, the shift of mvfac* and the new instructions
+	TRAPS	0, mulhi r4, r5, a0
+	TRAPS	1 - V2, mulhi r4, r5, a1
+	TRAPS	1 - V2, mullh r4, r5, a0
+	TRAPS	1 - V2, emaca r4, r5, a0
+	TRAPS	1 - V2, msbhi r4, r5, a0
+	TRAPS	0, mvfachi #0, a0, r5
+	TRAPS	1 - V2, mvfachi #1, a0, r5
+	TRAPS	1 - V2, mvfaclo #0, a0, r5
+	TRAPS	1 - V2, mvtacgu r4, a0
+	TRAPS	0, racw #2, a0
+	TRAPS	1 - V2, racl #1, a0
+	TRAPS	1 - V2, rdacw #1, a0
+	TRAPS	1, .byte 0xfd, 0x1e, 0x45	; mvfachi with shift 3
 	; mov.<size> has no size 3: the other codes next to movco / movli
 	TRAPS	1, .byte 0xfd, 0x23, 0x65	; mov rs, [rd+] with size 3
 	TRAPS	1, .byte 0xfd, 0x2b, 0x65	; mov [rs+], rd with size 3

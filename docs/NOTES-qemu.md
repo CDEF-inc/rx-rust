@@ -121,6 +121,43 @@ v11.1.2 では起きない。Q1 では回帰テスト（`fcmp-flags`）だけ加
 このバグは GCC がコンパイルしたテストドライバの float 比較の分岐も狂わせていたので、
 codegen テストのチェック数が変わる（m3 3964 → 3957、fpu 3141 → 3110。新しい値が手で数えた数と一致）。
 
+## RXv2 の DSP（Q3）
+
+- アキュムレータ: RXv2 以降は A0 / A1 の 2 本で 72bit（読むときは bit 71 を 96bit に符号拡張）、RXv1 は A0 だけで 64bit。
+  QEMU では Int128 に符号拡張して持ち、命令ごとに 72 / 64bit に切り詰める。
+- 符号（GNU as）: RXv1 の DSP 命令の 0 だったビットが A0 / A1 の選択で、RXv1 の形式は A0 の形式。
+  `mvfac*` のシフト量は 2 バイト目の bit 0（反転）と 3 バイト目の bit 6 に分かれる（3 は未定義）。
+- RXv2 で追加: emaca / emsba / emula、maclh / msbhi / msblh / msblo / mullh、mvfacgu / mvfaclo / mvtacgu、
+  racl / rdacl / rdacw。拡張（A1、mvfac* のシフト）: machi / maclo / mulhi / mullo、mvfachi / mvfacmi、
+  mvtachi / mvtaclo、racw。
+- 演算はマニュアルの Operation のとおり:
+  - mul*/mac*/msb*: 16bit × 16bit の積を bit 16 に置いて代入・加算・減算。em*a は 32bit × 32bit（シフトなし）。
+  - mvfac*: (A << #imm) を 72bit で切り詰め、bit 95/63/47/31 から 32bit を読む。
+  - mvtachi / mvtacgu: Operation は「該当フィールドを消してから、72bit に符号拡張した src をシフトして OR」。
+    mvtachi に負の値を書くとガードビットが全部 1 になる（正の値なら元のガードビットが残る）。mvtaclo はゼロ拡張。
+  - racw / racl: (A << #imm) + 80000000h を語 / 長語に飽和し、下位 32bit を 0 にする。rdacw / rdacl は丸めの加算なし。
+    マニュアルの Operation では最後に丸める前の tmp をマスクしていて、そのままだと丸めは飽和の判定にしか効かない。
+    命令名（round）と RXv1 の racw に合わせて、丸めた値をマスクする実装にした（実機で確認したい点）。
+- 既存の QEMU の誤り: racw のシフト量が 1 多かった（translate で imm + 1 にした値をヘルパーでさらに +1）。
+  QEMU 8.2.2 で dsp-v1 を動かすと racw の最初のケースから失敗する。
+
+テスト: `test/qemu/gen-dsp.py` がマニュアルの Operation を Python で書いたモデルから期待値を作り、
+`dsp-v1.s`（RXv1: A0、64bit）と `dsp-v2.s`（A0 / A1、72bit）を生成する（生成物もコミットしている）。
+
+```
+python3 test/qemu/gen-dsp.py test/qemu                    # 生成し直すとき
+scripts/run-qemu-test.sh dsp-v1 rx62n rxv1                # 266 チェック
+scripts/run-qemu-test.sh dsp-v2 rxv2 rxv3 rxv3e           # 1512 チェック
+```
+
+- 積・積和・積差（12 命令 × 8 組の値、A0 / A1 交互、もう一方のアキュムレータが変わらないこと）、
+  mvfac* のシフト 0〜2、mvtac*（ガードビットが立った状態に正負の値を書く）、rac* の飽和の境界（シフト 1 / 2）。
+- dsp-v1 は RXv1 のコアでだけ実行する。RXv2 のコアでは 64bit を超える値の扱い（飽和・ガードビット）が違うので一致しない。
+- `cpu-features` に、RXv1 のコアで A1・シフト付きの mvfac*・RXv2 の DSP 命令がトラップすることを追加した。
+
+rx-rt の割り込み入口（`save-acc`、RXv2 以降）は mvtaclo → mvtachi → mvtacgu の順に戻すので、
+mvtachi の OR の仕様でもガードビットは最後の mvtacgu で正しく戻る。
+
 ## 予定
 
 | ステップ | 内容 |
