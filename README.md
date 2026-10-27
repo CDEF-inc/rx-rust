@@ -4,14 +4,15 @@ A Rust toolchain for Renesas RX microcontrollers: an LLVM backend for RX and
 an `rx-none-elf` target for rustc, compatible with the GCC (`rx-elf`) ABI.
 
 Status: experimental. Rust programs (`core`, `-Zbuild-std`) build, link with
-GNU ld and run on QEMU's RX62N board; real hardware has not been tried yet.
+GNU ld and run on QEMU (RXv1, RXv2, RXv3 and RXv3e cores of CDEF-inc/qemu);
+real hardware has not been tried yet.
 
 | Component | Where | State |
 |---|---|---|
 | LLVM RX backend (MC layer, CodeGen) | [CDEF-inc/llvm-project](https://github.com/CDEF-inc/llvm-project/tree/rx/23.1) `rx/23.1` | RXv1 instructions; object files match GNU as |
 | rustc `rx-none-elf` target, callconv, `asm!` | [CDEF-inc/rust](https://github.com/CDEF-inc/rust/tree/rx-none-elf) `rx-none-elf` | `core` builds; tier 3 |
 | Startup code, vector tables, linker script | [`crates/rx-rt`](crates/rx-rt) | boots from the reset vector on QEMU |
-| QEMU with RXv2 / RXv3 / RXv3e CPU models | [CDEF-inc/qemu](https://github.com/CDEF-inc/qemu/tree/rx/v11.1) `rx/v11.1` | CPU models; RXv2+ instructions in progress |
+| QEMU with RXv2 / RXv3 / RXv3e CPU models | [CDEF-inc/qemu](https://github.com/CDEF-inc/qemu/tree/rx/v11.1) `rx/v11.1` | RXv2 / RXv3 / RXv3e instructions, DFPU, Protect Zone (CPU side) |
 | Build and test scripts, tests | [`scripts`](scripts), [`test`](test) | |
 
 What works:
@@ -70,7 +71,16 @@ The tests use `../qemu/build/qemu-system-rx` (CDEF-inc/qemu, built as in
 
 ## Testing
 
+`scripts/run-all-tests.sh` runs everything below: the assembler and QEMU
+instruction tests once, and the codegen and Rust tests on each QEMU CPU
+model (`rx62n`, `rxv2`, `rxv3`, `rxv3e`; or the ones given as arguments).
+The single tests take `RX_CPU=<model>` to build for and run on that core
+(see [`scripts/cpu.sh`](scripts/cpu.sh)); without it they build RXv1 code
+and run on `rx62n`.
+
 ```sh
+scripts/run-all-tests.sh                     # everything, on every CPU model
+RX_CPU=rxv3 scripts/run-rust-rom.sh test/rust/isr-save
 scripts/mc-diff.sh lines test/mc/basic.s     # also scc, system, fpu, dsp, v2, dfpu, v3, v3e
 scripts/mc-diff.sh file test/mc/branch.s     # also symbol.s
 scripts/run-codegen-test.sh test/codegen/i32.ll test/codegen/main.c
@@ -79,10 +89,10 @@ scripts/run-codegen-test.sh test/codegen/struct.ll test/codegen/struct_main.c
 scripts/run-codegen-test.sh test/codegen/atomic.ll test/codegen/atomic_main.c
 ATTRS=+fpu scripts/run-codegen-test.sh test/codegen/fpu.ll test/codegen/fpu_main.c
 scripts/check-dfpu.sh                        # DFPU code: instruction sequences
-MCPU=rxv3 QEMU_CPU=rxv3 scripts/run-codegen-test.sh test/codegen/dfpu.ll test/codegen/dfpu_main.c
+RX_CPU=rxv3 scripts/run-codegen-test.sh test/codegen/dfpu.ll test/codegen/dfpu_main.c
 scripts/run-rust-test.sh                     # test/rust/core-smoke
 scripts/run-rust-rom.sh                      # test/rust/qemu-demo, boots a ROM image
-scripts/run-rust-rom.sh test/rust/isr-save   # FPSW / ACC saved by interrupt entries
+scripts/run-rust-rom.sh test/rust/isr-save   # FPSW / ACC / A1 / DFPU saved by interrupt entries
 scripts/run-qemu-test.sh fcmp-flags rx62n rxv2 rxv3 rxv3e
 scripts/run-qemu-test.sh cpu-features rx62n rxv1 rxv2 rxv3 rxv3e
 scripts/run-qemu-test.sh fpu-status rx62n rxv2 rxv3 rxv3e
@@ -93,7 +103,7 @@ scripts/run-qemu-test.sh dsp-v2 rxv2 rxv3 rxv3e
 scripts/run-qemu-test.sh rxv3-insns rxv3 rxv3e
 scripts/run-qemu-test.sh dfpu-insns rxv3 rxv3e
 scripts/run-qemu-test.sh rxv3e-insns rxv3e
-MCPU=rxv2 QEMU_CPU=rxv2 scripts/run-codegen-test.sh test/codegen/atomic.ll test/codegen/atomic_main.c
+RX_CPU=rxv2 scripts/run-codegen-test.sh test/codegen/atomic.ll test/codegen/atomic_main.c
 ```
 
 ## Writing a program

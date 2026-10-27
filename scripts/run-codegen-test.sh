@@ -9,12 +9,13 @@
 # and `want_value` (see qemu-run.sh). Set KEEP_DIR=dir to keep the build
 # files there, OPT=0..3 for the llc optimization level (default 2), and
 # ATTRS for extra llc features (e.g. ATTRS=+fpu; QEMU's RX62N has the FPU).
-# MCPU sets llc's and GNU as's -mcpu (default rxv1), QEMU_CPU the QEMU core
-# (default rx62n; the GCC driver uses the FPU, so the core needs one), e.g.
-# MCPU=rxv2 QEMU_CPU=rxv2.
+# RX_CPU picks a CPU model for both (see cpu.sh), e.g. RX_CPU=rxv2; or set
+# MCPU (llc's and GNU as's -mcpu, default rxv1) and QEMU_CPU (the QEMU core,
+# default rx62n; the GCC driver uses the FPU, so the core needs one).
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+. "$root/scripts/cpu.sh"
 ll=$(realpath "${1:-$root/test/codegen/i32.ll}")
 drv=$(realpath "${2:-$root/test/codegen/main.c}")
 G=$root/gnu/install/bin

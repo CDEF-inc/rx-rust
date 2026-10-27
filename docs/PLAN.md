@@ -56,7 +56,7 @@
 - [x] 検証: `scripts/run-codegen-test.sh` — llc → GCC ドライバ + libgcc とリンク → QEMU（gdbsim-r5f562n8, RXv1）で実行。
   4131 チェック全通過（-O0〜-O3、.s 経由・.o 直接とも）
 - [ ] プロローグ最適化（pushm/popm/rtsd）、可変長引数の正確な規約、動的 alloca、FP、CFI
-- [ ] RXv2/v3 命令を使う codegen の実行検証（QEMU は RXv1 のみ → GDB sim か実機）
+- [x] RXv2/v3 命令を使う codegen の実行検証: CDEF-inc/qemu の rxv2 / rxv3 / rxv3e コアで全テスト（`scripts/run-all-tests.sh`、NOTES-qemu.md）。実機は未
 
 ### M3 拡張 — i64 / float / double は完了（詳細 `NOTES-codegen.md` の M3 節）
 - [x] 引数配置を GCC の規則（累積バイト数、溢れたら以降すべてスタック、可変長は最後の名前付きからスタック）で実装
@@ -76,7 +76,7 @@
 - [x] `rustc_target`: `Arch::Rx`、ターゲット仕様 `rx-none-elf`、callconv（`callconv/rx.rs`）
 - [x] atomics: `max_atomic_width=32`（load/store は MOV、fence はコンパイラバリア）
 - [x] CAS / RMW: `atomic_cas=true`。RXv2+ は movli/movco ループ、RXv1 は割り込みを止めた列（CMPXCHG32、issue #1）。
-  atomic.ll 1080 チェック、core-smoke の CAS / fetch_* も QEMU（RXv1）で通過。RXv2 経路の実行検証は未
+  atomic.ll 1080 チェック、core-smoke の CAS / fetch_* も QEMU（RXv1）で通過。RXv2 経路も CDEF-inc/qemu の rxv2 以降で実行
 - [x] `-Zbuild-std=core` で `core` がビルドでき、テスト crate を GCC とリンクして QEMU で 80 チェック全通過（release/dev）
 - [ ] インライン asm、alloc の確認、tidy/UI テスト/ドキュメント（上流化する場合）
 
