@@ -5,7 +5,11 @@
 # the server.
 #
 #   hw-run.sh [ELF...]     default: every ELF in build/hw (insns, rom,
-#                          codegen, rust)
+#                          codegen, rust, rt)
+#
+# An example (build/hw/examples, no _done) runs for HW_TIMEOUT seconds and,
+# given last, is left running when the runner detaches:
+#   HW_TIMEOUT=10 hw-run.sh build/hw/examples/blinky.elf
 #
 # The board needs JSW3 = SGL and JSW2 = SCI (docs/NOTES-hw.md); e2 studio
 # must not be connected to it. Environment:

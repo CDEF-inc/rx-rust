@@ -10,6 +10,10 @@ in RAM) or the reset vector (one in the code flash) until the hardware
 breakpoint at _done, or SECONDS. Failures logged by test/hw/harness.s go
 to NAME.fail. The exit status is 0 iff every test finished without
 failures.
+
+A program without _done (examples/*, which run until stopped) runs for
+SECONDS and counts as passed; if it is the last ELF, the runner detaches
+and leaves it running.
 """
 import os
 import struct
@@ -46,6 +50,13 @@ def run(r, elf, seconds):
     if not r.launched:
         launch(r)
         r.launched = True
+    if "done" not in syms:
+        # An example: let it run.
+        r.cmd("vCont;c")
+        time.sleep(seconds)
+        print("[%s/rx72m] ran for %.0f s (no _done)" % (name, seconds))
+        r.running = True
+        return True
     r.cmd("Z1,%x,1" % syms["done"])
     # rx-rt applications have no _start; they boot from the reset vector.
     if syms.get("start", 0xffffffff) < 0xffc00000:
@@ -98,6 +109,11 @@ def main():
     r.mon("configuration_complete")
     ok, n = True, 0
     for elf in sys.argv[3:]:
+        if getattr(r, "running", False):
+            # The previous ELF was left running; stop it first.
+            r.cmd("vCont;t:p1.1")
+            r.wait_note(5)
+        r.running = False
         try:
             good = run(r, elf, seconds)
         except Exception as e:
@@ -106,7 +122,11 @@ def main():
         ok &= good
         n += good
     try:
-        r.cmd("vKill;1")
+        if r.running:
+            r.cmd("D;1")
+            print("left running")
+        else:
+            r.cmd("vKill;1")
     except Exception:
         pass
     print("== %d passed, %d failed" % (n, len(sys.argv) - 3 - n))

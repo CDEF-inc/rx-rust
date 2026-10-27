@@ -99,6 +99,18 @@ CMT、ICU を操作し、CMT0 の割り込みと critical_section::with を確�
 build/hw/rt/hw-uart-release.elf` を実行する。`loopback=1` になり、送った 6 バイトが戻ることを確かめる
 （受信エラーの扱いは、このテストではまだ確かめない）。
 
+## 例: examples/blinky（2026-10-28）
+
+LD1 / LD2 を 2 Hz で交互に点滅させる。点滅の処理 `blink` は embedded-hal 1.0 の `StatefulOutputPin` /
+`OutputPin` / `DelayNs` だけで書いた汎用の関数で、`main` が rx72m-hal の端子（PJ0 / PJ1）と CMT2 の `Delay`
+を渡す（クロックは PLL 240 MHz）。コードフラッシュに置くので、デバッガを外したあともリセットや電源の入れ直しで動く。
+
+- ビルド: `scripts/hw-build.sh examples`（`build/hw/examples/blinky.elf`、約 4.6 KB）
+- 実行: `HW_TIMEOUT=10 scripts/hw-run.sh build/hw/examples/blinky.elf`。`_done` のないプログラムは
+  HW_TIMEOUT 秒走らせ、最後の ELF ならデバッガを切り離して走らせたままにする（run.py）。
+- ボードで確かめたこと: 30 秒で `BLINKS` = 121（250 ms ごと）、PJ の PODR が 01h / 02h と交互になり、LD1 / LD2 が
+  交互に点滅するのを目でも確かめた。切り離したあとも点滅し続ける。
+
 ## 予定
 
 1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）。UART の受信は未確認（上記）。CN8 の折り返しで確かめる

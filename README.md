@@ -137,6 +137,20 @@ scripts/hw-build.sh       # in WSL: build the tests into build/hw
 scripts/hw-run.sh         # in Git Bash on Windows: run them on the board
 ```
 
+### Example: blinky
+
+[`examples/blinky`](examples/blinky) blinks the board's monitor LEDs LD1 /
+LD2 (PJ0 / PJ1) at 2 Hz. The blinking is a function written against the
+embedded-hal 1.0 traits only (`StatefulOutputPin`, `OutputPin`,
+`DelayNs`); `main` hands it rx72m-hal's pins and CMT2 delay after setting
+the PLL to 240 MHz. It is written to the code flash, so it keeps running
+after the runner detaches, and after a reset or a power cycle.
+
+```sh
+scripts/hw-build.sh examples                            # in WSL
+HW_TIMEOUT=10 scripts/hw-run.sh build/hw/examples/blinky.elf  # in Git Bash
+```
+
 ## Writing a program
 
 See [`test/rust/qemu-demo`](test/rust/qemu-demo): a `#![no_main]` binary that
