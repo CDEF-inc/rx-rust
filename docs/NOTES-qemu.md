@@ -259,6 +259,39 @@ TRCTB / WINTB を受け付けないので、テストはバイト列で書いて
 - root のユーザーモード: trcall / trmvfc は特権命令例外、IVC.UIR = 01 で int Rs と int #20 は例外、int #3 は通る。
 - `cpu-features`: RXv3e の命令が他のコアでトラップし、PSW.IPL[4] は RXv3e だけ。
 
+## rx-rust の全テストを各 CPU で（Q7）
+
+- `RX_CPU`（`scripts/cpu.sh`）で CPU モデルを 1 つ選ぶと、llc / GNU as の -mcpu、rustc の target-cpu、QEMU の -cpu が
+  そろう。`rx62n` は RXv1 + FPU（GCC のテストドライバが FPU を使うため、RXv1 の実行はこのコア）、
+  `rxv2` / `rxv3` / `rxv3e` はそのまま。RX_CPU を指定しなければ従来どおり（RXv1 のコード、QEMU の rx62n）。
+- `run-codegen-test.sh` / `run-rust-test.sh` / `run-rust-rom.sh` が RX_CPU を受け付ける。Rust のビルドは
+  `build/rust-test/<CPU>`、`build/rust-rom/<CPU>` に分けた（core を CPU ごとにビルドするため）。
+  run-rust-rom.sh では RX_CPU のとき RUSTFLAGS が crate の `.cargo/config.toml` の rustflags を置き換えるので、
+  リンカスクリプトの指定も渡す。
+- **run-rust-rom.sh はこれまで PATH の qemu-system-rx（Ubuntu の 8.2.2）を使っていた**（qemu-run.sh と別に
+  QEMU を起動していたため Q1 で切り替わっていなかった）。qemu-run.sh と同じく `../qemu/build/qemu-system-rx`
+  を使い、QEMU 11 のモニタの 8 桁のアドレスも読めるようにした。
+- `scripts/run-all-tests.sh [CPU...]`: アセンブラ（mc-diff の全ファイル）・check-dfpu・QEMU の命令テストを 1 回、
+  そのあと CPU ごとに codegen（i32 / m3 / struct / atomic を -O0 / -O2、fpu を -O0〜-O3、rxv3 / rxv3e では
+  dfpu も -O0〜-O3）と Rust（core-smoke、qemu-demo、isr-save を release / dev）。ログは `build/test-logs`。
+- isr-save を広げた: RXv2 以降では A1（ガードビットを含む）、DFPU があれば DR0 / DR1・DPSW・DCMR を割り込みハンドラで
+  壊し、rx-rt の割り込み入口が戻すことと、ハンドラが DPSW = 0x100 で始まることを確かめる
+  （rx62n 19、rxv2 22、rxv3 / rxv3e 29 チェック）。
+
+結果（2026-10-27）: 101 項目すべて通過。主なもの:
+
+| | rx62n | rxv2 | rxv3 | rxv3e |
+|---|---|---|---|---|
+| i32 / m3 / struct / atomic（-O0, -O2） | 4131 / 3957 / 142 / 1080 | 同 | 同 | 同 |
+| fpu.ll（-O0〜-O3） | 3110 | 3110 | 3110 | 3110 |
+| dfpu.ll（-O0〜-O3） | — | — | 4000 | 4000 |
+| core-smoke（release / dev） | 233 | 233 | 233 | 233 |
+| qemu-demo | 8 | 8 | 8 | 8 |
+| isr-save | 19 | 22 | 29 | 29 |
+
+- rxv2 以降の Rust の core-smoke では atomic の CAS / fetch_* が movli / movco（14 か所）で実行される（rx62n では 0）。
+- rxv3 / rxv3e では rx-rt の割り込み入口の dpushm / dpopm と A1・ガードビットの退避が実際に動く。
+
 ## 予定
 
 | ステップ | 内容 |

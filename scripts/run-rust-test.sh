@@ -5,25 +5,27 @@
 #
 #   run-rust-test.sh [CRATE_DIR]   (default test/rust/core-smoke; the crate
 #                                   has main.c next to Cargo.toml)
-# PROFILE=dev|release (default release).
+# PROFILE=dev|release (default release). RX_CPU picks the CPU model (see
+# cpu.sh; default RXv1 code on QEMU's rx62n).
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+. "$root/scripts/cpu.sh"
 crate=$(realpath "${1:-$root/test/rust/core-smoke}")
 profile=${PROFILE:-release}
 G=$root/gnu/install/bin
 host=x86_64-unknown-linux-gnu
 stage1=$root/rust/build/$host/stage1
 cargo=$root/rust/build/$host/stage0/bin/cargo
-target_dir=$root/build/rust-test
+target_dir=$root/build/rust-test/${RX_CPU:-default}
 GCCFLAGS="-mcpu=rx600 -m64bit-doubles"
 libgcc=$("$G/rx-elf-gcc" $GCCFLAGS -print-libgcc-file-name)
 
 # -Zbuild-std reads the library sources of the stage1 sysroot.
 export RUSTC=$stage1/bin/rustc
 export RUSTC_BOOTSTRAP=1
-# QEMU models an RX62N (RXv1); the target's default CPU is rxv3.
-export RUSTFLAGS="-C target-cpu=rxv1"
+# The target's default CPU is rxv3; QEMU's default core is RXv1.
+export RUSTFLAGS=${RUST_CPU_FLAGS:-"-C target-cpu=rxv1"}
 export PATH=$G:$PATH
 (cd "$crate" && "$cargo" build --profile "$profile" --target rx-none-elf \
   -Zbuild-std=core -Zbuild-std-features=compiler-builtins-mem \
