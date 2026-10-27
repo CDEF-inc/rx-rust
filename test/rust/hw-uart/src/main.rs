@@ -21,7 +21,7 @@ use rx72m_hal::clock::Config;
 use rx72m_hal::delay::Delay;
 use rx72m_hal::gpio::Parts;
 use rx72m_hal::pac::Peripherals;
-use rx72m_hal::serial::Serial;
+use rx72m_hal::serial::{BaudSettings, Serial};
 
 #[unsafe(no_mangle)]
 static mut checks: u32 = 0;
@@ -77,6 +77,30 @@ fn main() -> ! {
     let ns1000 = timed(&mut |d| d.delay_ns(1000)); // 7.5 counts
     check(3, (8..40).contains(&ns1000));
     p.cmt.cmstr0().write(|w| w.str0().clear_bit());
+
+    // --- the baud rate settings: as close as an exhaustive search over
+    // k (32, 16, 8), CKS and BRR, for PCLKB 60 MHz
+    let mut baud_ok = true;
+    for baud in [
+        9_600u32, 19_200, 38_400, 57_600, 115_200, 230_400, 250_000, 454_546, 460_800,
+        921_600, 1_000_000, 2_000_000,
+    ] {
+        let mut best = u64::MAX;
+        for k in [32u64, 16, 8] {
+            for cks in 0..4 {
+                for n in 1..=256u64 {
+                    let actual = 60_000_000 / ((k << (2 * cks)) * n);
+                    best = best.min(actual.abs_diff(baud as u64));
+                }
+            }
+        }
+        let s = BaudSettings::new(60_000_000, baud).unwrap();
+        baud_ok &= (s.baud as u64).abs_diff(baud as u64) == best;
+    }
+    check(15, baud_ok);
+    // 454546 bps: ABCS = BGDM = 1, BRR = 16, 441176 bps (within 3%)
+    let s = BaudSettings::new(60_000_000, 454_546).unwrap();
+    check(16, s.baud == 441_176 && s.brr == 16 && s.abcs && s.bgdm);
 
     // --- SCI2 on P13 / P12
     let mut serial = Serial::sci2(p.sci2, pins.p13, pins.p12, 115_200, &clocks);

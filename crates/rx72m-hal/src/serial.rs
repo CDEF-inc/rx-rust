@@ -82,22 +82,30 @@ pub struct BaudSettings {
 impl BaudSettings {
     /// The settings closest to `baud` for the peripheral clock `pclk`:
     /// bit rate = pclk / (k * 4^cks * (brr + 1)), k = 32 (ABCS = BGDM = 0),
-    /// 16 (one of them) or 8 (both). Among equal errors the larger k (more
-    /// samples per bit) wins.
+    /// 16 (one of them) or 8 (both). For each k and CKS both integer
+    /// divisors next to the ideal one are tried (the rate is inversely
+    /// proportional to the divisor, so rounding it does not give the
+    /// smallest error). Among equal errors the larger k (more samples per
+    /// bit) wins.
     pub fn new(pclk: u32, baud: u32) -> Option<Self> {
+        if baud == 0 {
+            return None;
+        }
         let mut best: Option<(u64, BaudSettings)> = None;
         for (k, abcs, bgdm) in [(32u64, false, false), (16, true, false), (8, true, true)] {
             for cks in 0..4u8 {
                 let div = k << (2 * cks);
-                let n = (pclk as u64 + div * baud as u64 / 2) / (div * baud as u64);
-                if !(1..=256).contains(&n) {
-                    continue;
-                }
-                let actual = (pclk as u64 / (div * n)) as u32;
-                let err = (actual as i64 - baud as i64).unsigned_abs();
-                if best.is_none_or(|(e, _)| err < e) {
-                    let brr = (n - 1) as u8;
-                    best = Some((err, BaudSettings { cks, abcs, bgdm, brr, baud: actual }));
+                let lo = pclk as u64 / (div * baud as u64);
+                for n in [lo, lo + 1] {
+                    if !(1..=256).contains(&n) {
+                        continue;
+                    }
+                    let actual = (pclk as u64 / (div * n)) as u32;
+                    let err = (actual as i64 - baud as i64).unsigned_abs();
+                    if best.is_none_or(|(e, _)| err < e) {
+                        let brr = (n - 1) as u8;
+                        best = Some((err, BaudSettings { cks, abcs, bgdm, brr, baud: actual }));
+                    }
                 }
             }
         }
@@ -109,6 +117,9 @@ impl BaudSettings {
 pub struct Serial {
     sci: pac::Sci2,
     settings: BaudSettings,
+    /// A receive error met after the first byte of a `read`, returned by
+    /// the next `read`.
+    pending: Option<Error>,
     _tx: Pin<0x01, 3, Function>,
     _rx: Pin<0x01, 2, Function>,
 }
@@ -154,7 +165,7 @@ impl Serial {
         sci.ssr().write(|w| unsafe { w.bits((v & !(ORER | FER | PER)) | SSR_KEEP) });
         sci.scr()
             .write(|w| w.te().set_bit().re().set_bit().tie().set_bit().rie().set_bit());
-        Serial { sci, settings: s, _tx: tx, _rx: rx }
+        Serial { sci, settings: s, pending: None, _tx: tx, _rx: rx }
     }
 
     /// Whether TDR can take a byte (TXI2 requested).
@@ -235,8 +246,13 @@ impl WriteReady for Serial {
 }
 
 impl Read for Serial {
-    /// Waits for one byte, then takes the ones already received.
+    /// Waits for one byte, then takes the ones already received. A receive
+    /// error after the first byte ends the read with the bytes so far and
+    /// is returned by the next `read`.
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        if let Some(e) = self.pending.take() {
+            return Err(e);
+        }
         if buf.is_empty() {
             return Ok(0);
         }
@@ -253,7 +269,11 @@ impl Read for Serial {
                     buf[n] = b;
                     n += 1;
                 }
-                _ => break,
+                Some(Err(e)) => {
+                    self.pending = Some(e);
+                    break;
+                }
+                None => break,
             }
         }
         Ok(n)
@@ -262,6 +282,6 @@ impl Read for Serial {
 
 impl ReadReady for Serial {
     fn read_ready(&mut self) -> Result<bool, Error> {
-        Ok(self.rx_ready() || self.ssr() & (ORER | FER | PER) != 0)
+        Ok(self.pending.is_some() || self.rx_ready() || self.ssr() & (ORER | FER | PER) != 0)
     }
 }
