@@ -1,0 +1,25 @@
+[package]
+name = "rx72m-pac"
+version = "0.1.0"
+edition = "2021"
+description = "Peripheral access crate for the Renesas RX72M, generated at build time from e2 studio's RX72M.sfrx"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/CDEF-inc/rx-rust"
+build = "build.rs"
+
+[lib]
+test = false
+bench = false
+
+[dependencies]
+vcell = "0.1.3"
+critical-section = { version = "1.2", optional = true }
+
+[features]
+# Peripherals::take(); the application supplies the implementation (rx-rt's
+# critical-section feature).
+critical-section = ["dep:critical-section"]
+
+[build-dependencies]
+roxmltree = "0.20"
+svd2rust = { version = "0.37.1", default-features = false }

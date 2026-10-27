@@ -11,7 +11,13 @@ repository = "https://github.com/CDEF-inc/rx-rust"
 test = false
 bench = false
 
+[dependencies]
+critical-section = { version = "1.2", optional = true, features = ["restore-state-bool"] }
+
 [features]
 # Save the DSP accumulator(s) in interrupt entries (compiled code does not use
 # them; inline assembly might).
 save-acc = []
+# A critical-section implementation (PSW.I saved, cleared and restored), for
+# crates such as PACs and embedded-hal-bus on a single core.
+critical-section = ["dep:critical-section"]

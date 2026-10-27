@@ -28,6 +28,10 @@
 //! The handler runs with FPSW and DPSW at 0x100 (round to nearest,
 //! exceptions masked, denormals flushed to zero), the values reset leaves and
 //! the reset handler sets again.
+//!
+//! With the `critical-section` Cargo feature, this crate also provides the
+//! `critical-section` implementation (PSW.I cleared and restored), which
+//! PACs (`Peripherals::take()`) and embedded-hal-bus use.
 
 #![no_std]
 #![feature(asm_experimental_arch)]
@@ -308,5 +312,28 @@ pub mod interrupt {
     #[inline(always)]
     pub fn wait() {
         unsafe { asm!("wait") };
+    }
+}
+
+// With the `critical-section` feature: critical sections clear PSW.I and
+// restore it afterwards, like `interrupt::free` (single core; interrupts
+// that PSW.I does not mask, such as NMI, still come in).
+#[cfg(feature = "critical-section")]
+mod critical_section_impl {
+    struct RxCriticalSection;
+    critical_section::set_impl!(RxCriticalSection);
+
+    unsafe impl critical_section::Impl for RxCriticalSection {
+        unsafe fn acquire() -> critical_section::RawRestoreState {
+            let was = super::interrupt::is_enabled();
+            super::interrupt::disable();
+            was
+        }
+
+        unsafe fn release(was: critical_section::RawRestoreState) {
+            if was {
+                super::interrupt::enable();
+            }
+        }
     }
 }
