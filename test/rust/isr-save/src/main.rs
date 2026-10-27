@@ -1,7 +1,9 @@
 //! Checks that rx-rt's interrupt entry preserves FPSW and the accumulator
 //! (`save-acc`), and that handlers start with FPSW = 0x100. On RXv2 and
 //! later it also checks A1 with its guard bits, and with the DFPU DR0 / DR1,
-//! DPSW and DCMR (and that handlers start with DPSW = 0x100). Built for
+//! DPSW and DCMR (and that handlers start with DPSW = 0x100). On RXv3e it
+//! runs `int Rs`, the 5-bit `mvtipl` and the new control registers from
+//! `asm!`, which needs rustc's LLVM to know them. Built for
 //! QEMU's rx62n (RXv1 with the FPU) by default; scripts/run-rust-rom.sh
 //! test/rust/isr-save, with RX_CPU for the other cores. The results are
 //! left in `checks` / `failures` / `finished` for the QEMU monitor.
@@ -129,6 +131,30 @@ extern "C" fn soft() {
 }
 rx_rt::interrupt!(65, soft);
 
+// RXv3e: int Rs reaches the same handler, IPL has 5 bits, and the Protect
+// Zone registers read their reset values in the root world.
+#[cfg(target_feature = "rxv3e")]
+fn rxv3e() {
+    let n = CALLS.load(Ordering::Relaxed);
+    unsafe { asm!("int {}", in(reg) 65) };
+    check(40, CALLS.load(Ordering::Relaxed) == n + 1);
+    let psw: u32;
+    unsafe {
+        asm!("mvtipl #20", "mvfc psw, {}", "mvtipl #0", out(reg) psw,
+             options(nomem, nostack))
+    };
+    check(41, psw >> 24 == 20);
+    let (wid, trctb, wpri): (u32, u32, u32);
+    unsafe {
+        asm!("mvfc wid, {0}", "trmvfc trctb, {1}", "mvtc #0x05000000, wpri",
+             "mvfc wpri, {2}", "mvtc #0, wpri", out(reg) wid,
+             out(reg) trctb, out(reg) wpri, options(nomem, nostack))
+    };
+    check(42, wid == 0);
+    check(43, trctb == 0x8000_0000);
+    check(44, wpri == 0x0500_0000);
+}
+
 #[unsafe(no_mangle)]
 fn main() -> ! {
     // rx-rt sets FPSW (and DPSW) to 0x100 at reset.
@@ -167,6 +193,9 @@ fn main() -> ! {
             check(id + 8, ENTRY_DPSW.load(Ordering::Relaxed) == 0x100);
         }
     }
+
+    #[cfg(target_feature = "rxv3e")]
+    rxv3e();
 
     unsafe { write_volatile(&raw mut finished, 1) };
     loop {
