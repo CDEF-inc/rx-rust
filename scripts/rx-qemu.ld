@@ -9,4 +9,6 @@ SECTIONS {
   .data   : { *(.data*) *(D) *(D_1) *(D_2) }
   .bss    : { *(.bss*) *(B) *(B_1) *(B_2) *(COMMON) }
   __stack = 0x01fffff0;
+  /* Fixed vector table (test/qemu/harness.s); in the on-chip ROM. */
+  .fixedvec 0xffffff80 : { KEEP(*(.fixedvec)) }
 }

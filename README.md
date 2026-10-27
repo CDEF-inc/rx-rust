@@ -11,6 +11,7 @@ GNU ld and run on QEMU's RX62N board; real hardware has not been tried yet.
 | LLVM RX backend (MC layer, CodeGen) | [CDEF-inc/llvm-project](https://github.com/CDEF-inc/llvm-project/tree/rx/23.1) `rx/23.1` | RXv1 instructions; object files match GNU as |
 | rustc `rx-none-elf` target, callconv, `asm!` | [CDEF-inc/rust](https://github.com/CDEF-inc/rust/tree/rx-none-elf) `rx-none-elf` | `core` builds; tier 3 |
 | Startup code, vector tables, linker script | [`crates/rx-rt`](crates/rx-rt) | boots from the reset vector on QEMU |
+| QEMU with RXv2 / RXv3 / RXv3e CPU models | [CDEF-inc/qemu](https://github.com/CDEF-inc/qemu/tree/rx/v11.1) `rx/v11.1` | CPU models; RXv2+ instructions in progress |
 | Build and test scripts, tests | [`scripts`](scripts), [`test`](test) | |
 
 What works:
@@ -42,6 +43,7 @@ crates/rx-rt/   runtime: reset handler, vector tables, link.x
 scripts/        build and test scripts
 test/mc/        assembler tests, compared with GNU as
 test/codegen/   LLVM IR + C tests run on QEMU (Rust/LLVM <-> GCC calls)
+test/qemu/      instruction tests for the QEMU CPU models
 test/rust/      Rust tests: core-smoke (with a C driver), qemu-demo (Rust only)
 docs/           design notes and plan (in Japanese)
 ```
@@ -63,6 +65,10 @@ scripts/build-llvm-libs.sh
 scripts/build-rustc.sh    # stage1 rustc using build/llvm
 ```
 
+The tests use `../qemu/build/qemu-system-rx` (CDEF-inc/qemu, built as in
+[`docs/NOTES-qemu.md`](docs/NOTES-qemu.md)) when it exists, else
+`qemu-system-rx` from `PATH`.
+
 ## Testing
 
 ```sh
@@ -77,6 +83,8 @@ scripts/check-dfpu.sh                        # DFPU code (not run: no DFPU in QE
 scripts/run-rust-test.sh                     # test/rust/core-smoke
 scripts/run-rust-rom.sh                      # test/rust/qemu-demo, boots a ROM image
 scripts/run-rust-rom.sh test/rust/isr-save   # FPSW / ACC saved by interrupt entries
+scripts/run-qemu-test.sh fcmp-flags rx62n rxv2 rxv3 rxv3e
+scripts/run-qemu-test.sh cpu-features rx62n rxv1 rxv2 rxv3 rxv3e
 ```
 
 ## Writing a program
