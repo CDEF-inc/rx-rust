@@ -32,7 +32,7 @@ run() {
 }
 
 echo "== assembler and DFPU instruction sequences"
-for t in basic scc system fpu dsp v2 dfpu v3 v3e mov; do
+for t in basic scc system fpu dsp v2 dfpu v3 v3e mov memex; do
   run "mc $t" bash "$S/mc-diff.sh" lines "$root/test/mc/$t.s"
 done
 for t in branch symbol string sizeless; do
@@ -54,6 +54,7 @@ run "qemu dfpu-insns" "$S/run-qemu-test.sh" dfpu-insns rxv3 rxv3e
 run "qemu rxv3e-insns" "$S/run-qemu-test.sh" rxv3e-insns rxv3e
 run "qemu mem-insns" "$S/run-qemu-test.sh" mem-insns rx62n rxv1 rxv2 rxv3 rxv3e
 run "qemu cmt" "$S/run-qemu-test.sh" cmt rx62n rxv1 rxv2 rxv3 rxv3e
+run "qemu memex-insns" "$S/run-qemu-test.sh" memex-insns rx62n rxv1 rxv2 rxv3 rxv3e
 
 C=$root/test/codegen
 for cpu in "${cpus[@]}"; do

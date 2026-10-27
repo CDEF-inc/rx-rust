@@ -39,7 +39,7 @@ first_failure、got、want）と実行時間を表示し、最後に `== N passe
 
 | グループ | 内容 | 配置 |
 |---|---|---|
-| insns | test/qemu の命令テスト（cpu-features、fcmp-flags、fpu-status、rxv2-fpu、dsp-v2、dfpu-insns、rxv3-insns、mem-insns、cmt）。V2 = V3 = FPU = DFPU = 1、V3E = 0 でアセンブル | RAM（0x4000〜）、EXTB を RAM の固定ベクタテーブルに向ける |
+| insns | test/qemu の命令テスト（cpu-features、fcmp-flags、fpu-status、rxv2-fpu、dsp-v2、dfpu-insns、rxv3-insns、mem-insns、cmt、memex-insns）。V2 = V3 = FPU = DFPU = 1、V3E = 0 でアセンブル | RAM（0x4000〜）、EXTB を RAM の固定ベクタテーブルに向ける |
 | rom | rxv2-insns（EXTB を書き換えるので RAM 版の起動処理と両立しない） | コードフラッシュ、リセットベクタから起動 |
 | codegen | test/codegen の i32、m3、struct、atomic、fpu、dfpu、mem（`llc -mcpu=rxv3`、-O0 と -O2）と GCC でコンパイルした C ドライバ | RAM |
 | rust | test/rust/core-smoke（`-C target-cpu=rxv3`、release と dev） | RAM |
@@ -81,12 +81,12 @@ GDB は使わず、Python から直接リモートプロトコルを話す。e²
 ## 結果
 
 2026-10-28、rx-rust main（llvm-project ced046c、rust d482ce7）に test/qemu/cmt.s を足したもの。
-hw-run.sh で 26 本、計 35,416 チェックがすべて失敗 0。
+hw-run.sh で 26 本、計 35,416 チェックがすべて失敗 0。同日に足した memex-insns（59）も実機で失敗 0。
 QEMU（CMT を直した CDEF-inc/qemu）の run-all-tests.sh も 116 / 116。
 
 | グループ | テスト | チェック数 |
 |---|---|---|
-| insns | cpu-features 59、fcmp-flags 9、fpu-status 29、rxv2-fpu 40、dsp-v2 1512、dfpu-insns 128、rxv3-insns 64、mem-insns 84、cmt 13 | 1938 |
+| insns | cpu-features 59、fcmp-flags 9、fpu-status 29、rxv2-fpu 40、dsp-v2 1512、dfpu-insns 128、rxv3-insns 64、mem-insns 84、cmt 13、memex-insns 59 | 1997 |
 | rom | rxv2-insns | 16 |
 | codegen（-O0 と -O2 のそれぞれ） | i32 4131、m3 3957、struct 142、atomic 1080、fpu 3110、dfpu 4000、mem 78 | 32996（2 回分） |
 | rust | core-smoke release 233、dev 233 | 466 |
