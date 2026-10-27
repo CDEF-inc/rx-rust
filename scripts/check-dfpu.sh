@@ -1,5 +1,6 @@
 #!/bin/bash
-# Checks the DFPU code generation (+dfpu, rxv3), which QEMU cannot run:
+# Checks the DFPU code generation (+dfpu, rxv3) by its instructions (it is
+# run by run-codegen-test.sh with dfpu_main.c on CDEF-inc/qemu's rxv3):
 # compiles test/codegen/dfpu.ll, assembles the output with GNU as (and
 # compares it with llc's own object file), and compares the DFPU / call
 # instructions of every function with test/codegen/dfpu.expected, whose

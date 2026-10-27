@@ -43,7 +43,12 @@ cd "$tmp"
 "$G/rx-elf-as" -o start.o "$root/scripts/rx-start.s"
 "$G/rx-elf-gcc" $GCCFLAGS -O2 -c "$drv" -o main.o
 $LLC "$ll" -o test.s
-"$G/rx-elf-as" $ASFLAGS -o test_as.o test.s
+# GNU as 2.43 swaps the register fields of ftod / itod / utod
+# (docs/NOTES-mc.md); give it the operands swapped so that it emits the
+# encoding the RXv3 manual specifies.
+sed -E 's/^\t(ftod|itod|utod)\tr([0-9]+), dr([0-9]+)$/\t\1\tr\3, dr\2/' \
+  test.s > test_gas.s
+"$G/rx-elf-as" $ASFLAGS -o test_as.o test_gas.s
 $LLC -filetype=obj "$ll" -o test_obj.o
 
 status=0

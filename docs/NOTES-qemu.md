@@ -179,6 +179,86 @@ mvtachi の OR の仕様でもガードビットは最後の mvtacgu で正し�
   戻した FPSW の丸めモード（0 方向）で fdiv の結果が変わること、ユーザーモードで特権命令例外（ベクタ 20）になること。
 - harness に特権命令例外のハンドラを追加（r13 = 4）。`cpu-features` に RXv3 の命令が RXv2 以前でトラップすることを追加。
 
+## 倍精度 FPU（Q5）
+
+- `dfpu`（rxv3 / rxv3e の既定）のコア: DR0〜DR15（64bit）、制御レジスタ DPSW / DCMR / DECNT / DEPC（DCR0〜3）、21 命令。
+- 符号はマニュアル 4 章と LLVM（GNU as は ftod / itod / utod / mvtdc のレジスタ欄を入れ替えて出す）:
+  演算 `76 90`、汎用レジスタとの転送 `fd 77` / `fd 75`、メモリ `fc 78〜7a` / `fc c8〜ca`（dsp の後に DR 番号のバイト、
+  dsp は 8 倍）、即値 `f9 03`（`mov #imm, dsp8[rd]` のサイズ 3 の位置。QEMU の mov はサイズ 3 を 64bit の
+  ストアとして実行していたので未定義にした）、dpushm / dpopm `75 a0〜b8`、mvfdr `75 90 1b`。
+- 演算はマニュアルの Operation のとおり（dest = src2 op src、DCMPcm は RES = src2 cm src、MVFDR は Z = RES）。
+  DPSW は FPSW と同じ配置で、例外の扱いも同じ（DDN、cause / flag、無効演算の結果 7FFFFFFFFFFFFFFFh、
+  NaN の整数変換は符号で決まる）。NaN の伝搬は表 1.14（SNaN を優先、次に src2）。
+- 例外: DEj = 1 の例外と未実装処理（DDN = 0 の非正規化数・アンダーフロー）では書き込み先を変えず、
+  DEPC に命令のアドレス、DECNT.EHM なら EHS = 1。EHM と EHS がともに 1 の間は DPSW / DEPC を更新しない。
+  マニュアルでは倍精度の例外は割り込みコントローラへの割り込み要求になるが、RX62N のボードには
+  その要求先がないので割り込みは起きない（ログだけ）。
+- dmov.l で上位 / 下位 32bit、dmov.d で上位に書くと下位は 0。dtoi / dtou / dround / dtof の上位 32bit は
+  マニュアルでは不定、QEMU では変えない。dpopm.l はそのまま書き込み（cause フラグも立つ）、
+  mvtdc は FPSW と同じく cause フラグは 0 にしかできず、DEPC は読み出し専用。
+
+テスト:
+
+```
+scripts/run-qemu-test.sh dfpu-insns rxv3 rxv3e                       # 119 チェック
+MCPU=rxv3 QEMU_CPU=rxv3 scripts/run-codegen-test.sh test/codegen/dfpu.ll test/codegen/dfpu_main.c
+```
+
+- dfpu-insns: dmov の全形式（メモリの dsp16 を含む）、四則・dsqrt、丸めモード（+ 方向、- 方向の x - x = -0）、
+  NaN の規則、dcmp と mvfdr、変換、dabs / dneg がフラグを変えないこと、DDN = 0 の未実装処理と DEPC / DECNT
+  （EHS 保持中は更新されない）、有効にした無効演算で書き込み先が変わらないこと、mvtdc / dpushm / dpopm。
+- dfpu.ll（LLVM が出す DFPU の列）を dfpu_main.c（GCC のソフトウェア浮動小数点の double と比較）で実行:
+  4000 チェックが -O0〜-O3 で通る。GNU as 経由のビルドでは ftod / itod / utod のレジスタを入れ替えて渡す
+  （check-dfpu.sh と同じ）。DFPU のないコア（rx62n、`-cpu rxv3,dfpu=off`）では DFPU の命令がトラップする。
+
+## RXv3e（Q6）
+
+参照: RXv3e ソフトウェアマニュアル（R01US0745EJ0101、Rev.1.01）。`pdftotext -layout` で
+`../ref/rxv3esm.txt` に変換して読んだ。NOTES-rxv3e.md の符号（未照合だったもの）はマニュアルの 4 章と一致した。
+
+当初は「root ワールドだけ」の予定だったが、root で WID.BWID を書いて trrte を実行すると secure / non-secure に
+入れる（ソフトウェアだけで他のワールドに行ける）ので、CPU 側のワールドを一通り実装した:
+
+- WID（cr 15）: WID[1:0] = 現在のワールド、BWID、BITW、BWI。書けるのは root のスーパーバイザで BWID だけ。
+  root 以外では BWID が 0 に読める。
+- ワールドごとに 3 本ある制御レジスタ（ISP、INTB、BPC、BPSW、EXTB、IVC）: env の値が現在のワールドのもの、
+  他のワールドの分は `world_cr` に置き、ワールドが変わるときに入れ替える。ワールドをまたがない例外・割り込みは
+  現在のワールドの EXTB / INTB / ISP を使う（表 5.4）。
+- 制御レジスタのアクセス権（表 1.1）: mvtc / mvfc / pushc / popc では FINTV は root だけ、WPRI は root と secure、
+  IVC と WID の書き込みは root のスーパーバイザだけ（アクセスできないときは書かず、読むと 0）。
+- IVC（cr 5）、WPRI（cr 14）、TRCTB と WINTB（trmvfc / trmvtc の cr 14 / 15、リセット値 80000000h）。
+- 命令（符号はマニュアル 4 章）:
+  - `trcall #imm`（`fd 75 00 imm`）: WID.BWI = PSW.I、BWID = WID、root へ。PSW と次の PC を ISP_TR に積み、
+    TRCTB + imm × 4 へ。特権命令。どのワールドからでも実行できる。
+  - `trrte`（`7f 97`）: SP_TR から PC と PSW を戻し、BWID のワールドへ（non-secure へは PSW の bit 28 を 0 に）。
+    root 専用（他のワールドでは未定義命令）、特権命令。
+  - `trmvfc cr, rd`（`fd 5a`）/ `trmvtc rs, cr`（`fd 58`）/ `trmvtc #imm, cr`（`fd 7x 2c`）: WID.BWID のワールドの
+    ISP / INTB / BPC / BPSW / EXTB / IVC、または TRCTB / WINTB。root 専用、特権命令。BPSW_NS の bit 28 は常に 0、
+    IVC_S / IVC_NS の NSIC / EXCSE は 0。
+  - `int Rs`（`fd 75 1r 00`）: 下位 8 ビットが番号。
+  - `mvtipl #imm5`（`75 70 imm5`。RXv1 の 4 ビット形式と互換）。
+- PSW.IPL は 5 ビット（RXv3e 以外のコアと non-secure ワールドでは IPL[4] は 0。mvtc / popc / mvtipl /
+  rte / rtfi / trrte とも）。
+- IVC.UIR: ユーザーモードの int を制限（01 なら int #0〜#15 だけ、int Rs は不可。違反は特権命令例外）。
+
+扱っていないもの（RX62N のボードに割り込みコントローラ・メモリ保護の対応がない）: ワールドをまたぐ割り込み
+（WINTB、BITW、BWINM）、secure 例外、IVC.NSIC（non-secure で優先度 16 以上の割り込みを I = 0 でも受ける。
+RX62N の ICU は優先度 15 まで）、WPRI の割り込み判定への反映。
+
+RXv3e の命令（trcall / trrte / trmvfc / trmvtc / int Rs / 5 ビットの mvtipl）と IVC / WID / WPRI / TRCTB / WINTB は
+llvm-mc（`-mcpu=rxv3e`）でアセンブルする。
+
+テスト: `scripts/run-qemu-test.sh rxv3e-insns rxv3e`（43 チェック）
+
+- リセット値、WPRI / IVC / WID の書ける範囲、5 ビットの IPL、
+- trmvtc / trmvfc: BWID = 0 では root のレジスタ、2 では non-secure（root の値は変わらない）、1 では secure、
+- int Rs、root からの trcall（ハンドラから trrte で戻る）、
+- trrte で non-secure ワールドへ: WID = 2、R0 = ISP_NS、INTB_NS、FINTV / WPRI は 0 に読める、WID は書けない、
+  root 専用命令は未定義命令例外（EXTB_NS・ISP_NS で処理）、IPL[4] が 0、int は INTB_NS、
+- non-secure から trcall で root へ: WID = 80000200h（BWI、BWID）、ISP_TR・INTB・FINTV が戻ること、
+- root のユーザーモード: trcall / trmvfc は特権命令例外、IVC.UIR = 01 で int Rs と int #20 は例外、int #3 は通る。
+- `cpu-features`: RXv3e の命令が他のコアでトラップし、PSW.IPL[4] は RXv3e だけ。
+
 ## 予定
 
 | ステップ | 内容 |
