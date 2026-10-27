@@ -126,7 +126,8 @@ codegen テストのチェック数が変わる（m3 3964 → 3957、fpu 3141 �
 - アキュムレータ: RXv2 以降は A0 / A1 の 2 本で 72bit（読むときは bit 71 を 96bit に符号拡張）、RXv1 は A0 だけで 64bit。
   QEMU では Int128 に符号拡張して持ち、命令ごとに 72 / 64bit に切り詰める。
 - 符号（GNU as）: RXv1 の DSP 命令の 0 だったビットが A0 / A1 の選択で、RXv1 の形式は A0 の形式。
-  `mvfac*` のシフト量は 2 バイト目の bit 0（反転）と 3 バイト目の bit 6 に分かれる（3 は未定義）。
+  `mvfac*` のシフト量は 2 バイト目の bit 0（反転）と 3 バイト目の bit 6 に分かれる。予約の 01b は
+  実機（RX72M）では #2 と同じ。
 - RXv2 で追加: emaca / emsba / emula、maclh / msbhi / msblh / msblo / mullh、mvfacgu / mvfaclo / mvtacgu、
   racl / rdacl / rdacw。拡張（A1、mvfac* のシフト）: machi / maclo / mulhi / mullo、mvfachi / mvfacmi、
   mvtachi / mvtaclo、racw。
@@ -302,6 +303,8 @@ e² studio の GDB サーバーを使って実行し、QEMU と違った点を�
 | 項目 | 実機の動作 | 対応 |
 |---|---|---|
 | RTE / RTFI でユーザーモードへ | PSW.U が 1 になり USP に切り替わる（マニュアル 1.4.2 のとおり） | QEMU は退避した PSW の U のままだった。修正。テストは `USER_MODE` / `SUPERVISOR_MODE`（harness.inc）で USP を用意し、スーパーバイザモードに戻ってから main を返す |
+| MVTIPL の予約ビット | 即値バイトの bit 7〜4 は無視（14h で IPL 4、20h・80h で IPL 0）。例外にならない | QEMU は RXv3e 以外で 16 以上を未定義命令にしていた。RXv3e 以外は下位 4 ビット、RXv3e は下位 5 ビットを使うよう修正 |
+| mvfac* の #imm の予約値（01b） | 例外にならず #2 と同じ | QEMU は未定義命令にしていた。#2 として扱うよう修正 |
 
 ## 予定
 

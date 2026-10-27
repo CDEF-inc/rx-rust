@@ -47,7 +47,13 @@ _main:
 	TRAPS	0, racw #2, a0
 	TRAPS	1 - V2, racl #1, a0
 	TRAPS	1 - V2, rdacw #1, a0
-	TRAPS	1, .byte 0xfd, 0x1e, 0x45	; mvfachi with shift 3
+	; the reserved imm field 01b of mvfac* acts as #2 (measured on the
+	; RX72M); RXv1 has no imm
+	TRAPS	1 - V2, .byte 0xfd, 0x1e, 0x45	; mvfachi, imm field 01b
+	.if	V2
+	mvfachi	#2, a0, r6
+	EXPECT_REG r5, r6
+	.endif
 	; RXv3 instructions (save / rstr with the default 16 banks)
 	TRAPS	1 - V3, bfmov #0, #8, #8, r4, r5
 	TRAPS	1 - V3, bfmovz #0, #8, #8, r4, r5
@@ -73,8 +79,16 @@ _main:
 	TRAPS	1, trmvfc trctb, r9
 	TRAPS	1, trmvtc r4, trctb
 	TRAPS	1, int r4
-	TRAPS	1, mvtipl #20
 	.endif
+	; mvtipl ignores the bits above the IPL field: byte 14h (#20) gives
+	; IPL 4 below RXv3e (measured on the RX72M)
+	mvfc	psw, r6
+	TRAPS	0, .byte 0x75, 0x70, 0x14
+	mvfc	psw, r1
+	mvtc	r6, psw
+	shlr	#24, r1
+	mov.l	#4 + 16 * V3E, r2
+	bsr.a	_check
 	mvfc	psw, r6
 	mov.l	r6, r5
 	or	#0x14000000, r5			; IPL 20
