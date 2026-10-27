@@ -276,7 +276,8 @@ llvm-mc（`-mcpu=rxv3e`）でアセンブルする。
   dfpu も -O0〜-O3）と Rust（core-smoke、qemu-demo、isr-save を release / dev）。ログは `build/test-logs`。
 - isr-save を広げた: RXv2 以降では A1（ガードビットを含む）、DFPU があれば DR0 / DR1・DPSW・DCMR を割り込みハンドラで
   壊し、rx-rt の割り込み入口が戻すことと、ハンドラが DPSW = 0x100 で始まることを確かめる
-  （rx62n 19、rxv2 22、rxv3 / rxv3e 29 チェック）。
+  （rx62n 19、rxv2 22、rxv3 29、rxv3e 34 チェック）。rxv3e では `asm!` から int Rs・5 ビットの mvtipl・
+  WID / TRCTB / WPRI も使う（rustc の LLVM が RXv3e の命令を知っている必要がある）。
 
 結果（2026-10-27）: 102 項目すべて通過。主なもの:
 
@@ -287,7 +288,7 @@ llvm-mc（`-mcpu=rxv3e`）でアセンブルする。
 | dfpu.ll（-O0〜-O3） | — | — | 4000 | 4000 |
 | core-smoke（release / dev） | 233 | 233 | 233 | 233 |
 | qemu-demo | 8 | 8 | 8 | 8 |
-| isr-save | 19 | 22 | 29 | 29 |
+| isr-save | 19 | 22 | 29 | 34 |
 
 - rxv2 以降の Rust の core-smoke では atomic の CAS / fetch_* が movli / movco（14 か所）で実行される（rx62n では 0）。
 - rxv3 / rxv3e では rx-rt の割り込み入口の dpushm / dpopm と A1・ガードビットの退避が実際に動く。
