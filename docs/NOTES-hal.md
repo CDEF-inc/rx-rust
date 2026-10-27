@@ -10,7 +10,7 @@
 - **PAC**: `crates/rx72m-pac`。e² studio が入れる `RX72M.sfrx` からビルド時に生成する（下記）。
   生成物は Renesas の記述から作るので、リポジトリには入れない。
 - **critical-section**: rx-rt の `critical-section` フィーチャー（PSW.I を保存して消し、戻す）。
-- **HAL**: `rx72m-hal`（これから）。embedded-hal 1.0 のトレイトを実装する。
+- **HAL**: `crates/rx72m-hal`。embedded-hal 1.0 のトレイトを実装する（下記）。
 
 ## PAC（crates/rx72m-pac）
 
@@ -42,10 +42,30 @@ CMT、ICU を操作し、CMT0 の割り込みと critical_section::with を確�
 | メインクロック | EXTAL / XTAL | 24 MHz 水晶（PLL で ICLK 240 MHz）。サブクロック 32.768 kHz |
 | スイッチ | SW1 | リセットのみ。ユーザー用のスイッチはない |
 
+## HAL（crates/rx72m-hal）
+
+- `clock`: `Config::pll_240mhz_from_24mhz().configure(&p.system)` でメインクロック（水晶 24 MHz、MOFCR.MODRV2 =
+  00b、MOSCWTCR = 53h）を起動し、MOOVF を待って MEMWAIT = 1（ICLK 120 MHz 超）、PLL x10（PLLCR.STC = 19）、
+  PLOVF を待って SCKCR（ICLK 240 / PCLKA・BCLK 120 / PCLKB・PCLKC・PCLKD・FCLK 60 MHz）、SCKCR3.CKSEL = 100b。
+  各クロックの周波数を `Clocks` で返す。上限を超える設定は panic。
+- `gpio`: `Parts::take()` が 176 ピン版の全ポート端子（ボードのマニュアルの I/O 表の 137 本、ポート 0〜9、A〜G、J）
+  を `Pin<PORT, BIT, MODE>` で 1 回だけ渡す。`into_push_pull_output` / `into_output(high)` / `into_input` /
+  `into_pull_up_input`。`InputPin`（PIDR、どのモードでも）、`OutputPin` / `StatefulOutputPin`（PODR）。
+  ポートのレジスタは全ポート同じ並びなので、アドレスで直接扱う。同じレジスタの読み書きは critical-section の中。
+  周辺機能の端子設定（MPC の PFS）は、それを使うドライバで扱う。
+
+確認: test/rust/hw-hal（ボード、rt グループ、17 チェック、release / dev とも通る）。
+- PLL 240 MHz への切り替え後のレジスタ（CKSEL、MOOVF / PLOVF、MEMWAIT、STC、MODRV2、SCKCR）。
+- ICLK: CMT0 の 1 周期（0.1 秒）の間のポーリングのループが 100 万回を超える（LOCO のままなら数千回）。
+- PCLKB: CMT0（PCLKB / 512）の 20 周期 = 2.0 秒で LD1 / LD2 を点滅させ、hw-run.sh の実行時間が約 2.3 秒
+  （PCLKB が違えば時間も変わる）。
+- LD1 / LD2（PJ0 / PJ1）の出力と読み返し、PJ5（拡張コネクタだけにつながる）のプルアップ。
+- PLL のまま終わったあとに書き込んだテスト（LOCO で動くもの）も通る（hw-run.sh の書き込み後のリセットで戻る）。
+
 ## 予定
 
-1. クロック設定（メインクロック 24 MHz、PLL、ICLK 240 MHz、PCLKA 120 MHz、PCLKB 60 MHz）。いまのテストはリセット後の LOCO のまま
-2. GPIO（`OutputPin` / `InputPin`、MPC の PFS と PMR）。LD1 / LD2 で確かめる
+1. ~~クロック設定~~、~~GPIO~~（2026-10-28）
+2. MPC（PFS）の端子機能の設定
 3. 遅延（`DelayNs`、CMT または CMTW）
 4. UART（SCI2、`embedded-io` の Read / Write、`embedded-hal-nb` の serial）。CN8 の折り返しで確かめる
 5. SPI（RSPI）、I2C（RIIC）、PWM（MTU / GPTW）、ADC（S12AD）
