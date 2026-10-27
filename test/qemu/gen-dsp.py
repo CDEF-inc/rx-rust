@@ -56,8 +56,11 @@ class Model:
         return (tmp >> pos) & 0xffffffff
 
     def mvtac(self, a, pos, val):
+        # mvtacgu sign-extends into the guard bits; mvtachi leaves them
+        # alone (measured on the RX72M; the manual's Operation ORs in the
+        # sign-extended source, its Function text does not)
         field = 0xffffffff << pos
-        src = val if pos == 0 else s32(val)
+        src = s32(val) if pos == 64 else val
         self.store(a, (self.acc[a] & ~field) | (src << pos))
 
     def rac(self, a, shift, rnd, long):
@@ -182,7 +185,7 @@ def generate(v2):
                 e.emit("%s\t#%d, a%d, r9" % (insn, shift, a))
                 e.check("r9", e.m.mvfac(a, shift, pos))
 
-    e.comment("mvtac* (mvtachi / mvtacgu OR in the sign-extended source)")
+    e.comment("mvtac* (mvtacgu sign-extends, mvtachi keeps the guard bits)")
     tacs = [("mvtachi", 32), ("mvtaclo", 0)]
     if v2:
         tacs.append(("mvtacgu", 64))

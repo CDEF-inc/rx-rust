@@ -4333,7 +4333,7 @@ _main:
 	mov.l	r9, r1
 	mov.l	#0x00000003, r2
 	bsr.a	_check
-; mvtac* (mvtachi / mvtacgu OR in the sign-extended source)
+; mvtac* (mvtacgu sign-extends, mvtachi keeps the guard bits)
 	mov.l	#0x00000000, r6
 	mvtachi	r6, a0
 	mov.l	#0x00000000, r6
@@ -4364,7 +4364,7 @@ _main:
 	mvtachi	r6, a0
 	mvfacgu	#0, a0, r9
 	mov.l	r9, r1
-	mov.l	#0xffffffff, r2
+	mov.l	#0x00000000, r2
 	bsr.a	_check
 	mvfachi	#0, a0, r9
 	mov.l	r9, r1
@@ -4404,7 +4404,7 @@ _main:
 	mvtachi	r6, a0
 	mvfacgu	#0, a0, r9
 	mov.l	r9, r1
-	mov.l	#0xffffffff, r2
+	mov.l	#0x00000000, r2
 	bsr.a	_check
 	mvfachi	#0, a0, r9
 	mov.l	r9, r1
@@ -4604,7 +4604,7 @@ _main:
 	mvtachi	r6, a1
 	mvfacgu	#0, a1, r9
 	mov.l	r9, r1
-	mov.l	#0xffffffff, r2
+	mov.l	#0x00000000, r2
 	bsr.a	_check
 	mvfachi	#0, a1, r9
 	mov.l	r9, r1
@@ -4644,7 +4644,7 @@ _main:
 	mvtachi	r6, a1
 	mvfacgu	#0, a1, r9
 	mov.l	r9, r1
-	mov.l	#0xffffffff, r2
+	mov.l	#0x00000000, r2
 	bsr.a	_check
 	mvfachi	#0, a1, r9
 	mov.l	r9, r1
@@ -5084,7 +5084,7 @@ _main:
 	mvtachi	r6, a1
 	mvfacgu	#0, a1, r9
 	mov.l	r9, r1
-	mov.l	#0xffffffff, r2
+	mov.l	#0x00000000, r2
 	bsr.a	_check
 	mvfachi	#0, a1, r9
 	mov.l	r9, r1
@@ -5124,7 +5124,7 @@ _main:
 	mvtachi	r6, a1
 	mvfacgu	#0, a1, r9
 	mov.l	r9, r1
-	mov.l	#0xffffffff, r2
+	mov.l	#0x00000000, r2
 	bsr.a	_check
 	mvfachi	#0, a1, r9
 	mov.l	r9, r1
@@ -5564,7 +5564,7 @@ _main:
 	mvtachi	r6, a1
 	mvfacgu	#0, a1, r9
 	mov.l	r9, r1
-	mov.l	#0xffffffff, r2
+	mov.l	#0x0000007f, r2
 	bsr.a	_check
 	mvfachi	#0, a1, r9
 	mov.l	r9, r1
@@ -5604,7 +5604,7 @@ _main:
 	mvtachi	r6, a1
 	mvfacgu	#0, a1, r9
 	mov.l	r9, r1
-	mov.l	#0xffffffff, r2
+	mov.l	#0x0000007f, r2
 	bsr.a	_check
 	mvfachi	#0, a1, r9
 	mov.l	r9, r1
@@ -5804,7 +5804,7 @@ _main:
 	mvtachi	r6, a0
 	mvfacgu	#0, a0, r9
 	mov.l	r9, r1
-	mov.l	#0xffffffff, r2
+	mov.l	#0xffffff80, r2
 	bsr.a	_check
 	mvfachi	#0, a0, r9
 	mov.l	r9, r1
@@ -5844,7 +5844,7 @@ _main:
 	mvtachi	r6, a0
 	mvfacgu	#0, a0, r9
 	mov.l	r9, r1
-	mov.l	#0xffffffff, r2
+	mov.l	#0xffffff80, r2
 	bsr.a	_check
 	mvfachi	#0, a0, r9
 	mov.l	r9, r1
@@ -6044,7 +6044,7 @@ _main:
 	mvtachi	r6, a1
 	mvfacgu	#0, a1, r9
 	mov.l	r9, r1
-	mov.l	#0xffffffff, r2
+	mov.l	#0x00000012, r2
 	bsr.a	_check
 	mvfachi	#0, a1, r9
 	mov.l	r9, r1
@@ -6084,7 +6084,7 @@ _main:
 	mvtachi	r6, a1
 	mvfacgu	#0, a1, r9
 	mov.l	r9, r1
-	mov.l	#0xffffffff, r2
+	mov.l	#0x00000012, r2
 	bsr.a	_check
 	mvfachi	#0, a1, r9
 	mov.l	r9, r1
@@ -6284,7 +6284,7 @@ _main:
 	mvtachi	r6, a0
 	mvfacgu	#0, a0, r9
 	mov.l	r9, r1
-	mov.l	#0xffffffff, r2
+	mov.l	#0xffffff80, r2
 	bsr.a	_check
 	mvfachi	#0, a0, r9
 	mov.l	r9, r1
@@ -6324,7 +6324,7 @@ _main:
 	mvtachi	r6, a0
 	mvfacgu	#0, a0, r9
 	mov.l	r9, r1
-	mov.l	#0xffffffff, r2
+	mov.l	#0xffffff80, r2
 	bsr.a	_check
 	mvfachi	#0, a0, r9
 	mov.l	r9, r1

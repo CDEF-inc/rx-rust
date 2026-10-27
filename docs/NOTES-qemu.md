@@ -134,11 +134,12 @@ codegen テストのチェック数が変わる（m3 3964 → 3957、fpu 3141 �
 - 演算はマニュアルの Operation のとおり:
   - mul*/mac*/msb*: 16bit × 16bit の積を bit 16 に置いて代入・加算・減算。em*a は 32bit × 32bit（シフトなし）。
   - mvfac*: (A << #imm) を 72bit で切り詰め、bit 95/63/47/31 から 32bit を読む。
-  - mvtachi / mvtacgu: Operation は「該当フィールドを消してから、72bit に符号拡張した src をシフトして OR」。
-    mvtachi に負の値を書くとガードビットが全部 1 になる（正の値なら元のガードビットが残る）。mvtaclo はゼロ拡張。
+  - mvtachi / mvtacgu: Operation は「該当フィールドを消してから、72bit に符号拡張した src をシフトして OR」だが、
+    実機（RX72M）では mvtachi はガードビットを変えない（Function の「bit 63〜32 に転送」のとおり）。
+    mvtacgu は bit 71〜64 に符号拡張して書く。mvtaclo はゼロ拡張。
   - racw / racl: (A << #imm) + 80000000h を語 / 長語に飽和し、下位 32bit を 0 にする。rdacw / rdacl は丸めの加算なし。
     マニュアルの Operation では最後に丸める前の tmp をマスクしていて、そのままだと丸めは飽和の判定にしか効かない。
-    命令名（round）と RXv1 の racw に合わせて、丸めた値をマスクする実装にした（実機で確認したい点）。
+    命令名（round）と RXv1 の racw に合わせて、丸めた値をマスクする実装にした（実機の RX72M と一致）。
 - 既存の QEMU の誤り: racw のシフト量が 1 多かった（translate で imm + 1 にした値をヘルパーでさらに +1）。
   QEMU 8.2.2 で dsp-v1 を動かすと racw の最初のケースから失敗する。
 
@@ -157,7 +158,7 @@ scripts/run-qemu-test.sh dsp-v2 rxv2 rxv3 rxv3e           # 1512 チェック
 - `cpu-features` に、RXv1 のコアで A1・シフト付きの mvfac*・RXv2 の DSP 命令がトラップすることを追加した。
 
 rx-rt の割り込み入口（`save-acc`、RXv2 以降）は mvtaclo → mvtachi → mvtacgu の順に戻すので、
-mvtachi の OR の仕様でもガードビットは最後の mvtacgu で正しく戻る。
+ガードビットは最後の mvtacgu で戻る（mvtachi がガードビットを変えるかどうかに関係しない）。
 
 ## RXv3 の命令（Q4）
 
@@ -305,6 +306,8 @@ e² studio の GDB サーバーを使って実行し、QEMU と違った点を�
 | RTE / RTFI でユーザーモードへ | PSW.U が 1 になり USP に切り替わる（マニュアル 1.4.2 のとおり） | QEMU は退避した PSW の U のままだった。修正。テストは `USER_MODE` / `SUPERVISOR_MODE`（harness.inc）で USP を用意し、スーパーバイザモードに戻ってから main を返す |
 | MVTIPL の予約ビット | 即値バイトの bit 7〜4 は無視（14h で IPL 4、20h・80h で IPL 0）。例外にならない | QEMU は RXv3e 以外で 16 以上を未定義命令にしていた。RXv3e 以外は下位 4 ビット、RXv3e は下位 5 ビットを使うよう修正 |
 | mvfac* の #imm の予約値（01b） | 例外にならず #2 と同じ | QEMU は未定義命令にしていた。#2 として扱うよう修正 |
+| mvtachi | ガードビット（bit 71〜64）は変わらない（マニュアルの Function の記述のとおり） | QEMU と gen-dsp.py は Operation の式どおり、負の値でガードビットに OR していた。修正 |
+| racw / racl の丸め | 丸めた値の下位 32 ビットを 0 にする（dsp-v2 の rac* の 1512 チェック中の該当分がすべて一致） | 現在の実装のまま（前に「実機で確認したい点」としていた解釈が正しかった） |
 
 ## 予定
 
