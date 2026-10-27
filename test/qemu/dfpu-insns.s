@@ -58,7 +58,8 @@ _main:
 	dmov.d	dr3, dr4
 	DEXPECT	4, 0x40080000, 0
 
-	; dmov.d to and from memory (little-endian, dsp scaled by 8)
+	; dmov.d to and from memory (little-endian; dsp is scaled by 4, not 8
+	; as the manual's note says: RX72M, Renesas CC-RX)
 	mov.l	#_buf, r7
 	dmov.d	dr2, [r7]
 	dmov.d	dr3, 8[r7]
@@ -76,6 +77,13 @@ _main:
 	DEXPECT	5, 0x40080000, 0
 	dmov.d	[r7], dr5
 	DEXPECT	5, 0x40000000, 0
+	dmov.d	dr3, 68[r7]		; not a multiple of 8
+	mov.l	68[r7], r4
+	EXPECT	r4, 0
+	mov.l	72[r7], r4
+	EXPECT	r4, 0x40080000
+	dmov.d	68[r7], dr6
+	DEXPECT	6, 0x40080000, 0
 
 	; arithmetic: dest = src2 op src
 	dadd	dr1, dr2, dr6		; 2 + 1
@@ -220,7 +228,8 @@ _main:
 
 	; DDN = 0: a denormal operand is unimplemented processing; the
 	; destination is unchanged, DEPC holds the instruction and, with EHM,
-	; DECNT.EHS is set; while EHS is set the DPSW and DEPC stay.
+	; DECNT.EHS is set; while EHS is set the DPSW and DEPC stay, also
+	; against mvtdc (RX72M).
 	DPSW_SET 0
 	DSET	7, 0, 1			; smallest denormal
 	DSET	6, 0x12345678, 0x9abcdef0
@@ -231,16 +240,21 @@ _main:
 	mov.l	#1b, r8
 	EXPECT_REG r9, r8
 	EXPECT_DCR decnt, 0x00010001
-	DPSW_SET 0x400			; DEV, DDN = 0
+	DPSW_SET 0x400			; held: not written
+	EXPECT_DCR dpsw, 0x00000080
 	DSET	7, 0xbff00000, 0
 2:	dsqrt	dr7, dr6		; held: DPSW and DEPC not updated
-	EXPECT_DCR dpsw, 0x00000400
+	DEXPECT	6, 0x7fffffff, 0xffffffff	; DEV = 0: the default NaN
+	EXPECT_DCR dpsw, 0x00000080
 	mvfdc	depc, r9
 	mov.l	#1b, r8
 	EXPECT_REG r9, r8
 	mov.l	#1, r9
 	mvtdc	r9, decnt		; EHS = 0: release
 	EXPECT_DCR decnt, 0x00000001
+	DPSW_SET 0x400			; DEV, DDN = 0
+	EXPECT_DCR dpsw, 0x00000400
+	DSET	6, 0x12345678, 0x9abcdef0
 3:	dsqrt	dr7, dr6		; DEV = 1: invalid, dest unchanged
 	DEXPECT	6, 0x12345678, 0x9abcdef0
 	EXPECT_DCR dpsw, 0x00000404	; DCV, no DFV (enabled)
@@ -283,7 +297,8 @@ _main:
 	DEXPECT	2, 0x40000000, 0
 	DEXPECT	3, 0x40080000, 0
 
-	; .l: dpsw, dcmr, decnt, depc upwards; dpopm.l writes them as they are
+	; .l: dpsw, dcmr, decnt, depc upwards; dpopm.l writes the DPSW like
+	; mvtdc: cause flags can only be cleared (RX72M)
 	dpushm.l dpsw-depc
 	mov.l	[r0], r9
 	EXPECT	r9, 0x00000100
@@ -292,10 +307,15 @@ _main:
 	mov.l	8[r0], r9
 	EXPECT	r9, 1
 	add	#16, r0
-	mov.l	#0x00000144, r9		; DCX and DCV through dpopm
+	mov.l	#0x00000144, r9		; DCX and DCV through dpopm: not set
 	push.l	r9
 	dpopm.l	dpsw-dpsw
-	EXPECT_DCR dpsw, 0x00000144
+	EXPECT_DCR dpsw, 0x00000100
+	ddiv	dr3, dr1, dr6		; DCX, DFX
+	mov.l	#0x00000100, r9		; cleared through dpopm
+	push.l	r9
+	dpopm.l	dpsw-dpsw
+	EXPECT_DCR dpsw, 0x00000100
 	mov.l	#0x00000005, r9
 	push.l	r9
 	dpopm.l	dcmr-dcmr

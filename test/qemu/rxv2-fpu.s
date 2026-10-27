@@ -75,7 +75,13 @@ _main:
 	mov.l	#0xbf000000, r4		; -0.5
 	ftou	r4, r6
 	EXPECT	r6, 0
-	EXPECT_FPSW 0x40000140		; inexact only
+	EXPECT_FPSW 0xc4000104		; invalid: every negative normalized
+					; number is (manual, RX72M); FX from before
+	mvtc	#0x100, fpsw
+	mov.l	#0x80000000, r4		; -0
+	ftou	r4, r6
+	EXPECT	r6, 0
+	EXPECT_FPSW 0x00000100		; no exception
 	mvtc	#0x100, fpsw
 	mov.l	#0x4f800000, r4		; 4294967296.0
 	ftou	r4, r6

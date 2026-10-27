@@ -603,7 +603,7 @@ _main:
 	mov.l	r9, r1
 	mov.l	#0xffffffff, r2
 	bsr.a	_check
-; mvtac* (mvtachi / mvtacgu OR in the sign-extended source)
+; mvtac* (mvtacgu sign-extends, mvtachi keeps the guard bits)
 	mov.l	#0x00000000, r6
 	mvtachi	r6, a0
 	mov.l	#0x00000000, r6

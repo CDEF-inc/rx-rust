@@ -45,14 +45,15 @@ _main:
 	EXPECT	r5, 0x3f800000
 	EXPECT_FPSW 0x00000080		; CE
 
-	; DN = 0: so is an underflow.
+	; DN = 0: so is an underflow, which is also an underflow exception: CU,
+	; FU and FS are set too (measured on the RX72M).
 	mvtc	#0, fpsw
 	mov.l	#0x1e3ce508, r4
 	mov.l	r4, r5
 	TRY	fmul r4, r5
 	EXPECT	r13, 2
 	EXPECT	r5, 0x1e3ce508
-	EXPECT_FPSW 0x00000080
+	EXPECT_FPSW 0xa00000a0		; FS, FU, CE, CU
 
 	; Invalid operation, masked: inf - inf gives 7fffffff.
 	mvtc	#0x100, fpsw
