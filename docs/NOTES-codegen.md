@@ -86,7 +86,7 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 
 ### 検証
 `scripts/run-codegen-test.sh test/codegen/m3.ll test/codegen/m3_main.c`:
-- **3964 チェック全通過**（-O0〜-O3、.s 経由・.o 直接とも）。M2 の i32 テスト（4131）も全 -O で通過。
+- **3957 チェック全通過**（-O0〜-O3、.s 経由・.o 直接とも。QEMU 8.2.2 では 3964 と数えていた、下記）。M2 の i32 テスト（4131）も全 -O で通過。
 - GCC → LLVM: i64 演算 25 種、double 21 種、float 9 種、引数配置テスト（p_2/p_3/p_5/p_ll3/d_pos/d_stack/f_mix）
 - LLVM → GCC: `l_cross` から c_mix（i32, i64, double, float, i64 → スタック引数込み）、i64/double を返す関数、
   可変長関数 c_va（i64, double, int を va_arg で読む）
@@ -162,7 +162,7 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   - FNEG / FABS / FCOPYSIGN はビット演算、その他（frem、fma、min/max、丸め、超越関数、half 変換など）は Expand（libcall）。
   - 定数は `mov.l #ビット列`（isFPImmLegal）、ロード・ストア・bitcast・select は整数と同じ命令。
   - パターン述語を使うため RXDAGToDAGISel に `Subtarget` メンバを追加。
-- 検証: `test/codegen/fpu.ll` + `fpu_main.c`（`ATTRS=+fpu`）を QEMU で **3141 チェック全通過（-O1〜-O3、.s 経由・.o 直接とも）**、
+- 検証: `test/codegen/fpu.ll` + `fpu_main.c`（`ATTRS=+fpu`）を QEMU で **3110 チェック全通過（-O0〜-O3、.s 経由・.o 直接とも）**、
   `+fpu` なしでも全通過。fast-math（preserve-sign の関数）の四則・比較・select・分岐が GCC（FPU 使用）とビット単位で一致、
   IEEE 側は NaN / ±無限大 / ±0 を含めて正しいこと、nnan+ninf でも IEEE 環境の関数（fa_add_ieee / fa_olt_ieee）は
   libcall のままで非正規化数の加算・比較が正確なこと、ビット演算・変換・定数・メモリ・6 引数（スタック渡し）の呼び出し。
@@ -172,7 +172,9 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - **QEMU 8.2.2 のバグ**: 同じ変換ブロック内で直前にフラグを変える整数命令があると、`fcmp` の後の条件分岐が古いフラグを見る
   （`mov.l #1, r3 / add #1, r3 / mov.l #0, r4 / mov.l #0, r5 / fcmp r4, r5 / bne` が分岐する。`fcmp` 単独なら正しい）。
   fpu.ll を -O0 にすると `fa_max` の前にスタック確保の `add` が入ってこれに当たり失敗する（ISA 上は正しいコード）。
-  そのため fpu.ll の実行は -O1〜-O3 で行う。実機では問題にならない。
+  QEMU 11.1 では上流で修正済み（NOTES-qemu.md）。CDEF-inc/qemu の QEMU では fpu.ll も -O0 で通る。
+  このバグは GCC がコンパイルしたドライバ側（`if (b != 0.0f)` などの float 比較）の分岐も狂わせていて、
+  本来実行しないチェックまで数えていた（m3 は 3964、fpu は 3141 と数えていた。正しくは 3957 と 3110）。
 
 ## 倍精度 DFPU（`+dfpu`、issue #1）
 - RXv3 ソフトウェアマニュアル（R01US0316EJ0100）で確認した意味:

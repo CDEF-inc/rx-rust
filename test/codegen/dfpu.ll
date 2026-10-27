@@ -1,7 +1,9 @@
 ; double with +dfpu (RXv3): fast-math arithmetic and compares in functions
 ; that allow flushing denormals (#0), and integer to double conversions, use
-; the DFPU through DR0 / DR1; everything else stays soft-float. QEMU has no DFPU, so this is checked by scripts/check-dfpu.sh
-; (instruction sequences, GNU as) rather than run.
+; the DFPU through DR0 / DR1; everything else stays soft-float. Run with
+; dfpu_main.c on a core with the DFPU (MCPU=rxv3 QEMU_CPU=rxv3
+; scripts/run-codegen-test.sh, CDEF-inc/qemu); scripts/check-dfpu.sh also
+; checks the instruction sequences.
 target triple = "rx-none-elf"
 
 define double @da_add(double %a, double %b) #0 { %r = fadd nnan ninf double %a, %b

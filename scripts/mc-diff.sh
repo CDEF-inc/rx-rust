@@ -10,7 +10,8 @@
 # with "  ; xfail" to record a known difference (reported, not counted), or
 # with "  ; bytes: fd 77 81 2a" to compare LLVM with those bytes (taken from
 # the RX manual) instead of GNU as, where GNU as encodes the instruction
-# wrongly; such lines are reported if GNU as starts to agree.
+# wrongly; such lines are reported if GNU as starts to agree. A line
+# "# mcpu: rxv3e" picks the LLVM CPU (default rxv3).
 set -u
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -19,7 +20,6 @@ LLVM=$root/build/llvm/bin
 # LLVM's rxv3 includes the DFPU; GNU as needs rxv3-dfpu for the DFPU
 # instructions (same e_flags as rxv3).
 GAS="$GNU/rx-elf-as -mcpu=rxv3-dfpu"
-MC="$LLVM/llvm-mc -triple=rx-none-elf -mcpu=rxv3 -filetype=obj"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -37,6 +37,8 @@ relocs() {
 
 mode=$1
 src=$2
+mcpu=$(sed -n 's/^# mcpu: *//p' "$src" | head -n 1)
+MC="$LLVM/llvm-mc -triple=rx-none-elf -mcpu=${mcpu:-rxv3} -filetype=obj"
 pass=0
 fail=0
 xfail=0

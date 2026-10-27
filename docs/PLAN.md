@@ -47,7 +47,7 @@
 - [ ] memex・06 プレフィクス形式（itof/utof のメモリ形式を含む）、ビット操作、string 命令
 - [x] codegen はサイズ付き分岐 + BranchRelaxation で対応（M2）。アセンブラ入力のサイズ指定なし分岐は未対応のまま
 - [x] `sc<cond>.l`（M2 で追加、gas と 14/14 一致）
-- [ ] RXv3e の Protect Zone 命令（trcall/trmvfc/trmvtc/trrte）と mvfc/mvtc の追加レジスタ。binutils 未対応なのでマニュアルの符号表で検証
+- [x] RXv3e の Protect Zone 命令（trcall/trmvfc/trmvtc/trrte）と mvfc/mvtc の追加レジスタ。binutils 未対応なのでマニュアルの符号表で検証
 
 ### M2 コード生成（i32 整数のみ）✅ 2026-10-23（詳細 `NOTES-codegen.md`）
 - [x] CallingConv.td（GNURX 互換。引数 R1〜R4、戻り値 R1、callee-saved R6〜R13、char/short は int に昇格）
@@ -62,14 +62,14 @@
 - [x] 引数配置を GCC の規則（累積バイト数、溢れたら以降すべてスタック、可変長は最後の名前付きからスタック）で実装
 - [x] i64（add/adc, sub/sbb、乗除算・シフトは libgcc / 展開）
 - [x] float / double はソフトフロート（libgcc soft-fp、-m64bit-doubles multilib）。RuntimeLibcalls.td に RX を登録
-- [x] GCC との相互呼び出しテスト（m3.ll + m3_main.c、3964 チェック全通過、-O0〜-O3）
+- [x] GCC との相互呼び出しテスト（m3.ll + m3_main.c、3957 チェック全通過、-O0〜-O3）
 - [x] 構造体の値渡し（整数パーツ / byval）・戻り（レジスタ / R15 sret、R1 にアドレス返却）。struct.ll + struct_main.c 142 チェック全通過
 - [ ] LLVM 側の可変長関数定義（va_start / va_arg）
 - [x] 単精度 FPU（`+fpu`、rxv2 以上の既定）: nnan+ninf かつ非正規化数環境が preserve-sign の演算だけ
   fadd/fsub/fmul/fdiv/fsqrt/fcmp、int→float は itof/utof、それ以外はソフトフロート（issue #1）。
-  fpu.ll 3141 チェック、core-smoke も `+fpu` で通過
+  fpu.ll 3110 チェック、core-smoke も `+fpu` で通過
 - [x] DFPU（RXv3）による f64 演算: nnan+ninf かつ非正規化数環境が preserve-sign の四則・平方根・比較と
-  int→double を DR0/DR1 経由の列に（issue #1）。命令列を dfpu.expected と照合（実行環境がないため未実行）
+  int→double を DR0/DR1 経由の列に（issue #1）。命令列を dfpu.expected と照合し、CDEF-inc/qemu の rxv3 で dfpu_main.c と実行（4000 チェック）
 
 ### M4 rustc 統合 ✅ 2026-10-23（詳細 `NOTES-rustc.md`）
 - [x] `rustc_llvm` に RX 初期化、bootstrap は外部 LLVM（build/llvm の llvm-config）

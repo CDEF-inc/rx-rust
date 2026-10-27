@@ -24,9 +24,9 @@
 | `trmvfc cr, rd` | root の制御レジスタ → Rd | 3 | `FD 5A [cr:4][rd:4]` |
 | `trmvtc #imm, cr` | 即値 → root の制御レジスタ | 4〜7 | `FD [0111 li:2 11] [0010 cr:4]` + imm（li: 01=s8,10=s16,11=s24,00=32） |
 | `trmvtc rs, cr` | Rs → root の制御レジスタ | 3 | `FD 58 [rs:4][cr:4]` |
-| `trrte` | root ワールドでの例外復帰 | — | 未抽出（4.2.4 の続き） |
+| `trrte` | root ワールドでの例外復帰 | 2 | `7F 97` |
 
-※ 上の符号は pdftotext のビット表から読み取ったもの。M1 で実装する前に PDF の図と突き合わせること。
+※ 上の符号は 4 章の符号の図と照合済み（CDEF-inc/qemu の RXv3e 対応、NOTES-qemu.md）。
 
 ## 仕様拡張された命令（3.2.2）
 - `pushc` / `popc` / `mvfc` / `mvtc`: 対象に IVC, WID, WPRI を追加。

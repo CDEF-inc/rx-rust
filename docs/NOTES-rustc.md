@@ -69,7 +69,7 @@ bash scripts/run-rust-test.sh     # -Zbuild-std=core でテスト crate をビ�
   `--print cfg`: rxv1 → なし、rxv1 + fpu → fpu、rxv2 → fpu / rxv2、rxv3 → dfpu / fpu / rxv2 / rxv3。
   rustc_span のシンボルが変わると古い rustc でビルドした core のメタデータが合わず ICE になるので、`build/rust-*` を消す。
 - サイズ: text 18 KB（release, opt-level=s, gc-sections）。gc-sections なしだと 277 KB で内蔵 RAM に入らなかった。
-- 既存の LLVM レベルのテスト（i32 4131 / m3 3964 / struct 142）も全通過。
+- 既存の LLVM レベルのテスト（i32 4131 / m3 3957 / struct 142）も全通過。
 
 ## 注意・未対応
 - 実行検証は QEMU（RXv1 命令のみ）。rustc の既定 CPU は rxv3 で、アトミックは movli/movco（RXv2）になるため、
