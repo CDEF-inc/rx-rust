@@ -100,7 +100,8 @@ RX_CPU=rxv3 scripts/run-codegen-test.sh test/codegen/dfpu.ll test/codegen/dfpu_m
 scripts/run-rust-test.sh                     # test/rust/core-smoke
 scripts/run-rust-rom.sh                      # test/rust/qemu-demo, boots a ROM image
 scripts/run-rust-rom.sh test/rust/isr-save   # FPSW / ACC / A1 / DFPU saved by interrupt entries
-RX_MEMORY_X=$PWD/test/rust/qemu-demo/memory.x scripts/run-rust-rom.sh test/rust/hw-irq  # CMT interrupts
+# CMT interrupts; hw-irq is built for rxv3 (the RX72M), so give the QEMU core
+RX_CPU=rxv3 RX_MEMORY_X=$PWD/test/rust/qemu-demo/memory.x scripts/run-rust-rom.sh test/rust/hw-irq
 scripts/run-qemu-test.sh fcmp-flags rx62n rxv2 rxv3 rxv3e
 scripts/run-qemu-test.sh cpu-features rx62n rxv1 rxv2 rxv3 rxv3e
 scripts/run-qemu-test.sh fpu-status rx62n rxv2 rxv3 rxv3e
