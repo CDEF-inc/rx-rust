@@ -23,6 +23,9 @@
   - RXv2 の排他アクセス: movli [Rs], Rd / movco Rs, [Rd]
   - RXv2 の命令は `-mcpu=rxv2` 以上（`+rxv2`）でのみ受け付ける。FPU 命令は CPU で制限しない（gas も rx100/rx200 以外は通す）
   - RXv3: bfmov/bfmovz #slsb, #dlsb, #width, Rs, Rd、save/rstr（Rs、#uimm8）
+  - RXv3e（`-mcpu=rxv3e`）: trcall #uimm8、trrte、trmvfc cr, Rd、trmvtc Rs, cr / #simm8〜32, cr、int Rs、
+    mvtipl #0〜31（他のコアは #0〜15）。制御レジスタ ivc / wpri / wid（mvtc / mvfc / pushc / popc）、
+    trmvtc / trmvfc では isp / intb / bpc / bpsw / extb / ivc / trctb / wintb。これらのレジスタ名も rxv3e でのみ受け付ける
   - DFPU（`+dfpu`、rxv3 / rxv3e の既定）: dadd/dsub/dmul/ddiv、dabs/dneg/dsqrt/dround/dtoi/dtou/dtof、
     dcmp{un,eq,lt,le}、ftod/itod/utod、dmov.d（DR↔DR、[Rb]/dsp8/dsp16（8 倍）、Rs→DRHn、#imm32→DRHn）、
     dmov.l（Rs↔DRHn/DRLn、#imm32→DRHn/DRLn）、dpushm/dpopm.{d,l}、mvtdc/mvfdc、mvfdr
@@ -43,8 +46,10 @@
 | `test/mc/v2.s`（lines） | stz/stnz、movli/movco | 19/19 一致 |
 | `test/mc/dfpu.s`（lines） | DFPU 全命令、dmov.d の dsp8/dsp16 境界、レジスタ範囲 | 59/59（うち 10 行はマニュアルの符号と比較） |
 | `test/mc/v3.s`（lines） | bfmov/bfmovz、save/rstr | 17/17 一致 |
+| `test/mc/v3e.s`（lines、`# mcpu: rxv3e`） | Protect Zone 命令、int Rs、5 ビットの mvtipl、追加の制御レジスタ | 53/53（うち 50 行はマニュアルの符号と比較。GNU as は RXv3e 未対応） |
 - fpu.s / dsp.s / v2.s の `# RXv2` より後の行は `-mcpu=rxv1` で拒否され、前の行は受け付けられることを確認
 - dfpu.s は `-mcpu=rxv2` と `-mcpu=rxv3 -mattr=-dfpu` で、v3.s は `-mcpu=rxv2` で全行拒否。rxv3e では全行受け付け
+- v3e.s は `-mcpu=rxv3` では int #3、mvtipl #0 / #15 以外の全行を拒否
 - llvm-mc のアセンブリ出力を GNU as で再アセンブルしても同一バイト列（basic/branch/symbol、fpu/dsp/v2、dfpu/v3。
   ただし下記の ftod/itod/utod/mvtdc は GNU as 側が誤るので除く）
 - GCC（-m64bit-doubles）のオブジェクトと `rx-elf-ld` でリンクでき、呼び出しが解決されることを確認
@@ -77,5 +82,5 @@ bash scripts/mc-diff.sh lines test/mc/fpu.s   # dsp.s, v2.s, dfpu.s, v3.s も同
 - mov #imm → メモリ、メモリ → メモリ、`[Rn+]`/`[-Rn]`、インデックス `[Ri, Rb]`
 - ビット操作（bset/bclr/btst/bnot/bm<cc>）、xchg、string 命令
 - itof/utof のメモリオペランド（memex でサイズを指定する形式）
-- RXv3e の Protect Zone 命令（NOTES-rxv3e.md）
+- 逆アセンブラ（RX の MC 層にまだない）
 - 逆アセンブラ（当面は rx-elf-objdump を使う）
