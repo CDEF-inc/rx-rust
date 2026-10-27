@@ -74,7 +74,9 @@ CMT、ICU を操作し、CMT0 の割り込みと critical_section::with を確�
   bit 7 / 6 ではなく、TIE / RIE を立てて（ICU の割り込みは許可しない）IR063（TXI2）/ IR062（RXI2）を見る。
   RXD2 は内蔵プルアップを入れる（CN8 に何もつながっていないと RXD が浮いて FER が立つ。プルアップなしで SSR = 94h だった）。
 
-確認: test/rust/hw-uart（ボード、rt グループ、13 チェック、release / dev とも通る）。
+確認: test/rust/hw-uart（ボード、rt グループ、15 チェック、release / dev とも通る）。
+- ボーレートの選び方: PCLKB 60 MHz で 9600〜2000000 bps の 12 通りが、k・CKS・BRR の総当たりと同じ誤差になる
+  （454546 bps は BRR = 16、441176 bps）。
 - `delay_ms(5)` / `delay_us(100)` / `delay_ns(1000)` を CMT0（同じ PCLKB / 8）で計る: 37500 / 750 / 8 カウント以上で、
   余分はわずか。
 - MPC: P12PFS / P13PFS の PSEL = 0Ah、PMR。TE と TIE を立てると IR063 だけが立つ（TXI2 はベクタ 63）。
@@ -82,8 +84,23 @@ CMT、ICU を操作し、CMT0 の割り込みと critical_section::with を確�
 - 受信エラーなし（RXD のプルアップ）。CN8 の 1・2 番（RXD・TXD）をつなぐと送った 6 バイトが戻ることを確かめる
   （つないでいないので `loopback=0`、受信と RXI2 = ベクタ 62 はまだ実機で確かめていない）。
 
+### UART の未確認事項（2026-10-28 時点）
+
+実機で確かめたのは送信側だけで、次は**未確認**（CN8 の 1・2 番をつないでいないため受信できない）。
+
+- 受信そのもの: RXD2（P12、PSEL 0Ah）からの受信、RXI2 がベクタ 62（IR062）であること、`Read::read` /
+  `ReadReady::read_ready` の動き。
+- 受信エラーの扱い: ORER / FER / PER を検出して消し、エラーを返すこと。2 バイト目以降のエラーを保持して次の
+  `read` で返すこと（rx-rust#38 のレビュー対応で入れた処理）。
+- 他の機器との通信（USB シリアル変換などをつないで、実際に文字列が届くか）。送信は TXD 端子のレベルと TEND で
+  確かめただけで、相手側で受け取ったことは見ていない。
+
+確かめ方: CN8 の 1 番（RXD）と 2 番（TXD）をつないで `scripts/hw-build.sh rt` と `scripts/hw-run.sh
+build/hw/rt/hw-uart-release.elf` を実行する。`loopback=1` になり、送った 6 バイトが戻ることを確かめる
+（受信エラーの扱いは、このテストではまだ確かめない）。
+
 ## 予定
 
-1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）。UART の受信は CN8 の折り返しで確かめる
+1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）。UART の受信は未確認（上記）。CN8 の折り返しで確かめる
 2. SPI（RSPI）、I2C（RIIC）、PWM（MTU / GPTW）、ADC（S12AD）
 3. 必要なら async（embassy の time driver を CMT で）、embedded-hal-nb の serial

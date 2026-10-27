@@ -14,7 +14,7 @@ AP-RX72M-0A board): the instruction, codegen and Rust tests pass on both
 | LLVM RX backend (MC layer, CodeGen) | [CDEF-inc/llvm-project](https://github.com/CDEF-inc/llvm-project/tree/rx/23.1) `rx/23.1` | RXv1 / RXv2 / RXv3 / RXv3e instructions, FPU, DSP, DFPU; object files match GNU as (and Renesas CC-RX where GNU as is wrong) |
 | rustc `rx-none-elf` target, callconv, `asm!` | [CDEF-inc/rust](https://github.com/CDEF-inc/rust/tree/rx-none-elf) `rx-none-elf` | `core` builds; tier 3 |
 | Startup code, vector tables, linker script | [`crates/rx-rt`](crates/rx-rt) | boots from the reset vector and takes interrupts (peripheral, software, nested) on QEMU and the RX72M; `critical-section` implementation |
-| RX72M HAL (embedded-hal 1.0) | [`crates/rx72m-hal`](crates/rx72m-hal) | clocks (PLL 240 MHz), GPIO and pin functions, `DelayNs` (CMT2), SCI2 UART (`embedded-io`); checked on the AP-RX72M-0A |
+| RX72M HAL (embedded-hal 1.0) | [`crates/rx72m-hal`](crates/rx72m-hal) | clocks (PLL 240 MHz), GPIO and pin functions, `DelayNs` (CMT2), SCI2 UART (`embedded-io`); checked on the AP-RX72M-0A, except UART receiving (not yet checked, see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
 | RX72M peripheral access crate | [`crates/rx72m-pac`](crates/rx72m-pac) | generated at build time with svd2rust from e² studio's `RX72M.sfrx` (not redistributed; see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
 | QEMU with RXv2 / RXv3 / RXv3e CPU models | [CDEF-inc/qemu](https://github.com/CDEF-inc/qemu/tree/rx/v11.1) `rx/v11.1` | RXv2 / RXv3 / RXv3e instructions, DFPU, Protect Zone (CPU side); instruction tests checked against an RX72M |
 | Build and test scripts, tests | [`scripts`](scripts), [`test`](test) | QEMU and the RX72M board |

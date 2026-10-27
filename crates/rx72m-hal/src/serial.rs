@@ -10,10 +10,15 @@
 //! not use them, the driver does not poll TDRE / RDRF but the interrupt
 //! requests: with SCR.TIE / RIE set and the interrupts left disabled in the
 //! ICU, IR063 (TXI2) is set when TDR can take a byte and IR062 (RXI2) when
-//! RDR holds one (checked on the board). SSR gives TEND and the errors.
+//! RDR holds one. SSR gives TEND and the errors.
 //!
 //! RXD2 gets the internal pull-up, so that an unconnected CN8 idles high
 //! instead of floating into framing errors.
+//!
+//! Not checked on the board yet: only sending is (TXI2 as IR063, TEND, the
+//! TXD pin). Receiving (RXI2 as IR062, `Read`, the receive error handling)
+//! needs CN8's RXD and TXD wired together and has not been run; see
+//! docs/NOTES-hal.md.
 
 use core::fmt;
 use core::ptr::{read_volatile, write_volatile};
