@@ -35,7 +35,7 @@ echo "== assembler and DFPU instruction sequences"
 for t in basic scc system fpu dsp v2 dfpu v3 v3e mov; do
   run "mc $t" bash "$S/mc-diff.sh" lines "$root/test/mc/$t.s"
 done
-for t in branch symbol string; do
+for t in branch symbol string sizeless; do
   run "mc $t" bash "$S/mc-diff.sh" file "$root/test/mc/$t.s"
 done
 run "check-dfpu" bash "$S/check-dfpu.sh"

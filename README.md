@@ -90,7 +90,7 @@ and run on `rx62n`.
 scripts/run-all-tests.sh                     # everything, on every CPU model
 RX_CPU=rxv3 scripts/run-rust-rom.sh test/rust/isr-save
 scripts/mc-diff.sh lines test/mc/basic.s     # also scc, system, fpu, dsp, v2, dfpu, v3, v3e
-scripts/mc-diff.sh file test/mc/branch.s     # also symbol.s
+scripts/mc-diff.sh file test/mc/branch.s     # also symbol, string, sizeless
 scripts/run-codegen-test.sh test/codegen/i32.ll test/codegen/main.c
 scripts/run-codegen-test.sh test/codegen/m3.ll test/codegen/m3_main.c
 scripts/run-codegen-test.sh test/codegen/struct.ll test/codegen/struct_main.c

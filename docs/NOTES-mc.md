@@ -69,18 +69,27 @@ bash scripts/mc-diff.sh lines test/mc/fpu.s   # dsp.s, v2.s, dfpu.s, v3.s も同
   gas はこの 2 つのフィールドを入れ替えて出力する（`itod r3, dr4` → `fd 77 84 39`。binutils 自身の objdump は
   これを `itod r4, dr3` と読む。mvtdc は objdump も同じ向きに誤っている）。LLVM はマニュアルどおりに符号化し、
   dfpu.s のこれらの行は `; bytes:` でマニュアルの符号と比較する（mc-diff.sh）。llvm-project#2 のレビューで判明。
-- **サイズ指定なしの分岐**（`bra label`、`beq label`、`bsr label`）は未対応。gas は距離に応じて緩和する。
-  M2 では codegen 側でサイズ付き分岐を出し、BranchRelaxation パスで伸ばす方針。
+- **サイズ指定なしの書き方**（2026-10-28 対応、test/mc/sizeless.s）: gas と同じく `mov` / `push` / `sstr` /
+  `suntil` / `swhile` / `rmpa` は `.l`、`movu` は `.w`、`bra Rn` / `bsr Rn` は `.l`。`mov #imm, メモリ` はサイズが要る
+  （gas もエラー）。ラベルへの `bra` / `bsr` / `b<cond>` は疑似命令 BR_SIZELESS にし、RXAsmBackend の緩和で
+  gas と同じ形にする: bra は .s → .b → .w → .a、bsr は .w → .a、beq / bne は .s → .b → .w → `b<!cond>.s` + bra.a、
+  その他の条件は .b → `b<!cond>.b` + bra.w → `b<!cond>.b` + bra.a。距離は列の先頭から測る（gas と同じ）。
+  解決できない分岐先（未定義・global・別セクション）は gas と同じく bra.a / bsr.a / beq.w・bne.w / b<cond>.b。
+  codegen はサイズ付き分岐を出し、BranchRelaxation パスで伸ばす。
+- **未定義シンボルの差の即値**（`#(_e - _s)`、`.long _e - _s`）: gas と同じく 32bit の欄に
+  R_RX_SYM A+C、R_RX_SYM B、R_RX_OPsub、R_RX_ABS32 のスタック計算リロケーションを出す。
 - **定数の分岐先**: gas は `bra.b 8` の 8 を絶対番地として扱うが、LLVM は変位として扱う（実用上は使わない）。
+  サイズなしの `bra 8` は LLVM ではエラーにする。
 - **`#sym` 即値**: LLVM は常に 32bit 形式 + R_RX_DIR32。gas は同一ファイル内で値が決まるシンボルなら短い形式に緩和する
-  （未定義シンボルでは一致を確認済み）。
+  （未定義シンボルでは一致を確認済み）。`#(2f - 1b)` のように後で値が決まる式も同じ（gas は配置後の値で短い形式）。
 - `sp` は LLVM では r0 の別名として受け付けるが、gas は受け付けない。
 - gas の既定コードセクション名は `P`（Renesas 流）、LLVM は `.text`。リンカスクリプトで両方を拾うこと（M5）。
 
 ## 未実装（M1 の残り）
-- memex 付きメモリオペランド（`add [r1].l, r2`、06 プレフィクス形式）、`.UB` 短縮形式
-- mov #imm → メモリ、メモリ → メモリ、`[Rn+]`/`[-Rn]`、インデックス `[Ri, Rb]`
-- ビット操作（bset/bclr/btst/bnot/bm<cc>）、xchg、string 命令
+- memex 付きメモリオペランド（`add [r1].l, r2`、06 プレフィクス形式、gas はサイズなしの `add [r1], r2` を .l とする）、
+  `.UB` 短縮形式
+- `push.l` のメモリ形式（`push [r1]`）
+- ビット操作（bset/bclr/btst/bnot/bm<cc>）、xchg
 - itof/utof のメモリオペランド（memex でサイズを指定する形式）
 - 逆アセンブラ（RX の MC 層にまだない）
 - 逆アセンブラ（当面は rx-elf-objdump を使う）
