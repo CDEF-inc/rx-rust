@@ -111,6 +111,7 @@ scripts/run-qemu-test.sh dsp-v2 rxv2 rxv3 rxv3e
 scripts/run-qemu-test.sh rxv3-insns rxv3 rxv3e
 scripts/run-qemu-test.sh dfpu-insns rxv3 rxv3e
 scripts/run-qemu-test.sh rxv3e-insns rxv3e
+scripts/run-qemu-test.sh cmt rx62n rxv3             # compare match timer (a peripheral)
 RX_CPU=rxv2 scripts/run-codegen-test.sh test/codegen/atomic.ll test/codegen/atomic_main.c
 ```
 

@@ -34,12 +34,12 @@ scripts/hw-run.sh build/hw/insns/dsp-v2.elf        # 1 本だけ
 
 出力は 1 テスト 1 行で、QEMU の `qemu-run.sh` と同じ変数（checks、failures、失敗があれば
 first_failure、got、want）と実行時間を表示し、最後に `== N passed, M failed` を出す。
-全 25 本で約 1 分 15 秒（書き込みを含む。実行時間は 1 本 5 秒以内）。失敗した命令テストは、
+全 26 本で約 1 分 20 秒（書き込みを含む。実行時間は 1 本 5 秒以内）。失敗した命令テストは、
 `build/hw/insns/NAME.fail` に失敗したチェックの番号・値・`bsr.a _check` のアドレスを最大 64 件書く。
 
 | グループ | 内容 | 配置 |
 |---|---|---|
-| insns | test/qemu の命令テスト（cpu-features、fcmp-flags、fpu-status、rxv2-fpu、dsp-v2、dfpu-insns、rxv3-insns、mem-insns）。V2 = V3 = FPU = DFPU = 1、V3E = 0 でアセンブル | RAM（0x4000〜）、EXTB を RAM の固定ベクタテーブルに向ける |
+| insns | test/qemu の命令テスト（cpu-features、fcmp-flags、fpu-status、rxv2-fpu、dsp-v2、dfpu-insns、rxv3-insns、mem-insns、cmt）。V2 = V3 = FPU = DFPU = 1、V3E = 0 でアセンブル | RAM（0x4000〜）、EXTB を RAM の固定ベクタテーブルに向ける |
 | rom | rxv2-insns（EXTB を書き換えるので RAM 版の起動処理と両立しない） | コードフラッシュ、リセットベクタから起動 |
 | codegen | test/codegen の i32、m3、struct、atomic、fpu、dfpu、mem（`llc -mcpu=rxv3`、-O0 と -O2）と GCC でコンパイルした C ドライバ | RAM |
 | rust | test/rust/core-smoke（`-C target-cpu=rxv3`、release と dev） | RAM |
@@ -80,12 +80,13 @@ GDB は使わず、Python から直接リモートプロトコルを話す。e²
 
 ## 結果
 
-2026-10-28、rx-rust main 9858517（llvm-project 3ef8ae3、rust 14426e0）、CDEF-inc/qemu rx/v11.1 eb37dcef83。
-hw-run.sh で 25 本、計 35,403 チェックがすべて失敗 0（QEMU の run-all-tests.sh も 114 / 114）。
+2026-10-28、rx-rust main（llvm-project ced046c、rust d482ce7）に test/qemu/cmt.s を足したもの。
+hw-run.sh で 26 本、計 35,416 チェックがすべて失敗 0。
+QEMU（CMT を直した CDEF-inc/qemu）の run-all-tests.sh も 116 / 116。
 
 | グループ | テスト | チェック数 |
 |---|---|---|
-| insns | cpu-features 59、fcmp-flags 9、fpu-status 29、rxv2-fpu 40、dsp-v2 1512、dfpu-insns 128、rxv3-insns 64、mem-insns 84 | 1925 |
+| insns | cpu-features 59、fcmp-flags 9、fpu-status 29、rxv2-fpu 40、dsp-v2 1512、dfpu-insns 128、rxv3-insns 64、mem-insns 84、cmt 13 | 1938 |
 | rom | rxv2-insns | 16 |
 | codegen（-O0 と -O2 のそれぞれ） | i32 4131、m3 3957、struct 142、atomic 1080、fpu 3110、dfpu 4000、mem 78 | 32996（2 回分） |
 | rust | core-smoke release 233、dev 233 | 466 |
