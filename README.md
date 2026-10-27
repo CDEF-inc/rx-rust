@@ -30,8 +30,9 @@ What works:
   single-precision FPU, the DSP (accumulator) instructions, the RXv2 and RXv3
   additions and the RXv3 double-precision FPU.
 
-Not yet: running RXv2/RXv3 code (QEMU models RXv1 only; the DFPU and the
-`movli`/`movco` atomics are checked by their instruction sequences),
+Not yet: running all RXv2/RXv3 code (the CDEF-inc/qemu build runs the RXv2
+atomics and FPU instructions; the DSP, RXv3 and DFPU instructions are still
+checked by their instruction sequences),
 `alloc`/`std`, debug info checks, real hardware.
 
 ## Layout
@@ -85,6 +86,10 @@ scripts/run-rust-rom.sh                      # test/rust/qemu-demo, boots a ROM 
 scripts/run-rust-rom.sh test/rust/isr-save   # FPSW / ACC saved by interrupt entries
 scripts/run-qemu-test.sh fcmp-flags rx62n rxv2 rxv3 rxv3e
 scripts/run-qemu-test.sh cpu-features rx62n rxv1 rxv2 rxv3 rxv3e
+scripts/run-qemu-test.sh fpu-status rx62n rxv2 rxv3 rxv3e
+scripts/run-qemu-test.sh rxv2-fpu rxv2 rxv3 rxv3e
+scripts/run-qemu-test.sh rxv2-insns rxv2 rxv3 rxv3e
+MCPU=rxv2 QEMU_CPU=rxv2 scripts/run-codegen-test.sh test/codegen/atomic.ll test/codegen/atomic_main.c
 ```
 
 ## Writing a program

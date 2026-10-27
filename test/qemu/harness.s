@@ -1,15 +1,11 @@
 ; Result recording for the QEMU instruction tests (read by qemu-run.sh).
 ; _check compares r1 (got) with r2 (want); it preserves r1-r13.
 ;
-; The undefined instruction exception sets r13 to 1 and resumes at the
-; address in _resume, so a test can check whether an instruction traps:
-;	mov.l	#0, r13
-;	mov.l	#1f, r12
-;	mov.l	r12, [r11]	; r11 = #_resume
-;	<instruction>
-; 1:	(r13 is 1 if it trapped)
+; The undefined instruction exception sets r13 to 1, and the floating-point
+; exception sets it to 2; both resume at the address in _resume, so a test
+; can check whether an instruction traps (TRY in harness.inc).
 	.text
-	.global	_check
+	.global	_check, _resume_at
 _check:
 	mov.l	#_checks, r14
 	mov.l	[r14], r15
@@ -36,6 +32,11 @@ _check:
 
 _undefined:
 	mov.l	#1, r13
+	bra.a	_resume_at
+_fpu_exception:
+	mov.l	#2, r13
+; Return from an exception to the address in _resume.
+_resume_at:
 	mov.l	#_resume, r14
 	mov.l	[r14], r14
 	mov.l	r14, [r0]		; the stacked PC
@@ -45,7 +46,9 @@ _undefined:
 	.section .fixedvec, "a"
 	.space	23 * 4
 	.long	_undefined		; 23: undefined instruction
-	.space	7 * 4
+	.long	0
+	.long	_fpu_exception		; 25: floating-point exception
+	.space	5 * 4
 	.long	_start			; 31: reset
 
 	.data

@@ -35,8 +35,59 @@ gdbsim ボード（`-M gdbsim-r5f562n8`）で `-cpu` でコアを選ぶ。周辺
 
 - 既定のユニットは LLVM の同名 `-mcpu` に合わせた。`fpu=on|off`、`dfpu=on|off` で変えられる
   （`dfpu=on` は RXv3 以降のみ。違反は起動時エラー）。
-- 持っていない ISA・ユニットの命令は未定義命令例外（ベクタ 23）。Q1 の時点では FPU 命令を `fpu` で判定する。
-  RXv2 以降の命令は Q2 以降で追加し、同じ仕組みで判定する。
+- 持っていない ISA・ユニットの命令は未定義命令例外（ベクタ 23）。FPU 命令は `fpu` で、
+  RXv2 の命令は RXv2 以降かどうかで判定する（RXv2 の FPU 命令は両方）。
+
+## RXv2 の基本命令（Q2）
+
+マニュアル（RXv3、R01US0316EJ0100。`pdftotext -layout` でテキスト化して参照）で確認した仕様:
+
+- `movli [Rs], Rd`: LI = 1 にしてロード。`movco Rs, [Rd]`: LI = 1 ならストアして Rs = 0、LI = 0 なら
+  ストアせず Rs = 1。どちらの場合も LI = 0。LI を 0 にするのは movco / rte / rtfi だけ（例外の受付では変わらない）。
+  符号 `fd 2f`（movli）/ `fd 27`（movco）は mov.size の post-increment 形式のサイズ 3 にあたる。サイズ 3 は
+  RXv1 では未定義なので、デコーダのグループで movli / movco を先に置き、mov 側はサイズ 3 を未定義にした
+  （以前の QEMU は 64bit アクセスとして実行していた）。
+- `stz` / `stnz Rs, Rd`（`fc 4b` / `fc 4f`）: Z（stnz は Z でない）のとき Rd = Rs。
+- 3 オペランドの `fadd` / `fsub` / `fmul rs, rs2, rd`: rd = rs2 op rs（`ff a/8/b`）。
+- `fsqrt`、`ftou`（.L のメモリも可）、`utof`（itof と同じ形式。メモリは memex で拡張してから符号なしとして変換）。
+- EXTB（制御レジスタ 13、リセット値 FFFFFF80h）: 固定ベクタテーブル（リセット以外）の先頭。RXv2 以降のみ。
+
+FPU については既存の QEMU の誤りも直した（rx62n にも効く）:
+
+| 項目 | 以前 | マニュアル |
+|---|---|---|
+| 浮動小数点例外のベクタ | 21（アクセス例外） | 25 |
+| FPSW のリセット値 | 0 | 00000100h（DN = 1） |
+| cause フラグ | softfloat のフラグをクリアしないので、一度 inexact になると以後ずっと CX | 命令ごと |
+| DN = 1 のアンダーフロー | 0 にするがフラグなし | 0、CU / FU を立てる（CX は立てない） |
+| 例外発生時の Z / S | 更新していた | 変えない |
+| 整数変換の NaN | 符号によらず最大値 | 符号で 7FFFFFFFh / 80000000h（ftou は FFFFFFFFh / 0） |
+| NaN を入力にしない無効演算の結果 | 7FC00000h | 7FFFFFFFh |
+| MVTC での FS | 計算結果を捨てていた | FU/FZ/FO/FV の OR |
+
+DN = 0 では非正規化数の入力とアンダーフローが未実装処理（CE、マスク不可）。QEMU は常に flush して計算し、
+flush が起きたら DN を見て CE の例外にするか、DN = 1 の結果として扱う。
+
+RXv1 のマニュアルは手元にないので、FPSW のリセット値と NaN の扱いは RXv3 マニュアルの記述を全コアに使っている。
+
+テスト:
+
+```
+scripts/run-qemu-test.sh fpu-status rx62n rxv2 rxv3 rxv3e     # FPSW と例外（上の表）
+scripts/run-qemu-test.sh rxv2-fpu rxv2 rxv3 rxv3e             # 3 オペランド、fsqrt、ftou、utof
+scripts/run-qemu-test.sh rxv2-insns rxv2 rxv3 rxv3e           # movli/movco、stz/stnz、EXTB
+scripts/run-qemu-test.sh cpu-features rx62n rxv1 rxv2 rxv3 rxv3e   # RXv2 の命令が RXv1 でトラップ
+```
+
+`run-codegen-test.sh` は `MCPU`（llc と GNU as の -mcpu）を受け付ける。LLVM が出す RXv2 のコードを実行できる:
+
+```
+MCPU=rxv2 QEMU_CPU=rxv2 scripts/run-codegen-test.sh test/codegen/atomic.ll test/codegen/atomic_main.c
+MCPU=rxv2 QEMU_CPU=rxv2 scripts/run-codegen-test.sh test/codegen/fpu.ll test/codegen/fpu_main.c
+```
+
+atomic.ll（movli / movco の CAS ループ）は 1080 チェック、fpu.ll は 3110 チェックがともに -O0 / -O2 で通る。
+同じオブジェクトを rx62n で動かすと movli がトラップする。
 
 ## テスト（`test/qemu`、`scripts/run-qemu-test.sh`）
 
@@ -74,7 +125,7 @@ codegen テストのチェック数が変わる（m3 3964 → 3957、fpu 3141 �
 
 | ステップ | 内容 |
 |---|---|
-| Q1 | CPU モデルと ISA 判定、fcmp の回帰テスト（このメモ） |
+| Q1 | CPU モデルと ISA 判定、fcmp の回帰テスト |
 | Q2 | RXv2 の基本: movli/movco、stz/stnz Rs、3 オペランドの fadd/fsub/fmul、fsqrt、ftou、utof、FPSW.DN、EXTB |
 | Q3 | RXv2 の DSP: A0 / A1（72bit）と各命令 |
 | Q4 | RXv3: bfmov/bfmovz、save/rstr（レジスタバンク） |

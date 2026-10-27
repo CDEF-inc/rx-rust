@@ -36,7 +36,7 @@ for c in "${cpus[@]}"; do
     defs+=(--defsym "$f=$v")
   done
   for s in harness "$name"; do
-    "$MC" -triple=rx -mcpu=rxv3e -filetype=obj "${defs[@]}" \
+    "$MC" -triple=rx -mcpu=rxv3e -filetype=obj -I "$R/test/qemu" "${defs[@]}" \
       "$R/test/qemu/$s.s" -o "$tmp/$s.o" || exit 1
   done
   "$G/rx-elf-ld" --no-warn-rwx-segments -T "$R/scripts/rx-qemu.ld" \
