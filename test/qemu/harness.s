@@ -1,9 +1,10 @@
 ; Result recording for the QEMU instruction tests (read by qemu-run.sh).
 ; _check compares r1 (got) with r2 (want); it preserves r1-r13.
 ;
-; The undefined instruction exception sets r13 to 1, and the floating-point
-; exception sets it to 2; both resume at the address in _resume, so a test
-; can check whether an instruction traps (TRY in harness.inc).
+; The undefined instruction exception sets r13 to 1, the floating-point
+; exception 2 and the privileged instruction exception 4; all resume at the
+; address in _resume, so a test can check whether an instruction traps (TRY
+; in harness.inc).
 	.text
 	.global	_check, _resume_at
 _check:
@@ -30,6 +31,9 @@ _check:
 	mov.l	r2, [r14]
 1:	rts
 
+_privilege:
+	mov.l	#4, r13
+	bra.a	_resume_at
 _undefined:
 	mov.l	#1, r13
 	bra.a	_resume_at
@@ -44,7 +48,9 @@ _resume_at:
 
 ; Fixed vector table (scripts/rx-qemu.ld places it at 0xffffff80).
 	.section .fixedvec, "a"
-	.space	23 * 4
+	.space	20 * 4
+	.long	_privilege		; 20: privileged instruction
+	.space	2 * 4
 	.long	_undefined		; 23: undefined instruction
 	.long	0
 	.long	_fpu_exception		; 25: floating-point exception

@@ -3,7 +3,8 @@
 
 ; TRY insn...: run insn with r13 = 0 and continue after it even if it
 ; traps (r13 is then 1 for the undefined instruction exception, 2 for the
-; floating-point exception). Needs r11 = #_resume; clobbers r12.
+; floating-point exception, 4 for the privileged instruction exception).
+; Needs r11 = #_resume; clobbers r12.
 	.macro	TRY insn:vararg
 	mov.l	#0, r13
 	mov.l	#9999f, r12

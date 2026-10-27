@@ -48,6 +48,13 @@ _main:
 	TRAPS	1 - V2, racl #1, a0
 	TRAPS	1 - V2, rdacw #1, a0
 	TRAPS	1, .byte 0xfd, 0x1e, 0x45	; mvfachi with shift 3
+	; RXv3 instructions (save / rstr with the default 16 banks)
+	TRAPS	1 - V3, bfmov #0, #8, #8, r4, r5
+	TRAPS	1 - V3, bfmovz #0, #8, #8, r4, r5
+	TRAPS	1 - V3, xor r4, r4, r5
+	TRAPS	0, xor r4, r5
+	TRAPS	1 - V3, save #0
+	TRAPS	1 - V3, rstr #0		; restores what save #0 stored
 	; mov.<size> has no size 3: the other codes next to movco / movli
 	TRAPS	1, .byte 0xfd, 0x23, 0x65	; mov rs, [rd+] with size 3
 	TRAPS	1, .byte 0xfd, 0x2b, 0x65	; mov [rs+], rd with size 3

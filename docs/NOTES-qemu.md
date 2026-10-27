@@ -158,6 +158,27 @@ scripts/run-qemu-test.sh dsp-v2 rxv2 rxv3 rxv3e           # 1512 チェック
 rx-rt の割り込み入口（`save-acc`、RXv2 以降）は mvtaclo → mvtachi → mvtacgu の順に戻すので、
 mvtachi の OR の仕様でもガードビットは最後の mvtacgu で正しく戻る。
 
+## RXv3 の命令（Q4）
+
+- `bfmov` / `bfmovz #slsb, #dlsb, #width, Rs, Rd`（`fc 5e` / `fc 5a` + #imm16）: Rs の bit slsb から width ビットを
+  Rd の bit dlsb へ。bfmov は Rd の他のビットを残し、bfmovz は 0 にする。#imm16 は
+  `((dlsb + width) & 1Fh) << 10 | dlsb << 5 | ((dlsb - slsb) & 1Fh)`（マニュアル 4 章の符号の注記。LLVM も同じ）。
+  width は 1〜31、(slsb + width) と (dlsb + width) がともに 32 を超えると結果は未定義。
+- `xor Rs, Rs2, Rd`（`ff 6x`）: RXv3 で 3 オペランドになった。Z / S を設定。
+- レジスタ退避バンク（1.9 節）: `save` / `rstr`（#uimm8 または Rs でバンク番号）が R1〜R15、USP、FPSW、ACC0、ACC1 を
+  バンクに保存・バンクから復帰する。特権命令。バンク数は製品ごと（0〜256）で、範囲外のバンクは未定義。
+  - QEMU では CPU のプロパティ `banks`（既定は rxv3 / rxv3e で 16、RX72N・RX66N と同じ）。`banks=0` では
+    save / rstr は未定義命令。範囲外のバンクは何もしない（ゲストエラーとしてログ）。バンクの内容はリセットで変えない
+    （マニュアルではリセット後不定）。
+  - rstr は FPSW の丸めモードも反映する。
+
+テスト: `scripts/run-qemu-test.sh rxv3-insns rxv3 rxv3e`（62 チェック）
+
+- bfmov / bfmovz の 14 通り（境界の bit 0 / 31、width 1 / 31、Rs = Rd）、xor の結果と Z / S、
+- save / rstr: R1〜R15、USP、FPSW、ACC0 / ACC1（ガードビットを含む）を壊してから戻すこと、Rs で選んだ別のバンク、
+  戻した FPSW の丸めモード（0 方向）で fdiv の結果が変わること、ユーザーモードで特権命令例外（ベクタ 20）になること。
+- harness に特権命令例外のハンドラを追加（r13 = 4）。`cpu-features` に RXv3 の命令が RXv2 以前でトラップすることを追加。
+
 ## 予定
 
 | ステップ | 内容 |
