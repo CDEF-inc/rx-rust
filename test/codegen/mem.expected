@@ -37,3 +37,33 @@ _st_stack
   mov.l #7, 0[r0]
   mov.l #-1000, 28[r0]
   mov.l [r1], r1
+
+_ix_ld_l
+  mov.l [r2, r1], r1
+
+_ix_ld_sw
+  mov.w [r2, r1], r1
+
+_ix_ld_uw
+  movu.w [r2, r1], r1
+
+_ix_ld_sb
+  mov.b [r2, r1], r1
+
+_ix_ld_ub
+  movu.b [r2, r1], r1
+
+_ix_st_l
+  mov.l r3, [r2, r1]
+
+_ix_st_w
+  mov.w r3, [r2, r1]
+
+_ix_st_b
+  mov.b r3, [r2, r1]
+
+_ix_glob
+  mov.l #_ix_table, r2
+  mov.l [r1, r2], r1
+
+_ix_table

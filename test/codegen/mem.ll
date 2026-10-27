@@ -1,6 +1,7 @@
 ; Memory access forms in code generation: stores of constants (mov.sz #imm,
-; dsp[Rd]). Linked with mem_main.c; scripts/check-mem.sh also checks the
-; instructions against mem.expected.
+; dsp[Rd]) and register-indexed loads and stores ([Ri, Rb]). Linked with
+; mem_main.c; scripts/check-mem.sh also checks the instructions against
+; mem.expected.
 target triple = "rx-none-elf"
 
 ; --- stores of constants: the dsp:5 form (#0-255, R0-R7), otherwise the
@@ -65,5 +66,61 @@ define i32 @st_stack(i32 %i) {
   store volatile i32 -1000, ptr %x7
   %xi = getelementptr [8 x i32], ptr %x, i32 0, i32 %i
   %v = load volatile i32, ptr %xi
+  ret i32 %v
+}
+
+; --- register-indexed: [Ri, Rb] is Rb + Ri * size
+define i32 @ix_ld_l(ptr %p, i32 %i) {
+  %a = getelementptr i32, ptr %p, i32 %i
+  %v = load i32, ptr %a
+  ret i32 %v
+}
+define i32 @ix_ld_sw(ptr %p, i32 %i) {
+  %a = getelementptr i16, ptr %p, i32 %i
+  %v = load i16, ptr %a
+  %e = sext i16 %v to i32
+  ret i32 %e
+}
+define i32 @ix_ld_uw(ptr %p, i32 %i) {
+  %a = getelementptr i16, ptr %p, i32 %i
+  %v = load i16, ptr %a
+  %e = zext i16 %v to i32
+  ret i32 %e
+}
+define i32 @ix_ld_sb(ptr %p, i32 %i) {
+  %a = getelementptr i8, ptr %p, i32 %i
+  %v = load i8, ptr %a
+  %e = sext i8 %v to i32
+  ret i32 %e
+}
+define i32 @ix_ld_ub(ptr %p, i32 %i) {
+  %a = getelementptr i8, ptr %p, i32 %i
+  %v = load i8, ptr %a
+  %e = zext i8 %v to i32
+  ret i32 %e
+}
+define void @ix_st_l(ptr %p, i32 %i, i32 %v) {
+  %a = getelementptr i32, ptr %p, i32 %i
+  store i32 %v, ptr %a
+  ret void
+}
+define void @ix_st_w(ptr %p, i32 %i, i32 %v) {
+  %a = getelementptr i16, ptr %p, i32 %i
+  %t = trunc i32 %v to i16
+  store i16 %t, ptr %a
+  ret void
+}
+define void @ix_st_b(ptr %p, i32 %i, i32 %v) {
+  %a = getelementptr i8, ptr %p, i32 %i
+  %t = trunc i32 %v to i8
+  store i8 %t, ptr %a
+  ret void
+}
+
+@ix_table = global [8 x i32] [i32 10, i32 20, i32 30, i32 40, i32 50,
+                              i32 60, i32 70, i32 80]
+define i32 @ix_glob(i32 %i) {
+  %a = getelementptr [8 x i32], ptr @ix_table, i32 0, i32 %i
+  %v = load i32, ptr %a
   ret i32 %v
 }
