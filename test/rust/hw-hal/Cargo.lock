@@ -40,6 +40,11 @@ version = "1.0.0"
 source = "git+https://github.com/CDEF-inc/embedded-hal?rev=41f29f6bfced1cae0cbe712ba96ee32c075b3125#41f29f6bfced1cae0cbe712ba96ee32c075b3125"
 
 [[package]]
+name = "embedded-io"
+version = "0.7.1"
+source = "git+https://github.com/CDEF-inc/embedded-hal?rev=41f29f6bfced1cae0cbe712ba96ee32c075b3125#41f29f6bfced1cae0cbe712ba96ee32c075b3125"
+
+[[package]]
 name = "form_urlencoded"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -272,6 +277,7 @@ version = "0.1.0"
 dependencies = [
  "critical-section",
  "embedded-hal",
+ "embedded-io",
  "rx72m-pac",
 ]
 
