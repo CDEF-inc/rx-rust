@@ -58,7 +58,8 @@ _main:
 	dmov.d	dr3, dr4
 	DEXPECT	4, 0x40080000, 0
 
-	; dmov.d to and from memory (little-endian, dsp scaled by 8)
+	; dmov.d to and from memory (little-endian; dsp is scaled by 4, not 8
+	; as the manual's note says: RX72M, Renesas CC-RX)
 	mov.l	#_buf, r7
 	dmov.d	dr2, [r7]
 	dmov.d	dr3, 8[r7]
@@ -76,6 +77,13 @@ _main:
 	DEXPECT	5, 0x40080000, 0
 	dmov.d	[r7], dr5
 	DEXPECT	5, 0x40000000, 0
+	dmov.d	dr3, 68[r7]		; not a multiple of 8
+	mov.l	68[r7], r4
+	EXPECT	r4, 0
+	mov.l	72[r7], r4
+	EXPECT	r4, 0x40080000
+	dmov.d	68[r7], dr6
+	DEXPECT	6, 0x40080000, 0
 
 	; arithmetic: dest = src2 op src
 	dadd	dr1, dr2, dr6		; 2 + 1
