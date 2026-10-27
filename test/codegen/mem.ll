@@ -1,7 +1,8 @@
 ; Memory access forms in code generation: stores of constants (mov.sz #imm,
-; dsp[Rd]), register-indexed loads and stores ([Ri, Rb]) and post-increment
-; / pre-decrement ([Rn+] / [-Rn]). Linked with mem_main.c; scripts/
-; check-mem.sh also checks the instructions against mem.expected.
+; dsp[Rd]), register-indexed loads and stores ([Ri, Rb]), post-increment /
+; pre-decrement ([Rn+] / [-Rn]) and memcpy / memset with the string
+; instructions. Linked with mem_main.c; scripts/check-mem.sh also checks the
+; instructions against mem.expected.
 target triple = "rx-none-elf"
 
 ; --- stores of constants: the dsp:5 form (#0-255, R0-R7), otherwise the
@@ -225,4 +226,38 @@ loop:
   br i1 %c, label %loop, label %done
 done:
   ret i32 %s1
+}
+
+; --- memcpy / memset that are not expanded to loads and stores: smovf,
+; sstr.b, and sstr.l for a constant value over a multiple of 4 bytes
+declare void @llvm.memcpy.p0.p0.i32(ptr, ptr, i32, i1)
+declare void @llvm.memset.p0.i32(ptr, i8, i32, i1)
+
+define void @sm_copy(ptr %d, ptr %s, i32 %n) {
+  call void @llvm.memcpy.p0.p0.i32(ptr %d, ptr %s, i32 %n, i1 false)
+  ret void
+}
+define void @sm_copy400(ptr %d, ptr %s) {
+  call void @llvm.memcpy.p0.p0.i32(ptr align 4 %d, ptr align 4 %s, i32 400,
+                                   i1 false)
+  ret void
+}
+define void @sm_set(ptr %d, i32 %v, i32 %n) {
+  %b = trunc i32 %v to i8
+  call void @llvm.memset.p0.i32(ptr %d, i8 %b, i32 %n, i1 false)
+  ret void
+}
+define void @sm_zero400(ptr %d) {
+  call void @llvm.memset.p0.i32(ptr align 4 %d, i8 0, i32 400, i1 false)
+  ret void
+}
+define void @sm_ff401(ptr %d) {
+  call void @llvm.memset.p0.i32(ptr %d, i8 -1, i32 401, i1 false)
+  ret void
+}
+; The size stays live across smovf (which clobbers R1-R3).
+define i32 @sm_live(ptr %d, ptr %s, i32 %n, i32 %k) {
+  call void @llvm.memcpy.p0.p0.i32(ptr %d, ptr %s, i32 %n, i1 false)
+  %r = add i32 %k, %n
+  ret i32 %r
 }

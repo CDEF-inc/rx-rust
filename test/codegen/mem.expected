@@ -93,4 +93,28 @@ _pd_sum_sb
   mov.l #0, r1
   mov.b [r3], r4
 
+_sm_copy
+  smovf
+
+_sm_copy400
+  mov.l #400, r3
+  smovf
+
+_sm_set
+  sstr.b
+
+_sm_zero400
+  mov.l #0, r2
+  mov.l #100, r3
+  sstr.l
+
+_sm_ff401
+  mov.l #255, r2
+  mov.l #401, r3
+  sstr.b
+
+_sm_live
+  mov.l r3, r5
+  smovf
+
 _ix_table
