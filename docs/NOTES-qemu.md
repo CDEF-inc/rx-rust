@@ -211,6 +211,54 @@ MCPU=rxv3 QEMU_CPU=rxv3 scripts/run-codegen-test.sh test/codegen/dfpu.ll test/co
   4000 チェックが -O0〜-O3 で通る。GNU as 経由のビルドでは ftod / itod / utod のレジスタを入れ替えて渡す
   （check-dfpu.sh と同じ）。DFPU のないコア（rx62n、`-cpu rxv3,dfpu=off`）では DFPU の命令がトラップする。
 
+## RXv3e（Q6）
+
+参照: RXv3e ソフトウェアマニュアル（R01US0745EJ0101、Rev.1.01）。`pdftotext -layout` で
+`../ref/rxv3esm.txt` に変換して読んだ。NOTES-rxv3e.md の符号（未照合だったもの）はマニュアルの 4 章と一致した。
+
+当初は「root ワールドだけ」の予定だったが、root で WID.BWID を書いて trrte を実行すると secure / non-secure に
+入れる（ソフトウェアだけで他のワールドに行ける）ので、CPU 側のワールドを一通り実装した:
+
+- WID（cr 15）: WID[1:0] = 現在のワールド、BWID、BITW、BWI。書けるのは root のスーパーバイザで BWID だけ。
+  root 以外では BWID が 0 に読める。
+- ワールドごとに 3 本ある制御レジスタ（ISP、INTB、BPC、BPSW、EXTB、IVC）: env の値が現在のワールドのもの、
+  他のワールドの分は `world_cr` に置き、ワールドが変わるときに入れ替える。ワールドをまたがない例外・割り込みは
+  現在のワールドの EXTB / INTB / ISP を使う（表 5.4）。
+- 制御レジスタのアクセス権（表 1.1）: mvtc / mvfc / pushc / popc では FINTV は root だけ、WPRI は root と secure、
+  IVC と WID の書き込みは root のスーパーバイザだけ（アクセスできないときは書かず、読むと 0）。
+- IVC（cr 5）、WPRI（cr 14）、TRCTB と WINTB（trmvfc / trmvtc の cr 14 / 15、リセット値 80000000h）。
+- 命令（符号はマニュアル 4 章）:
+  - `trcall #imm`（`fd 75 00 imm`）: WID.BWI = PSW.I、BWID = WID、root へ。PSW と次の PC を ISP_TR に積み、
+    TRCTB + imm × 4 へ。特権命令。どのワールドからでも実行できる。
+  - `trrte`（`7f 97`）: SP_TR から PC と PSW を戻し、BWID のワールドへ（non-secure へは PSW の bit 28 を 0 に）。
+    root 専用（他のワールドでは未定義命令）、特権命令。
+  - `trmvfc cr, rd`（`fd 5a`）/ `trmvtc rs, cr`（`fd 58`）/ `trmvtc #imm, cr`（`fd 7x 2c`）: WID.BWID のワールドの
+    ISP / INTB / BPC / BPSW / EXTB / IVC、または TRCTB / WINTB。root 専用、特権命令。BPSW_NS の bit 28 は常に 0、
+    IVC_S / IVC_NS の NSIC / EXCSE は 0。
+  - `int Rs`（`fd 75 1r 00`）: 下位 8 ビットが番号。
+  - `mvtipl #imm5`（`75 70 imm5`。RXv1 の 4 ビット形式と互換）。
+- PSW.IPL は 5 ビット（RXv3e 以外のコアと non-secure ワールドでは IPL[4] は 0。mvtc / popc / mvtipl /
+  rte / rtfi / trrte とも）。
+- IVC.UIR: ユーザーモードの int を制限（01 なら int #0〜#15 だけ、int Rs は不可。違反は特権命令例外）。
+
+扱っていないもの（RX62N のボードに割り込みコントローラ・メモリ保護の対応がない）: ワールドをまたぐ割り込み
+（WINTB、BITW、BWINM）、secure 例外、IVC.NSIC（non-secure で優先度 16 以上の割り込みを I = 0 でも受ける。
+RX62N の ICU は優先度 15 まで）、WPRI の割り込み判定への反映。
+
+llvm-mc はまだ RXv3e の命令（trcall / trrte / trmvfc / trmvtc / int Rs / 5 ビットの mvtipl）と IVC / WID / WPRI /
+TRCTB / WINTB を受け付けないので、テストはバイト列で書いている。
+
+テスト: `scripts/run-qemu-test.sh rxv3e-insns rxv3e`（43 チェック）
+
+- リセット値、WPRI / IVC / WID の書ける範囲、5 ビットの IPL、
+- trmvtc / trmvfc: BWID = 0 では root のレジスタ、2 では non-secure（root の値は変わらない）、1 では secure、
+- int Rs、root からの trcall（ハンドラから trrte で戻る）、
+- trrte で non-secure ワールドへ: WID = 2、R0 = ISP_NS、INTB_NS、FINTV / WPRI は 0 に読める、WID は書けない、
+  root 専用命令は未定義命令例外（EXTB_NS・ISP_NS で処理）、IPL[4] が 0、int は INTB_NS、
+- non-secure から trcall で root へ: WID = 80000200h（BWI、BWID）、ISP_TR・INTB・FINTV が戻ること、
+- root のユーザーモード: trcall / trmvfc は特権命令例外、IVC.UIR = 01 で int Rs と int #20 は例外、int #3 は通る。
+- `cpu-features`: RXv3e の命令が他のコアでトラップし、PSW.IPL[4] は RXv3e だけ。
+
 ## 予定
 
 | ステップ | 内容 |

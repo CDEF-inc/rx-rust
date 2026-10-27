@@ -65,6 +65,25 @@ _main:
 	TRAPS	1 - DFPU, dpopm.d dr0-dr0
 	TRAPS	1 - DFPU, mvfdr
 	TRAPS	1, .byte 0xf8, 0x43, 0, 0, 0, 0	; mov #imm, [r4] with size 3
+	; RXv3e: the new instructions trap on the other cores (on rxv3e they
+	; are checked by rxv3e-insns), and PSW.IPL[4] is RXv3e only
+	.if	V3E == 0
+	TRAPS	1, .byte 0xfd, 0x75, 0x00, 0x00		; trcall #0
+	TRAPS	1, .byte 0x7f, 0x97			; trrte
+	TRAPS	1, .byte 0xfd, 0x5a, 0xe9		; trmvfc trctb, r9
+	TRAPS	1, .byte 0xfd, 0x58, 0x4e		; trmvtc r4, trctb
+	TRAPS	1, .byte 0xfd, 0x75, 0x14, 0x00		; int r4
+	TRAPS	1, .byte 0x75, 0x70, 0x14		; mvtipl #20
+	.endif
+	mvfc	psw, r6
+	mov.l	r6, r5
+	or	#0x14000000, r5			; IPL 20
+	mvtc	r5, psw
+	mvfc	psw, r1
+	mvtc	r6, psw
+	shlr	#24, r1
+	mov.l	#4 + 16 * V3E, r2
+	bsr.a	_check
 	; mov.<size> has no size 3: the other codes next to movco / movli
 	TRAPS	1, .byte 0xfd, 0x23, 0x65	; mov rs, [rd+] with size 3
 	TRAPS	1, .byte 0xfd, 0x2b, 0x65	; mov [rs+], rd with size 3
