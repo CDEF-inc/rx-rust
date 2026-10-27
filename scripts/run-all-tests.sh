@@ -39,6 +39,7 @@ for t in branch symbol string; do
   run "mc $t" bash "$S/mc-diff.sh" file "$root/test/mc/$t.s"
 done
 run "check-dfpu" bash "$S/check-dfpu.sh"
+run "check-mem" bash "$S/check-mem.sh"
 
 echo "== QEMU instruction tests"
 run "qemu cpu-features" "$S/run-qemu-test.sh" cpu-features rx62n rxv1 rxv2 rxv3 rxv3e
@@ -62,6 +63,7 @@ for cpu in "${cpus[@]}"; do
     run "$cpu codegen m3 -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/m3.ll" "$C/m3_main.c"
     run "$cpu codegen struct -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/struct.ll" "$C/struct_main.c"
     run "$cpu codegen atomic -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/atomic.ll" "$C/atomic_main.c"
+    run "$cpu codegen mem -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/mem.ll" "$C/mem_main.c"
   done
   attrs=; [ "$cpu" = rx62n ] && attrs=+fpu
   for o in 0 1 2 3; do
