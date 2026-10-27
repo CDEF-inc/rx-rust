@@ -293,6 +293,16 @@ llvm-mc（`-mcpu=rxv3e`）でアセンブルする。
 - rxv2 以降の Rust の core-smoke では atomic の CAS / fetch_* が movli / movco（14 か所）で実行される（rx62n では 0）。
 - rxv3 / rxv3e では rx-rt の割り込み入口の dpushm / dpopm と A1・ガードビットの退避が実際に動く。
 
+## 実機（AP-RX72M-0A）との比較
+
+`test/qemu` の命令テストを、RX72M（RXv3 + DFPU）の評価ボード AP-RX72M-0A で E2 Lite と
+e² studio の GDB サーバーを使って実行し、QEMU と違った点を直した（2026-10-27〜）。
+テストは RAM（0x4000〜）にリンクし、EXTB を RAM の固定ベクタテーブルに向けて自由実行した。
+
+| 項目 | 実機の動作 | 対応 |
+|---|---|---|
+| RTE / RTFI でユーザーモードへ | PSW.U が 1 になり USP に切り替わる（マニュアル 1.4.2 のとおり） | QEMU は退避した PSW の U のままだった。修正。テストは `USER_MODE` / `SUPERVISOR_MODE`（harness.inc）で USP を用意し、スーパーバイザモードに戻ってから main を返す |
+
 ## 予定
 
 | ステップ | 内容 |
