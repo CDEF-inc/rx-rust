@@ -68,12 +68,12 @@ _main:
 	; RXv3e: the new instructions trap on the other cores (on rxv3e they
 	; are checked by rxv3e-insns), and PSW.IPL[4] is RXv3e only
 	.if	V3E == 0
-	TRAPS	1, .byte 0xfd, 0x75, 0x00, 0x00		; trcall #0
-	TRAPS	1, .byte 0x7f, 0x97			; trrte
-	TRAPS	1, .byte 0xfd, 0x5a, 0xe9		; trmvfc trctb, r9
-	TRAPS	1, .byte 0xfd, 0x58, 0x4e		; trmvtc r4, trctb
-	TRAPS	1, .byte 0xfd, 0x75, 0x14, 0x00		; int r4
-	TRAPS	1, .byte 0x75, 0x70, 0x14		; mvtipl #20
+	TRAPS	1, trcall #0
+	TRAPS	1, trrte
+	TRAPS	1, trmvfc trctb, r9
+	TRAPS	1, trmvtc r4, trctb
+	TRAPS	1, int r4
+	TRAPS	1, mvtipl #20
 	.endif
 	mvfc	psw, r6
 	mov.l	r6, r5
