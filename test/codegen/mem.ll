@@ -1,7 +1,8 @@
 ; Memory access forms in code generation: stores of constants (mov.sz #imm,
-; dsp[Rd]) and register-indexed loads and stores ([Ri, Rb]). Linked with
-; mem_main.c; scripts/check-mem.sh also checks the instructions against
-; mem.expected.
+; dsp[Rd]), register-indexed loads and stores ([Ri, Rb]), post-increment /
+; pre-decrement ([Rn+] / [-Rn]) and memcpy / memset with the string
+; instructions. Linked with mem_main.c; scripts/check-mem.sh also checks the
+; instructions against mem.expected.
 target triple = "rx-none-elf"
 
 ; --- stores of constants: the dsp:5 form (#0-255, R0-R7), otherwise the
@@ -123,4 +124,140 @@ define i32 @ix_glob(i32 %i) {
   %a = getelementptr [8 x i32], ptr @ix_table, i32 0, i32 %i
   %v = load i32, ptr %a
   ret i32 %v
+}
+
+; --- post-increment / pre-decrement: mov.sz [Rn+] / [-Rn] in loops that
+; walk a pointer by the access size
+define i32 @pi_sum_l(ptr %p, i32 %n) {
+entry:
+  br label %loop
+loop:
+  %q = phi ptr [%p, %entry], [%q1, %loop]
+  %k = phi i32 [%n, %entry], [%k1, %loop]
+  %s = phi i32 [0, %entry], [%s1, %loop]
+  %v = load i32, ptr %q
+  %q1 = getelementptr i32, ptr %q, i32 1
+  %s1 = add i32 %s, %v
+  %k1 = add i32 %k, -1
+  %c = icmp ne i32 %k1, 0
+  br i1 %c, label %loop, label %done
+done:
+  ret i32 %s1
+}
+define i32 @pi_sum_sw(ptr %p, i32 %n) {
+entry:
+  br label %loop
+loop:
+  %q = phi ptr [%p, %entry], [%q1, %loop]
+  %k = phi i32 [%n, %entry], [%k1, %loop]
+  %s = phi i32 [0, %entry], [%s1, %loop]
+  %v = load i16, ptr %q
+  %e = sext i16 %v to i32
+  %q1 = getelementptr i16, ptr %q, i32 1
+  %s1 = add i32 %s, %e
+  %k1 = add i32 %k, -1
+  %c = icmp ne i32 %k1, 0
+  br i1 %c, label %loop, label %done
+done:
+  ret i32 %s1
+}
+define i32 @pi_sum_ub(ptr %p, i32 %n) {
+entry:
+  br label %loop
+loop:
+  %q = phi ptr [%p, %entry], [%q1, %loop]
+  %k = phi i32 [%n, %entry], [%k1, %loop]
+  %s = phi i32 [0, %entry], [%s1, %loop]
+  %v = load i8, ptr %q
+  %e = zext i8 %v to i32
+  %q1 = getelementptr i8, ptr %q, i32 1
+  %s1 = add i32 %s, %e
+  %k1 = add i32 %k, -1
+  %c = icmp ne i32 %k1, 0
+  br i1 %c, label %loop, label %done
+done:
+  ret i32 %s1
+}
+; Fill with ascending values.
+define void @pi_fill_w(ptr %p, i32 %n) {
+entry:
+  br label %loop
+loop:
+  %q = phi ptr [%p, %entry], [%q1, %loop]
+  %k = phi i32 [0, %entry], [%k1, %loop]
+  %t = trunc i32 %k to i16
+  store i16 %t, ptr %q
+  %q1 = getelementptr i16, ptr %q, i32 1
+  %k1 = add i32 %k, 1
+  %c = icmp ne i32 %k1, %n
+  br i1 %c, label %loop, label %done
+done:
+  ret void
+}
+; Fill downwards from the end: *--q = k.
+define void @pd_fill_l(ptr %end, i32 %n) {
+entry:
+  br label %loop
+loop:
+  %q = phi ptr [%end, %entry], [%q1, %loop]
+  %k = phi i32 [0, %entry], [%k1, %loop]
+  %q1 = getelementptr i32, ptr %q, i32 -1
+  store i32 %k, ptr %q1
+  %k1 = add i32 %k, 1
+  %c = icmp ne i32 %k1, %n
+  br i1 %c, label %loop, label %done
+done:
+  ret void
+}
+; Sum downwards from the end: s += *--q (bytes, sign-extended).
+define i32 @pd_sum_sb(ptr %end, i32 %n) {
+entry:
+  br label %loop
+loop:
+  %q = phi ptr [%end, %entry], [%q1, %loop]
+  %k = phi i32 [%n, %entry], [%k1, %loop]
+  %s = phi i32 [0, %entry], [%s1, %loop]
+  %q1 = getelementptr i8, ptr %q, i32 -1
+  %v = load i8, ptr %q1
+  %e = sext i8 %v to i32
+  %s1 = add i32 %s, %e
+  %k1 = add i32 %k, -1
+  %c = icmp ne i32 %k1, 0
+  br i1 %c, label %loop, label %done
+done:
+  ret i32 %s1
+}
+
+; --- memcpy / memset that are not expanded to loads and stores: smovf,
+; sstr.b, and sstr.l for a constant value over a multiple of 4 bytes
+declare void @llvm.memcpy.p0.p0.i32(ptr, ptr, i32, i1)
+declare void @llvm.memset.p0.i32(ptr, i8, i32, i1)
+
+define void @sm_copy(ptr %d, ptr %s, i32 %n) {
+  call void @llvm.memcpy.p0.p0.i32(ptr %d, ptr %s, i32 %n, i1 false)
+  ret void
+}
+define void @sm_copy400(ptr %d, ptr %s) {
+  call void @llvm.memcpy.p0.p0.i32(ptr align 4 %d, ptr align 4 %s, i32 400,
+                                   i1 false)
+  ret void
+}
+define void @sm_set(ptr %d, i32 %v, i32 %n) {
+  %b = trunc i32 %v to i8
+  call void @llvm.memset.p0.i32(ptr %d, i8 %b, i32 %n, i1 false)
+  ret void
+}
+define void @sm_zero400(ptr %d) {
+  call void @llvm.memset.p0.i32(ptr align 4 %d, i8 0, i32 400, i1 false)
+  ret void
+}
+define void @sm_ff401(ptr %d) {
+  call void @llvm.memset.p0.i32(ptr %d, i8 -1, i32 401, i1 false)
+  ret void
+}
+; The size stays live across smovf (which clobbers R1-R3).
+define i32 @sm_live(ptr %d, ptr %s, i32 %n, i32 %k) {
+  call void @llvm.memcpy.p0.p0.i32(ptr %d, ptr %s, i32 %n, i1 false)
+  %r = add i32 %k, %n
+  ret i32 %r
 }
