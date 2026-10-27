@@ -19,11 +19,13 @@ _main:
 	EXPECT	r6, 0x41100000		; 9.0
 	EXPECT	r4, 0x3f800000
 	EXPECT	r5, 0x40400000
+	clrpsw	z			; the opposite of the expected flags
+	setpsw	s
 	fsub	r5, r5, r6
+	mvfc	psw, r8			; before EXPECT, whose cmp sets the flags
 	EXPECT	r6, 0			; +0 (round to nearest)
-	mvfc	psw, r1
-	and	#6, r1
-	EXPECT	r1, 2			; Z = 1, S = 0
+	and	#6, r8
+	EXPECT	r8, 2			; Z = 1, S = 0
 
 	; fsqrt
 	mov.l	#0x40800000, r4		; 4.0

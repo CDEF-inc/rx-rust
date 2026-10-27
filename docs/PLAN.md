@@ -47,7 +47,7 @@
 - [ ] memex・06 プレフィクス形式（itof/utof のメモリ形式を含む）、ビット操作、string 命令
 - [x] codegen はサイズ付き分岐 + BranchRelaxation で対応（M2）。アセンブラ入力のサイズ指定なし分岐は未対応のまま
 - [x] `sc<cond>.l`（M2 で追加、gas と 14/14 一致）
-- [ ] RXv3e の Protect Zone 命令（trcall/trmvfc/trmvtc/trrte）と mvfc/mvtc の追加レジスタ。binutils 未対応なのでマニュアルの符号表で検証
+- [x] RXv3e の Protect Zone 命令（trcall/trmvfc/trmvtc/trrte）と mvfc/mvtc の追加レジスタ。binutils 未対応なのでマニュアルの符号表で検証
 
 ### M2 コード生成（i32 整数のみ）✅ 2026-10-23（詳細 `NOTES-codegen.md`）
 - [x] CallingConv.td（GNURX 互換。引数 R1〜R4、戻り値 R1、callee-saved R6〜R13、char/short は int に昇格）
