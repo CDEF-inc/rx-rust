@@ -312,6 +312,7 @@ e² studio の GDB サーバーを使って実行し、QEMU と違った点を�
 | dmov.d の dsp | 4 倍（8[R7] は dsp 2、dsp:8 は 0〜1020、dsp:16 は 0〜262140、4 の倍数）。Renesas CC-RX V3.08 も同じ | マニュアルの注記は 8 倍で、GNU as・LLVM・QEMU は 8 倍だった。LLVM（llvm-project）と QEMU を修正。test/mc は CC-RX のバイト列と比べる。コード生成は dmov.d のメモリ形を使わないので、生成コードへの影響はない |
 | DFPU 例外の保留中の DPSW | DECNT.EHM と EHS が 1 の間は mvtdc でも DPSW が書けない（マニュアル「DPSW is not updated」） | QEMU は mvtdc の書き込みを通していた。修正 |
 | dpopm.l の DPSW | 原因フラグは mvtdc と同じく 0 にできるだけ（マニュアルは mvtdc についてしか書いていない） | QEMU はそのまま書いていた。修正（保留中は書かないのも同じ） |
+| suntil / swhile のフラグ | C は比較 *R1 - R2 が符号なしで 0 以上（借りなし）、swhile の Z は全要素の一致（マニュアルどおり） | QEMU（上流由来）は C を *R1 <= R2、swhile の Z を R3 = 0 にしていた。修正。test/qemu/mem-insns.s で、コード生成が使い始めた [Rn+]・[Ri, Rb]・#imm からメモリ・メモリ間転送・ストリング命令を確かめる |
 | racw / racl の丸め | 丸めた値の下位 32 ビットを 0 にする（dsp-v2 の rac* の 1512 チェック中の該当分がすべて一致） | 現在の実装のまま（前に「実機で確認したい点」としていた解釈が正しかった） |
 
 ## 予定

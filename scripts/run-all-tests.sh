@@ -52,6 +52,7 @@ run "qemu dsp-v2" "$S/run-qemu-test.sh" dsp-v2 rxv2 rxv3 rxv3e
 run "qemu rxv3-insns" "$S/run-qemu-test.sh" rxv3-insns rxv3 rxv3e
 run "qemu dfpu-insns" "$S/run-qemu-test.sh" dfpu-insns rxv3 rxv3e
 run "qemu rxv3e-insns" "$S/run-qemu-test.sh" rxv3e-insns rxv3e
+run "qemu mem-insns" "$S/run-qemu-test.sh" mem-insns rx62n rxv1 rxv2 rxv3 rxv3e
 
 C=$root/test/codegen
 for cpu in "${cpus[@]}"; do
