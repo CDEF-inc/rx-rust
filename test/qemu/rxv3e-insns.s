@@ -48,6 +48,9 @@ _main:
 	mov.l	#0x80030203, r4
 	mvtc	r4, wid
 	EXPECT_CR wid, 0x00000200
+	mov.l	#0x300, r4		; BWID 3 is reserved: not written
+	mvtc	r4, wid
+	EXPECT_CR wid, 0x00000200
 	mov.l	#0, r4
 	mvtc	r4, ivc
 	mvtc	r4, wid
@@ -121,6 +124,15 @@ _in_ns:
 	mov.l	#0x55, r4
 	mvtc	r4, wid			; ignored
 	EXPECT_CR wid, 2
+	; bit 28 of BPSW_NS is always 0, also for mvtc and popc
+	mov.l	#0x1f000005, r4
+	mvtc	r4, bpsw
+	mvfc	bpsw, r9
+	EXPECT	r9, 0x0f000005
+	push.l	r4
+	popc	bpsw
+	mvfc	bpsw, r9
+	EXPECT	r9, 0x0f000005
 	; the root-only instructions are undefined (the exception goes through
 	; EXTB_NS with ISP_NS)
 	TRAPS	1, trmvfc trctb, r9
