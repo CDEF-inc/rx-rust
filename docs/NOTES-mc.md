@@ -84,12 +84,16 @@ bash scripts/mc-diff.sh lines test/mc/fpu.s   # dsp.s, v2.s, dfpu.s, v3.s も同
   （未定義シンボルでは一致を確認済み）。`#(2f - 1b)` のように後で値が決まる式も同じ（gas は配置後の値で短い形式）。
 - `sp` は LLVM では r0 の別名として受け付けるが、gas は受け付けない。
 - gas の既定コードセクション名は `P`（Renesas 流）、LLVM は `.text`。リンカスクリプトで両方を拾うこと（M5）。
+- **memex 付きメモリオペランド・push のメモリ形式・ビット操作・xchg**（2026-10-28 対応、test/mc/memex.s の 753 行が
+  gas と一致、test/qemu/memex-insns.s が QEMU と実機で一致）:
+  - sub / cmp / add / mul / and / or、max / min / emul / emulu / div / divu / tst / xor / xchg / itof / utof の
+    `[Rs].memex`、`dsp:8[Rs].memex`、`dsp:16[Rs].memex`（.B .W .L .UW は 06 プレフィクス、.UB は短い形式）、
+    adc / sbb は .L だけ。memex を書かない `[Rs]` は gas と同じく .L。
+  - push.b / .w / .l のメモリ形式（サイズなしの push は .L）、xchg Rs, Rd。
+  - bset / bclr / btst / bnot / bm<cond>（bmz / bmnz / bmc / bmnc を含む）の #imm3 と Rs、メモリ（バイト）とレジスタ。
+    メモリの `.B` は省略できる（マニュアルの記述例 `BSET #7, [R2]` のとおり）。gas は bset / bclr / btst #imm, メモリ
+    でだけ `.B` を要求する（LLVM の方が受け付ける範囲が広い）。
+  - `0[Rs]` は変位なしの形式にする（gas と同じ）。命令名の規則（dsp:8 の形式 …8 → 変位なし …0）で探す。
 
 ## 未実装（M1 の残り）
-- memex 付きメモリオペランド（`add [r1].l, r2`、06 プレフィクス形式、gas はサイズなしの `add [r1], r2` を .l とする）、
-  `.UB` 短縮形式
-- `push.l` のメモリ形式（`push [r1]`）
-- ビット操作（bset/bclr/btst/bnot/bm<cc>）、xchg
-- itof/utof のメモリオペランド（memex でサイズを指定する形式）
-- 逆アセンブラ（RX の MC 層にまだない）
-- 逆アセンブラ（当面は rx-elf-objdump を使う）
+- 逆アセンブラ（RX の MC 層にまだない。当面は rx-elf-objdump を使う）

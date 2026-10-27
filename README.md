@@ -89,7 +89,7 @@ and run on `rx62n`.
 ```sh
 scripts/run-all-tests.sh                     # everything, on every CPU model
 RX_CPU=rxv3 scripts/run-rust-rom.sh test/rust/isr-save
-scripts/mc-diff.sh lines test/mc/basic.s     # also scc, system, fpu, dsp, v2, dfpu, v3, v3e
+scripts/mc-diff.sh lines test/mc/basic.s     # also scc, system, fpu, dsp, v2, dfpu, v3, v3e, mov, memex
 scripts/mc-diff.sh file test/mc/branch.s     # also symbol, string, sizeless
 scripts/run-codegen-test.sh test/codegen/i32.ll test/codegen/main.c
 scripts/run-codegen-test.sh test/codegen/m3.ll test/codegen/m3_main.c
@@ -111,6 +111,7 @@ scripts/run-qemu-test.sh dsp-v2 rxv2 rxv3 rxv3e
 scripts/run-qemu-test.sh rxv3-insns rxv3 rxv3e
 scripts/run-qemu-test.sh dfpu-insns rxv3 rxv3e
 scripts/run-qemu-test.sh rxv3e-insns rxv3e
+scripts/run-qemu-test.sh memex-insns rx62n rxv1 rxv2 rxv3 rxv3e
 scripts/run-qemu-test.sh cmt rx62n rxv3             # compare match timer (a peripheral)
 RX_CPU=rxv2 scripts/run-codegen-test.sh test/codegen/atomic.ll test/codegen/atomic_main.c
 ```
