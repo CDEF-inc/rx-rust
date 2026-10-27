@@ -7,6 +7,8 @@
 //! QEMU's rx62n (RXv1 with the FPU) by default; scripts/run-rust-rom.sh
 //! test/rust/isr-save, with RX_CPU for the other cores. The results are
 //! left in `checks` / `failures` / `finished` for the QEMU monitor.
+//! scripts/hw-build.sh also builds it for the RX72M board (rxv3), where
+//! scripts/hw-run.sh stops it at `done`.
 
 #![no_std]
 #![no_main]
@@ -198,6 +200,13 @@ fn main() -> ! {
     rxv3e();
 
     unsafe { write_volatile(&raw mut finished, 1) };
+    done()
+}
+
+// The end of the test (the board runner's breakpoint).
+#[unsafe(no_mangle)]
+#[inline(never)]
+extern "C" fn done() -> ! {
     loop {
         rx_rt::interrupt::wait();
     }

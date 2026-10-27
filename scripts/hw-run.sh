@@ -28,7 +28,7 @@ fi
 
 elfs=("$@")
 if [ ${#elfs[@]} -eq 0 ]; then
-  for g in insns rom codegen rust; do
+  for g in insns rom codegen rust rt; do
     for f in "$root/build/hw/$g"/*.elf; do [ -f "$f" ] && elfs+=("$f"); done
   done
 fi
