@@ -4,6 +4,11 @@ void st_imm(void *);
 void st_imm_hi(int *, int *, int *, int *, int *, int *, int *, int *);
 void st_twice(int *, int *);
 int st_stack(int);
+int ix_ld_l(int *, int), ix_ld_sw(short *, int), ix_ld_uw(short *, int);
+int ix_ld_sb(signed char *, int), ix_ld_ub(signed char *, int);
+void ix_st_l(int *, int, int), ix_st_w(short *, int, int);
+void ix_st_b(signed char *, int, int);
+int ix_glob(int);
 
 int checks, failures, first_failure = -1;
 int got_value, want_value;
@@ -73,5 +78,32 @@ int main(void) {
   /* st_stack */
   check(st_stack(0), 7);
   check(st_stack(7), -1000);
+
+  /* register-indexed */
+  {
+    static int l[8] = {1, -2, 3, -4, 0x12345678, 6, 7, 8};
+    static short w[8] = {1, -2, 3, -32768, 32767, 6, 7, 8};
+    static signed char b[8] = {1, -2, 3, -128, 127, 6, 7, 8};
+    check(ix_ld_l(l, 0), 1);
+    check(ix_ld_l(l, 4), 0x12345678);
+    check(ix_ld_sw(w, 3), -32768);
+    check(ix_ld_uw(w, 3), 32768);
+    check(ix_ld_sw(w, 4), 32767);
+    check(ix_ld_sb(b, 3), -128);
+    check(ix_ld_ub(b, 3), 128);
+    check(ix_ld_ub(b, 1), 254);
+    ix_st_l(l, 7, -99);
+    check(l[7], -99);
+    check(l[6], 7);
+    ix_st_w(w, 5, 0x12345678);
+    check(w[5], 0x5678);
+    check(w[6], 7);
+    ix_st_b(b, 6, 0x1ff);
+    check(b[6], -1);
+    check(b[7], 8);
+    check(b[5], 6);
+    for (int i = 0; i < 8; i++)
+      check(ix_glob(i), (i + 1) * 10);
+  }
   return 0;
 }
