@@ -314,6 +314,7 @@ e² studio の GDB サーバーを使って実行し、QEMU と違った点を�
 | DFPU 例外の保留中の DPSW | DECNT.EHM と EHS が 1 の間は mvtdc でも DPSW が書けない（マニュアル「DPSW is not updated」） | QEMU は mvtdc の書き込みを通していた。修正 |
 | dpopm.l の DPSW | 原因フラグは mvtdc と同じく 0 にできるだけ（マニュアルは mvtdc についてしか書いていない） | QEMU はそのまま書いていた。修正（保留中は書かないのも同じ） |
 | suntil / swhile のフラグ | C は比較 *R1 - R2 が符号なしで 0 以上（借りなし）、swhile の Z は全要素の一致（マニュアルどおり） | QEMU（上流由来）は C を *R1 <= R2、swhile の Z を R3 = 0 にしていた。修正。test/qemu/mem-insns.s で、コード生成が使い始めた [Rn+]・[Ri, Rb]・#imm からメモリ・メモリ間転送・ストリング命令を確かめる |
+| CMT（タイマー、上流由来の周辺） | CMCR は CKS と CMIE だけが書けて、ほかのビットは 0 で読める。CMCNT は止めると値を保ち、書いた値から数える。コンペアマッチは CMCOR + 1 カウントごと（CMCOR = 99 で 10 回マッチする間に、同時に始めた CMT1 が 1000 進む） | QEMU は CMCR の読み出しで CMSTR のビットを返し、CMCNT は計算の誤りでほぼ進まず、周期は CMCOR カウントだった。修正（qemu の hw/timer/renesas_cmt.c）。test/qemu/cmt.s で確かめる |
 | racw / racl の丸め | 丸めた値の下位 32 ビットを 0 にする（dsp-v2 の rac* の 1512 チェック中の該当分がすべて一致） | 現在の実装のまま（前に「実機で確認したい点」としていた解釈が正しかった） |
 
 ## 予定

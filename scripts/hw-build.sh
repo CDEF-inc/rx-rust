@@ -51,7 +51,7 @@ for g in "${groups[@]}"; do
   case $g in
     insns)
       insn_tests "$out/insns" start-ram.s rx72m-ram.ld cpu-features fcmp-flags \
-        fpu-status rxv2-fpu dsp-v2 dfpu-insns rxv3-insns mem-insns ;;
+        fpu-status rxv2-fpu dsp-v2 dfpu-insns rxv3-insns mem-insns cmt ;;
     rom)
       insn_tests "$out/rom" start-rom.s rx72m-rom.ld rxv2-insns ;;
     codegen)
