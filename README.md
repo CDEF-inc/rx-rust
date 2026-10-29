@@ -77,6 +77,25 @@ scripts/build-llvm-libs.sh
 scripts/build-rustc.sh    # stage1 rustc using build/llvm
 ```
 
+### Prebuilt toolchain
+
+For machines that do not build it (CI), `scripts/dist-toolchain.sh` packs
+the built toolchain into `build/dist/rx-toolchain-x86_64-linux.tar.xz`:
+the stage1 rustc with the library sources for `-Zbuild-std`, cargo, the
+rx-elf binutils and `qemu-system-rx`, with the commits they were built from
+in `VERSIONS`. The
+[releases](https://github.com/CDEF-inc/rx-rust/releases) carry it. It runs
+on x86-64 Linux with glibc 2.39 or later (built on Ubuntu 24.04); QEMU
+needs its usual shared libraries (`apt-get install qemu-system-misc`
+brings them) and build scripts need a host C compiler.
+
+```sh
+tar -xJf rx-toolchain-x86_64-linux.tar.xz
+T=$PWD/rx-toolchain-x86_64-linux
+RUSTC=$T/bin/rustc RUSTC_BOOTSTRAP=1 PATH=$T/bin:$PATH \
+  $T/bin/cargo build --release   # a crate set up like test/rust/qemu-demo
+```
+
 The tests use `../qemu/build/qemu-system-rx` (CDEF-inc/qemu, built as in
 [`docs/NOTES-qemu.md`](docs/NOTES-qemu.md)) when it exists, else
 `qemu-system-rx` from `PATH`.
