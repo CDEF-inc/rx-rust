@@ -56,7 +56,7 @@
 
 実行方法:
 ```
-bash scripts/build-mc.sh                      # パッチ適用 + llvm-mc/llc ビルド
+bash scripts/build-mc.sh                      # パッチ適用 + llvm-mc/llc/llvm-objdump/llvm-objcopy ビルド
 bash scripts/mc-diff.sh lines test/mc/basic.s
 bash scripts/mc-diff.sh file  test/mc/branch.s
 bash scripts/mc-diff.sh file  test/mc/symbol.s
@@ -95,5 +95,40 @@ bash scripts/mc-diff.sh lines test/mc/fpu.s   # dsp.s, v2.s, dfpu.s, v3.s も同
     でだけ `.B` を要求する（LLVM の方が受け付ける範囲が広い）。
   - `0[Rs]` は変位なしの形式にする（gas と同じ）。命令名の規則（dsp:8 の形式 …8 → 変位なし …0）で探す。
 
-## 未実装（M1 の残り）
-- 逆アセンブラ（RX の MC 層にまだない。当面は rx-elf-objdump を使う）
+## 逆アセンブラ（2026-10-31）
+`lib/Target/RX/Disassembler`。`llvm-objdump -d`、`llvm-mc --disassemble` で使える。
+- 表は TableGen（`-gen-disassembler`）が命令定義の `Inst` から作る。命令長（1〜8 バイト）ごとに表があり、
+  RX の符号はどれも長い命令の先頭にならないので、短い長さから順に試す。
+- オペランドごとのデコード（`DecoderMethod`）: 符号付き即値（simm8〜24、mov.b / mov.w の #imm8）と分岐の変位は
+  符号拡張、dsp は単位（.W は 2、.L は 4、dmov.d も 4）を掛けてバイトに戻す。rtsd は 4 倍、bra.s / beq.s / bne.s の
+  0〜2 は 8〜10、mvfac の (i, m)、rac の #1 / #2、dpushm / dpopm の範囲（先頭からの距離）、bfmov / bfmovz の 3 つの
+  即値（16 ビットの 1 欄）を戻す。レジスタは符号から引く（レジスタクラスは割り当て順なので使えない）。
+- RXv1 の DSP 形式（A0 暗黙、シフトなし）は RXv2 の形式の一部なので、別の表（`RXv1`）に入れ、RXv1 でだけ先に試す。
+  RXv2 以上では `mulhi r1, r2, a0` のように A0 を書いて表示する。
+- 制御レジスタ番号 5 / 14 / 15（ivc / wpri / wid）は rxv3e でだけ読む。trmvtc / trmvfc 自体が rxv3e の命令。
+- 分岐の飛び先: llvm-mc は変位（`bra.b 10`）、llvm-objdump は飛び先の番地（命令の先頭 + 変位）を表示する。
+  RX の MCInstrAnalysis が直接の分岐と呼び出しの飛び先を求めるので、objdump は飛び先のシンボル
+  （`bra.a 0x0 <foo>`）も付ける。jmp / bsr.l などの間接分岐には付かない（既定の MCInstrAnalysis は飛び先を求めない）。
+- CPU は `--mcpu` で選ぶ。既定は rxv3（v1〜v3 の命令を全部含む）。e_flags からは選ばない: GNU ld 2.43 は入力の
+  e_flags が 1 ビットでも違うと出力から V2 / V3 を落とす（astron の qemu-rx の ELF は 0xc9 で V3 が無かった）。
+  rx-rust のツールチェーンの ld は直したが（#42）、他の ld でリンクした ELF の印は当てにならない。
+- マニュアルで未定義の組み合わせは読まない（`<unknown>`）。GNU objdump は ld=11 のメモリ形式、.B に 32 ビット即値、
+  setpsw / clrpsw の未定義ビット、06 プレフィクスと ld=11 なども読んでしまう。
+
+検証:
+| テスト | 内容 | 結果 |
+|---|---|---|
+| `scripts/mc-dis.sh`（test/mc の全ファイル） | 1 行ずつ llvm-mc でアセンブル → 逆アセンブル → 再アセンブルしてバイト列を比較 | 1,463 行すべて一致（下の brdisp.s を含む。ラベル・シンボルの行は除く） |
+| `test/mc/brdisp.s` | 定数の変位の分岐（各形式の端の値） | 35/35 |
+| `mc-dis.sh -m rxv1 test/mc/dsp.s` | RXv1 の DSP 形式を RXv1 の書き方で読む | 11/11 |
+| `scripts/dis-fuzz.py`（16,384 個のランダムなバイト列、全先頭バイト） | 先頭の命令の長さと命令名を GNU objdump と比較、逆アセンブル結果の再アセンブル | 長さ・命令名の不一致 0。GNU だけが読むのは上の未定義の組み合わせ |
+| astron qemu-rx の ELF（6,253 命令） | アドレスごとに GNU objdump と比較 | 長さは全部一致。命令名の違いは別名（scc / scgeu、scnc / scltu）だけ |
+
+ランダム比較で逆アセンブル結果が元と違う文字列になるのは、`0[Rs]`（変位 0 の dsp:8 形式。アセンブラは `[Rs]` に
+縮める）と、32 ビット即値の形式で 24 ビットに収まる値（アセンブラは短い形式を選び、符号付きで表示される）だけ。
+
+```
+bash scripts/mc-dis.sh test/mc/basic.s        # -v で 1 行ずつ表示、-m CPU で CPU を変える
+python3 scripts/dis-fuzz.py -n 16384 --mcpu rxv3
+build/llvm/bin/llvm-objdump -d --mcpu=rxv3 foo.elf
+```
