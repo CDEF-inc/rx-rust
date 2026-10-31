@@ -107,9 +107,11 @@ bash scripts/mc-diff.sh lines test/mc/fpu.s   # dsp.s, v2.s, dfpu.s, v3.s も同
   RXv2 以上では `mulhi r1, r2, a0` のように A0 を書いて表示する。
 - 制御レジスタ番号 5 / 14 / 15（ivc / wpri / wid）は rxv3e でだけ読む。trmvtc / trmvfc 自体が rxv3e の命令。
 - 分岐の飛び先: llvm-mc は変位（`bra.b 10`）、llvm-objdump は飛び先の番地（命令の先頭 + 変位）を表示する。
-  MCInstrAnalysis（既定のもの）を登録したので、objdump は飛び先のシンボル（`<foo>`）も付ける。
-- CPU は `--mcpu` で選ぶ。既定は rxv3（v1〜v3 の命令を全部含む）。e_flags からは選ばない: GNU ld は V2 / V3 の
-  印が無い入力が 1 つでも混ざると、出力から印を落とす（astron の qemu-rx の ELF は 0xc9 で V3 が無い）。
+  RX の MCInstrAnalysis が直接の分岐と呼び出しの飛び先を求めるので、objdump は飛び先のシンボル
+  （`bra.a 0x0 <foo>`）も付ける。jmp / bsr.l などの間接分岐には付かない（既定の MCInstrAnalysis は飛び先を求めない）。
+- CPU は `--mcpu` で選ぶ。既定は rxv3（v1〜v3 の命令を全部含む）。e_flags からは選ばない: GNU ld 2.43 は入力の
+  e_flags が 1 ビットでも違うと出力から V2 / V3 を落とす（astron の qemu-rx の ELF は 0xc9 で V3 が無かった）。
+  rx-rust のツールチェーンの ld は直したが（#42）、他の ld でリンクした ELF の印は当てにならない。
 - マニュアルで未定義の組み合わせは読まない（`<unknown>`）。GNU objdump は ld=11 のメモリ形式、.B に 32 ビット即値、
   setpsw / clrpsw の未定義ビット、06 プレフィクスと ld=11 なども読んでしまう。
 
