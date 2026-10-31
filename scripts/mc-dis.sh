@@ -37,14 +37,23 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 # Assemble $1 (one or more instructions) and print the .text bytes as
-# "0x.. 0x..".
+# "0x.. 0x..". Returns 1 if llvm-mc rejects the text, 2 if a tool fails.
 asm_bytes() {
   printf '\t%s\n' "$1" > "$tmp/t.s"
   $MC -filetype=obj -o "$tmp/t.o" "$tmp/t.s" 2>/dev/null || return 1
-  "$LLVM/llvm-objcopy" -O binary -j .text "$tmp/t.o" "$tmp/t.bin" &&
-    od -An -tx1 -v "$tmp/t.bin" | tr -s ' \n' ' ' |
+  "$LLVM/llvm-objcopy" -O binary -j .text "$tmp/t.o" "$tmp/t.bin" || return 2
+  od -An -tx1 -v "$tmp/t.bin" | tr -s ' \n' ' ' |
     sed 's/^ //; s/ $//; s/\([0-9a-f][0-9a-f]\)/0x\1/g'
 }
+
+# A missing or broken tool would make every line "skipped": stop instead.
+for t in llvm-mc llvm-objcopy llvm-objdump; do
+  [ -x "$LLVM/$t" ] || { echo "mc-dis.sh: $LLVM/$t not found" >&2; exit 2; }
+done
+if [ "$(asm_bytes nop)" != 0x03 ]; then
+  echo "mc-dis.sh: $MC cannot assemble nop" >&2
+  exit 2
+fi
 
 pass=0
 fail=0
@@ -54,7 +63,12 @@ while IFS= read -r line || [ -n "$line" ]; do
   insn=${line%%;*}
   insn=$(echo "$insn" | sed 's/[[:space:]]*$//')
   case $insn in '' | \#*) continue ;; esac
-  b=$(asm_bytes "$insn") || { skip=$((skip + 1)); continue; }
+  b=$(asm_bytes "$insn")
+  case $? in
+  0) ;;
+  1) skip=$((skip + 1)); continue ;;
+  *) echo "mc-dis.sh: llvm-objcopy failed on: $insn" >&2; exit 2 ;;
+  esac
   if [ -z "$b" ] || "$LLVM/llvm-objdump" -r "$tmp/t.o" | grep -q R_RX_; then
     skip=$((skip + 1))
     continue
