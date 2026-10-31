@@ -283,7 +283,7 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
     位置と R0 の式を .debug_frame（llvm-dwarfdump）と比べる。run-all-tests.sh が isr-save（`save-acc` 付き）の
     ELF に対して CPU・プロファイルごとに実行する（rx62n: FPU + RXv1 ACC、rxv2: FPU + A0/A1、rxv3: + DFPU）。CFA を
     1 つ変えた ELF と R0 の式を壊した ELF を検出することも確かめた。
-  - astron（release）を QEMU の gdbstub で `Scheduler::on_alarm` で止め、rx-elf-gdb（下記の producer を書き換えた ELF）で
+  - astron（release）を QEMU の gdbstub で `Scheduler::on_alarm` で止め、e2 studio の rx-elf-gdb（下記の producer の変更後）で
     `bt` が on_alarm → … → `cmi0` → `rx_isr_common` → `regs_hold`（インライン）→ `task_low` → タスクの初期フレーム
     （`init_task_frame` が積んだ値。その先は PC = 0 で止まる）とたどれた。タスクのフレームの SP = 0x47e8（USP）、
     PSW = 0x30001、R1 / R5 / R14 = 0x11111111 / 0x55555555 / 0xeeeeeeee（`regs_hold` が置いた値）。変更前は
@@ -293,11 +293,19 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - e2 studio 同梱の rx-elf-gdb（`GNU gdb (GDB) 16.2-20260702-a2e38af0`、llvm-gcc-renesas.com のビルド）は、rustc が出した
   ELF の .debug_frame を丸ごと捨てる（`set complaints` で "Corrupt data in …:.debug_frame"）。その結果、rustc の ELF では
   CFI が一切使われず、通常の関数は「rx prologue」、`rte` のある関数は「rx exception」の命令解析でたどっている。
-- 原因は DW_AT_producer: rustc の CU の producer は `clang LLVM (rustc version …)`。.debug_info の文字列を同じ長さの
-  `GNU C 17.1` に書き換えるだけで受け付ける。.debug_frame の中身は関係ない（GCC の .debug_frame のバイト列を astron の
-  ELF に移しても捨てられ、.debug_info・.debug_abbrev・.debug_str のどれかを消すと受け付ける。CIE を v3 にしても、
-  .eh_frame 形式に直しても駄目）。upstream の gdb 16 の dwarf2/frame.c には producer による分岐が無いので、Renesas の
-  追加の変更と思われる（バイナリに "clang " / "clang version" の文字列がある）。llc + GCC でリンクした frame.ll には
-  CU が無いので影響を受けない。
-- したがって e2 studio の gdb で rustc の ELF をそのまま開くと、割り込みの先（割り込まれたタスク）は今もたどれない。
-  上の検証は producer を書き換えた ELF の値。対処の候補: upstream の gdb を使う、rx 向け rustc の producer を変える。
+- 原因は DW_AT_producer: rustc の CU の producer は `clang LLVM (rustc version …)`。同じ長さの文字列に書き換えて
+  試すと、`clang` か `LLVM` で**始まる**と捨てられ（`clang xxxx (rustc`、`LLVM (rustc`、`LLVMx xxxx (rustc`）、それ以外は
+  受け付ける（`xxxxx LLVM (rustc`、`rustc LLVM (rustc`、`xclang LLVM(rustc`、`GNU C 17.1 (rustc`）。.debug_frame の
+  中身は関係ない（GCC の .debug_frame のバイト列を astron の ELF に移しても捨てられ、.debug_info・.debug_abbrev・
+  .debug_str のどれかを消すと受け付ける。CIE を v3 にしても、.eh_frame 形式に直しても駄目）。upstream の gdb 16 の
+  dwarf2/frame.c には producer による分岐が無いので、Renesas の追加の変更と思われる。llc + GCC でリンクした frame.ll
+  には CU が無いので影響を受けない。
+- 対処（rust #18）: rx 向けの rustc は producer を `rustc version … (LLVM)` にする（rustc_codegen_llvm の
+  debuginfo/metadata.rs。ほかのターゲットは `clang LLVM (…)` のまま）。upstream の gdb 16 が "clang " を見るのは
+  producer_is_llvm だけで、使うのは x86 のプロローグ解析だけ（producer_is_clang は "clang version " で始まるものだけ）
+  なので、RX では upstream の gdb の動作は変わらない。e2 studio の gdb では、書き換えていない ELF で .debug_frame が使われ、
+  上の `bt`（タスクまで）、行番号つきのブレークポイント（main.rs:126）、`info line`、引数と構造体（`p *self`）の表示を
+  確かめた。`check-isr-cfi.py` が producer の先頭も確かめる。
+- タスクの入口関数（`task_low` など）より先は、`init_task_frame` がスタックの上端の外に残した値をたどるので、
+  初期フレームと PC = 0 で止まるか、"previous frame inner to this frame" で止まる（astron 側の作り。入口の戻り先に
+  0 を置けば止まる）。

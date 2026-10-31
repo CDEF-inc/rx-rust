@@ -15,6 +15,9 @@ For every vector entry from `interrupt!` (`_rx_vector_N`) and for
     and the expression for R0 (SP of the interrupted code, from the saved
     USP);
   - `_rx_isr_common_rte` follows `_rx_isr_common` with the CFA at SP + 8.
+
+It also checks that no DW_AT_producer starts with "clang" or "LLVM": e2
+studio's rx-elf-gdb drops the whole .debug_frame of such an ELF.
 """
 
 import os
@@ -165,6 +168,14 @@ def main():
     if cfa != 8:
         errors.append("_rx_isr_common: CFA offset %d at the rte, want 8"
                       % cfa)
+    out = run(os.path.join(LLVM, "llvm-dwarfdump"), "--debug-info", elf)
+    producers = set(re.findall(r'DW_AT_producer\s+\("([^"]*)"\)', out))
+    if not producers:
+        errors.append("no DW_AT_producer")
+    for p in sorted(producers):
+        if p.startswith(("clang", "LLVM")):
+            errors.append("producer %r: e2 studio's gdb drops .debug_frame"
+                          % p)
     for e in errors:
         print("  " + e)
     print("[isr-cfi] %s: %d vector entries + _rx_isr_common (%d "
