@@ -16,7 +16,6 @@
 
 | 項目 | いまの動き | 影響 |
 |---|---|---|
-| CFI（`.cfi_*` / `.debug_frame`） | 出さない | デバッガでスタックをたどれない。panic=abort なので巻き戻しは不要 |
 | フレームポインタ | 使わない（`-frame-pointer=all` も効かない） | 動的 alloca の前提 |
 | 動的 alloca | llc が `RX: dynamic stack allocation is not supported yet` で止まる | Rust では普通は出ない |
 | 可変長関数の定義（va_start / va_arg） | llc が `Cannot select: vastart` で止まる。呼ぶ側（printf など）は動く | Rust では C 用の `...` 関数の定義だけ |
@@ -88,7 +87,8 @@
   実機（AP-RX72M-0A）でも codegen テストが -O0 / -O2 で通過（M5）
 - [x] プロローグ・エピローグ: callee-saved を 1 つの範囲にして pushm（1 本なら push.l）で保存し、rtsd で解放・復帰・戻り
   （2026-11-01、`test/codegen/frame.ll`、`scripts/check-frame.sh`、NOTES-codegen.md）
-- [ ] CFI
+- [x] CFI: デバッグ情報があれば .debug_frame（uwtable なら .eh_frame）にプロローグを記述し、gdb がスタックをたどれる
+  （2026-11-01、`scripts/check-frame.sh`、NOTES-codegen.md の「CFI」）
 - [ ] フレームポインタと動的 alloca
 
 ### M3 拡張 — i64 / float / double は完了（詳細 `NOTES-codegen.md` の M3 節）

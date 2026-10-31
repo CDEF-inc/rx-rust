@@ -7,7 +7,7 @@
 | RXInstrInfo.td 後半 | SDNode、AddrB/W/L（ComplexPattern）、擬似命令、選択パターン |
 | RXISelLowering | 引数・戻り値・呼び出し、BR_CC/SETCC/SELECT_CC → RXISD::CMP + フラグ |
 | RXISelDAGToDAG | アドレス選択（base + dsp、dsp はサイズの倍数かつ dsp:16 に収まる場合のみ）、FrameIndex → FRMIDX |
-| RXFrameLowering | pushm で CSR 保存、`add #-N, r0, r0` で確保、rtsd で解放・復帰・戻り（下記）、フレームポインタなし |
+| RXFrameLowering | pushm で CSR 保存、`add #-N, r0, r0` で確保、rtsd で解放・復帰・戻り（下記）、プロローグの CFI（下記）、フレームポインタなし |
 | RXRegisterInfo | R0(SP)/PSW/FPSW/ACC 予約、eliminateFrameIndex（SP 相対） |
 | RXInstrInfo | コピー・スピル・分岐解析、BranchRelaxation 用の範囲判定 |
 | RXMCInstLower | 擬似命令の展開 + **最短符号への縮小**（下記） |
@@ -211,7 +211,8 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   毎回 GPR を経由する）、dtoi / dtof / ftod（非正規化数・DDN の扱いのため libcall のまま）
 - FPU のメモリオペランド形式（fadd [r1], r2 など）と RXv2 の 3 オペランド形式の選択
 - emulu を使った i64 乗算の高速化
-- 動的 alloca、フレームポインタ、CFI/アンワインド（GNU as が .cfi_* 非対応）、ジャンプテーブル
+- 動的 alloca、フレームポインタ、ジャンプテーブル
+- エピローグの CFI（下記「CFI」）、`-g` 付きの .s を GNU as でアセンブルすること（GNU as が .cfi_* 非対応）
 - アトミックの RXv2 経路（movli/movco ループ）の実行検証
 - mulhs/mulhu（emul の利用）
 
@@ -227,4 +228,31 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - 検証: `test/codegen/frame.ll` + `frame_main.c`（GCC の呼び出し側が R6〜R13 に値を置いたまま呼ぶ。範囲の穴、1 本、
   8 本、1020 バイトの境目、スタック渡しの引数、i64 の戻り値）を各 CPU の -O0 / -O2 で実行し、`scripts/check-frame.sh`
   で関数ごとの命令列を `frame.expected` と比較。復帰を 1 本減らした版では frame_main.c が失敗することも確かめた。
-- astron の qemu-rx（rx72m.elf）で .text が 16,491 → 16,188 バイト（−1.8%）、push.l が 211 → 106 本。
+- astron の qemu-rx（rx72m.elf）で .text が 16,491 → 15,825 バイト（−4.0%）、push.l が 211 → 5 本（2026-11-01 に
+  target を消して作り直した値。rx-rust #44 に書いた 16,188 バイト・106 本は、cargo が古いオブジェクトを使い回した値だった。
+  rustc を作り直してもバージョン文字列が変わらないと cargo は再コンパイルしない）。
+
+## CFI（2026-11-01）
+- デバッグ情報がある関数（rustc の `debug = true`、llc の `-force-dwarf-frame-section`）は .debug_frame、uwtable の関数は
+  .eh_frame を持つ（RXMCAsmInfo の `UsesCFIWithoutEH`。panic=abort なので例外処理は無い）。どちらも無ければ何も出さず、
+  コードもデバッグ情報の有無で変わらない。
+- CIE は GCC（rx-elf-gcc -g）と同じ: 戻り先の列は 17（PC）、初期状態は `CFA = r0 + 4`、`PC = [CFA − 4]`。
+  DWARF 番号は R0〜R15 = 0〜15、PSW = 16、PC = 17。
+- プロローグ: push / pushm の後に `.cfi_def_cfa_offset 4 + 4×本数` と各レジスタの `.cfi_offset`（小さい番号が低いアドレス）、
+  `add #-N, r0` の後に `.cfi_def_cfa_offset 4 + フレームサイズ`。
+- エピローグは GCC と同じく記述しない。SP を動かすのは最後の rtsd（フレームが 1020 バイトを超えるときはその前の add も）
+  だけなので、ずれるのはその add と rtsd の間の 1 命令だけ。記述すると、関数の途中にあるエピローグの後ろのブロックで
+  CFA が狂う（remember / restore_state が要る）。
+- GNU as は `.cfi_*` を受け付けない（"CFI is not supported for this target"。GCC は .debug_frame のバイト列を自分で書く）。
+  rustc と `llc -filetype=obj` は統合アセンブラなので問題ないが、`-g` 付きの `.s` は GNU as でアセンブルできない。
+- 検証:
+  - `scripts/check-frame.sh` が frame.ll を CFI 付きでもコンパイルし、コードが変わらないこと、各 push / add の後の CFA と
+    各レジスタの位置がプロローグと合うこと（rxv1〜rxv3、-O0 / -O2）、.debug_frame が `frame-cfi.expected` と一致することを
+    確かめる。CFI をわざと壊した 3 通り（位置、CFA、.cfi_offset の欠落）を検出することも確かめた。
+  - QEMU の gdbstub と rx-elf-gdb（e2 studio 同梱の 16.2）で、frame.ll の関数の入口、pushm の直後、GCC の関数
+    `touch` の中から `bt` で main までたどれ、`frame 1` の r6〜r13 と SP が退避した値と一致した（1 KB を超えるフレームも）。
+  - astron の rx72m.elf（release、`debug = true`）は .debug_frame を持ち、デバッグ情報なしで作った ELF と命令が同じ
+    （関数の並びだけが違う。シンボルのハッシュが変わるため）。
+  - astron（release）を QEMU の gdbstub で止めると、`Scheduler::delay` からタスクの入口 `task_high` まで、タイマー割り込み
+    の中の `on_alarm` から `rx_isr_common` まで、インライン展開された関数を含めてたどれた。手書きアセンブリの割り込み入口
+    （`rx_isr_common` など）は CFI を持たないので、その先（割り込まれたタスク）は gdb が正しくたどれない。

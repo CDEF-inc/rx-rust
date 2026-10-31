@@ -1,0 +1,103 @@
+
+00000000 00000010 ffffffff CIE
+  Version:               4
+  Augmentation:          ""
+  Pointer Size:          4
+  Segment Size:          0
+  Code alignment factor: 1
+  Data alignment factor: -4
+  Return address column: 17
+
+  DW_CFA_def_cfa: r0 ofs 4
+  DW_CFA_offset: r17 at cfa-4
+
+00000014 00000018 00000000 FDE cie=00000000 pc=00000000..00000010
+  DW_CFA_advance_loc: 2 to 00000002
+  DW_CFA_def_cfa_offset: 16
+  DW_CFA_offset: r6 at cfa-16
+  DW_CFA_offset: r7 at cfa-12
+  DW_CFA_offset: r8 at cfa-8
+  DW_CFA_nop
+  DW_CFA_nop
+  DW_CFA_nop
+
+00000030 00000014 00000000 FDE cie=00000000 pc=00000010..0000001b
+  DW_CFA_advance_loc: 2 to 00000012
+  DW_CFA_def_cfa_offset: 8
+  DW_CFA_offset: r10 at cfa-8
+  DW_CFA_nop
+  DW_CFA_nop
+  DW_CFA_nop
+
+00000048 00000020 00000000 FDE cie=00000000 pc=0000001b..00000032
+  DW_CFA_advance_loc: 2 to 0000001d
+  DW_CFA_def_cfa_offset: 36
+  DW_CFA_offset: r6 at cfa-36
+  DW_CFA_offset: r7 at cfa-32
+  DW_CFA_offset: r8 at cfa-28
+  DW_CFA_offset: r9 at cfa-24
+  DW_CFA_offset: r10 at cfa-20
+  DW_CFA_offset: r11 at cfa-16
+  DW_CFA_offset: r12 at cfa-12
+  DW_CFA_offset: r13 at cfa-8
+  DW_CFA_nop
+
+0000006c 00000010 00000000 FDE cie=00000000 pc=00000032..00000043
+  DW_CFA_advance_loc: 3 to 00000035
+  DW_CFA_def_cfa_offset: 68
+  DW_CFA_nop
+
+00000080 0000001c 00000000 FDE cie=00000000 pc=00000043..00000065
+  DW_CFA_advance_loc: 2 to 00000045
+  DW_CFA_def_cfa_offset: 16
+  DW_CFA_offset: r6 at cfa-16
+  DW_CFA_offset: r7 at cfa-12
+  DW_CFA_offset: r8 at cfa-8
+  DW_CFA_advance_loc: 4 to 00000049
+  DW_CFA_def_cfa_offset: 1024
+  DW_CFA_nop
+  DW_CFA_nop
+  DW_CFA_nop
+
+000000a0 0000001c 00000000 FDE cie=00000000 pc=00000065..0000008b
+  DW_CFA_advance_loc: 2 to 00000067
+  DW_CFA_def_cfa_offset: 16
+  DW_CFA_offset: r6 at cfa-16
+  DW_CFA_offset: r7 at cfa-12
+  DW_CFA_offset: r8 at cfa-8
+  DW_CFA_advance_loc: 4 to 0000006b
+  DW_CFA_def_cfa_offset: 1028
+  DW_CFA_nop
+  DW_CFA_nop
+  DW_CFA_nop
+
+000000c0 00000010 00000000 FDE cie=00000000 pc=0000008b..000000a2
+  DW_CFA_advance_loc: 4 to 0000008f
+  DW_CFA_def_cfa_offset: 1028
+
+000000d4 0000001c 00000000 FDE cie=00000000 pc=000000a2..000000d0
+  DW_CFA_advance_loc: 2 to 000000a4
+  DW_CFA_def_cfa_offset: 20
+  DW_CFA_offset: r6 at cfa-20
+  DW_CFA_offset: r7 at cfa-16
+  DW_CFA_offset: r8 at cfa-12
+  DW_CFA_offset: r9 at cfa-8
+  DW_CFA_advance_loc: 3 to 000000a7
+  DW_CFA_def_cfa_offset: 52
+  DW_CFA_nop
+  DW_CFA_nop
+
+000000f4 00000020 00000000 FDE cie=00000000 pc=000000d0..000000fa
+  DW_CFA_advance_loc: 2 to 000000d2
+  DW_CFA_def_cfa_offset: 28
+  DW_CFA_offset: r6 at cfa-28
+  DW_CFA_offset: r7 at cfa-24
+  DW_CFA_offset: r8 at cfa-20
+  DW_CFA_offset: r9 at cfa-16
+  DW_CFA_offset: r10 at cfa-12
+  DW_CFA_offset: r11 at cfa-8
+  DW_CFA_advance_loc: 3 to 000000d5
+  DW_CFA_def_cfa_offset: 44
+  DW_CFA_nop
+  DW_CFA_nop
+
