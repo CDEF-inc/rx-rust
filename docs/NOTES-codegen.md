@@ -7,7 +7,7 @@
 | RXInstrInfo.td 後半 | SDNode、AddrB/W/L（ComplexPattern）、擬似命令、選択パターン |
 | RXISelLowering | 引数・戻り値・呼び出し、BR_CC/SETCC/SELECT_CC → RXISD::CMP + フラグ |
 | RXISelDAGToDAG | アドレス選択（base + dsp、dsp はサイズの倍数かつ dsp:16 に収まる場合のみ）、FrameIndex → FRMIDX |
-| RXFrameLowering | push.l で CSR 保存、`add #-N, r0, r0` で確保、フレームポインタなし |
+| RXFrameLowering | pushm で CSR 保存、`add #-N, r0, r0` で確保、rtsd で解放・復帰・戻り（下記）、フレームポインタなし |
 | RXRegisterInfo | R0(SP)/PSW/FPSW/ACC 予約、eliminateFrameIndex（SP 相対） |
 | RXInstrInfo | コピー・スピル・分岐解析、BranchRelaxation 用の範囲判定 |
 | RXMCInstLower | 擬似命令の展開 + **最短符号への縮小**（下記） |
@@ -213,4 +213,18 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - emulu を使った i64 乗算の高速化
 - 動的 alloca、フレームポインタ、CFI/アンワインド（GNU as が .cfi_* 非対応）、ジャンプテーブル
 - アトミックの RXv2 経路（movli/movco ループ）の実行検証
-- プロローグ/エピローグの最適化（pushm/popm、rtsd）、mulhs/mulhu（emul の利用）
+- mulhs/mulhu（emul の利用）
+
+## プロローグとエピローグ（pushm / rtsd、2026-11-01）
+- callee-saved（R6〜R13）は 1 つの範囲として保存する。determineCalleeSaves で、使うレジスタの最小〜最大の間を全部足す
+  （r6 と r8 を使うなら r7 も保存する。GCC も同じ）。範囲は pushm 1 命令、1 本なら push.l（GNU as も `pushm r6-r6` を
+  push.l に置き換える）。pushm は小さい番号を低いアドレスに置く。
+- 戻りは rtsd: `rtsd #imm, lo-hi` は SP を imm − 4×本数 だけ戻して lo〜hi を復帰し、戻る。imm はローカル + レジスタで、
+  最大 1020。超えるときは `add #ローカル, r0` のあとに `rtsd #4×本数, lo-hi`。レジスタが無ければ `rtsd #ローカル`
+  （超えるか 0 なら add + rts）。rts の暗黙オペランド（戻り値のレジスタ）は rtsd に移す。
+- popm は終端が rts でないブロック用に restoreCalleeSavedRegisters が出す（いまは末尾呼び出しも shrink-wrapping も
+  無いので、実際には rtsd に畳まれる）。
+- 検証: `test/codegen/frame.ll` + `frame_main.c`（GCC の呼び出し側が R6〜R13 に値を置いたまま呼ぶ。範囲の穴、1 本、
+  8 本、1020 バイトの境目、スタック渡しの引数、i64 の戻り値）を各 CPU の -O0 / -O2 で実行し、`scripts/check-frame.sh`
+  で関数ごとの命令列を `frame.expected` と比較。復帰を 1 本減らした版では frame_main.c が失敗することも確かめた。
+- astron の qemu-rx（rx72m.elf）で .text が 16,491 → 16,188 バイト（−1.8%）、push.l が 211 → 106 本。

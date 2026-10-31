@@ -1,0 +1,41 @@
+_clob_gap
+  pushm r6-r8
+  rtsd #12, r6-r8
+
+_clob_one
+  push.l r10
+  rtsd #4, r10-r10
+
+_clob_all
+  pushm r6-r13
+  rtsd #32, r6-r13
+
+_locals_only
+  add #-64, r0, r0
+  rtsd #64
+
+_frame_1020
+  pushm r6-r8
+  add #-1008, r0, r0
+  rtsd #1020, r6-r8
+
+_frame_1024
+  pushm r6-r8
+  add #-1012, r0, r0
+  add #1012, r0, r0
+  rtsd #12, r6-r8
+
+_frame_big
+  add #-1024, r0, r0
+  add #1024, r0, r0
+  rts
+
+_stack_args
+  pushm r6-r9
+  add #-32, r0, r0
+  rtsd #48, r6-r9
+
+_ret64
+  pushm r6-r11
+  add #-16, r0, r0
+  rtsd #40, r6-r11

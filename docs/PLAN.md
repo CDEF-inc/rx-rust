@@ -16,7 +16,6 @@
 
 | 項目 | いまの動き | 影響 |
 |---|---|---|
-| プロローグ・エピローグ（pushm/popm/rtsd） | callee-saved を `push.l` / `pop` 1 本ずつで退避・復帰し、`rts` で戻る | コードが大きい（正しさには影響しない） |
 | CFI（`.cfi_*` / `.debug_frame`） | 出さない | デバッガでスタックをたどれない。panic=abort なので巻き戻しは不要 |
 | フレームポインタ | 使わない（`-frame-pointer=all` も効かない） | 動的 alloca の前提 |
 | 動的 alloca | llc が `RX: dynamic stack allocation is not supported yet` で止まる | Rust では普通は出ない |
@@ -78,7 +77,7 @@
 
 ### M2 コード生成（i32 整数のみ）✅ 2026-10-23（詳細 `NOTES-codegen.md`）
 - [x] CallingConv.td（GNURX 互換。引数 R1〜R4、戻り値 R1、callee-saved R6〜R13、char/short は int に昇格）
-- [x] FrameLowering（push.l/pop で CSR、SP 相対、FP なし）、ISelDAGToDAG / ISelLowering、分岐・比較・ロード/ストア
+- [x] FrameLowering（SP 相対、FP なし）、ISelDAGToDAG / ISelLowering、分岐・比較・ロード/ストア
 - [x] 選択は最長形式、出力時に最短符号へ縮小（RXMCInstLower の shrinkRXInst）
 - [x] 検証: `scripts/run-codegen-test.sh` — llc → GCC ドライバ + libgcc とリンク → QEMU（gdbsim-r5f562n8, RXv1）で実行。
   4131 チェック全通過（-O0〜-O3、.s 経由・.o 直接とも）
@@ -87,7 +86,8 @@
   命令列を `mem.expected` と照合し（`scripts/check-mem.sh`）、mem.ll 78 チェックを実行
 - [x] RXv2/v3 命令を使う codegen の実行検証: CDEF-inc/qemu の rxv2 / rxv3 / rxv3e コアで全テスト（`scripts/run-all-tests.sh`、NOTES-qemu.md）。
   実機（AP-RX72M-0A）でも codegen テストが -O0 / -O2 で通過（M5）
-- [ ] プロローグ最適化（pushm/popm/rtsd）
+- [x] プロローグ・エピローグ: callee-saved を 1 つの範囲にして pushm（1 本なら push.l）で保存し、rtsd で解放・復帰・戻り
+  （2026-11-01、`test/codegen/frame.ll`、`scripts/check-frame.sh`、NOTES-codegen.md）
 - [ ] CFI
 - [ ] フレームポインタと動的 alloca
 
