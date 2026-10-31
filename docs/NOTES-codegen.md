@@ -254,5 +254,50 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   - astron の rx72m.elf（release、`debug = true`）は .debug_frame を持ち、デバッグ情報なしで作った ELF と命令が同じ
     （関数の並びだけが違う。シンボルのハッシュが変わるため）。
   - astron（release）を QEMU の gdbstub で止めると、`Scheduler::delay` からタスクの入口 `task_high` まで、タイマー割り込み
-    の中の `on_alarm` から `rx_isr_common` まで、インライン展開された関数を含めてたどれた。手書きアセンブリの割り込み入口
-    （`rx_isr_common` など）は CFI を持たないので、その先（割り込まれたタスク）は gdb が正しくたどれない。
+    の中の `on_alarm` から `rx_isr_common` まで、インライン展開された関数を含めてたどれた。ただしこれは CFI ではなく gdb の
+    プロローグ解析によるものだった（下記「e2 studio の gdb と rustc の .debug_frame」）。
+
+### 割り込み入口の CFI（rx-rt、2026-11-01）
+- `interrupt!` の入口（`_rx_vector_N`）と `_rx_isr_common` は `global_asm!` に `.cfi_*` を書く（統合アセンブラなので通る）。
+  受付時に CPU が PSW、PC の順に積むので、入口では `CFA = SP + 8`、PSW = [CFA − 4]、PC（戻り先の列 17）= [CFA − 8]。
+  `pushm r1-r5` と `pushm r14-r15` の後は CFA = SP + 36 で、R5〜R1 が CFA − 12〜−28、R15・R14 が CFA − 32・−36。
+  `_rx_isr_common` はこの状態から始まり、FPSW、DR0〜DR1・DPSW・DCMR、アキュムレータの push / pop ごとに
+  `.cfi_adjust_cfa_offset` を書く（2 本の dpushm をまとめて書くと間の 1 命令で CFA がずれる。check-isr-cfi.py が検出した）。
+  DR0・DR1 は DWARF 番号が無いので位置は書かない。
+- 割り込まれたコードの SP（R0）: PSW.U = 0 なら CFA（ISP 上で受け付けた）だが、PSW.U = 1 ならユーザスタック（USP）で、
+  DWARF には USP の番号が無い（gdb の rx_dwarf_reg_to_regnum も 0〜17 だけ）。そこで `_rx_isr_common` の先頭で USP を
+  積み（`mvfc usp, r1` + `push.l r1`、CFA − 40）、R0 を `DW_CFA_val_expression` で `PSW.U ? [CFA − 40] : CFA` と書く
+  （`.cfi_escape`。式はソースのコメント参照）。割り込み 1 回あたり 3 命令（復帰側は `add #4, r0`）・4 バイトのスタック増。
+  astron のタスクは USP で動くので、これが無いとタスクのフレームより先が狂う。
+- gdb の RX 移植（rx-tdep.c）は unwinder を「rx exception」→ dwarf2 →「rx prologue」の順に試し、関数の中に `rte` が
+  あると（現在の PC から関数末尾まで命令を読む）CFI より先に自前の解析で割り込みフレームとして扱う。その解析は関数の
+  先頭から push を数えるので、入口（`_rx_vector_N`）で積んだ 36 バイトが見えず、PC を誤る。`rte` に別のシンボル
+  `_rx_isr_common_rte` を付けて `_rx_isr_common` を `rte` の手前で終わらせ、dwarf2 に回す（`rte` そのものの上で止めたときは
+  自前の解析でも正しい: SP + 8、PSW.U なら USP）。
+- `.cfi_sections .eh_frame, .debug_frame`: デバッグ情報のあるオブジェクトでは rustc（AsmPrinter）の `.cfi_sections
+  .debug_frame` が後から上書きする。uwtable の関数がある場合に .eh_frame を消さないよう両方を指定する（link.x は
+  .eh_frame を捨てる）。`.cfi_signal_frame` は .eh_frame の CIE にしか残らない（.debug_frame の CIE には拡張文字列が無い）
+  ので、gdb は割り込まれた PC − 1 で FDE を探す。関数の先頭の命令で割り込まれたときだけ、その 1 フレームの関数名がずれる。
+- 検証:
+  - `scripts/check-isr-cfi.py ELF` が逆アセンブルで SP を追い、各命令の CFA と、`jsr` での PSW・PC・R1〜R5・R14・R15 の
+    位置と R0 の式を .debug_frame（llvm-dwarfdump）と比べる。run-all-tests.sh が isr-save（`save-acc` 付き）の
+    ELF に対して CPU・プロファイルごとに実行する（rx62n: FPU + RXv1 ACC、rxv2: FPU + A0/A1、rxv3: + DFPU）。CFA を
+    1 つ変えた ELF と R0 の式を壊した ELF を検出することも確かめた。
+  - astron（release）を QEMU の gdbstub で `Scheduler::on_alarm` で止め、rx-elf-gdb（下記の producer を書き換えた ELF）で
+    `bt` が on_alarm → … → `cmi0` → `rx_isr_common` → `regs_hold`（インライン）→ `task_low` → タスクの初期フレーム
+    （`init_task_frame` が積んだ値。その先は PC = 0 で止まる）とたどれた。タスクのフレームの SP = 0x47e8（USP）、
+    PSW = 0x30001、R1 / R5 / R14 = 0x11111111 / 0x55555555 / 0xeeeeeeee（`regs_hold` が置いた値）。変更前は
+    `rx_isr_common` の次が PC = 0x102 などのごみだった。
+
+### e2 studio の gdb と rustc の .debug_frame
+- e2 studio 同梱の rx-elf-gdb（`GNU gdb (GDB) 16.2-20260702-a2e38af0`、llvm-gcc-renesas.com のビルド）は、rustc が出した
+  ELF の .debug_frame を丸ごと捨てる（`set complaints` で "Corrupt data in …:.debug_frame"）。その結果、rustc の ELF では
+  CFI が一切使われず、通常の関数は「rx prologue」、`rte` のある関数は「rx exception」の命令解析でたどっている。
+- 原因は DW_AT_producer: rustc の CU の producer は `clang LLVM (rustc version …)`。.debug_info の文字列を同じ長さの
+  `GNU C 17.1` に書き換えるだけで受け付ける。.debug_frame の中身は関係ない（GCC の .debug_frame のバイト列を astron の
+  ELF に移しても捨てられ、.debug_info・.debug_abbrev・.debug_str のどれかを消すと受け付ける。CIE を v3 にしても、
+  .eh_frame 形式に直しても駄目）。upstream の gdb 16 の dwarf2/frame.c には producer による分岐が無いので、Renesas の
+  追加の変更と思われる（バイナリに "clang " / "clang version" の文字列がある）。llc + GCC でリンクした frame.ll には
+  CU が無いので影響を受けない。
+- したがって e2 studio の gdb で rustc の ELF をそのまま開くと、割り込みの先（割り込まれたタスク）は今もたどれない。
+  上の検証は producer を書き換えた ELF の値。対処の候補: upstream の gdb を使う、rx 向け rustc の producer を変える。
