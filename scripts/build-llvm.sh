@@ -1,5 +1,5 @@
 # Configures LLVM (X86 + the experimental RX target) in build/llvm and builds
-# llc and llvm-mc.
+# llc, llvm-mc, llvm-objdump and llvm-objcopy.
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 src=$root/rust/src/llvm-project/llvm
@@ -19,6 +19,6 @@ if [ ! -f "$out/build.ninja" ]; then
     -DLLVM_ENABLE_ZSTD=OFF \
     > "$out/cmake.log" 2>&1 || { tail -30 "$out/cmake.log"; exit 1; }
 fi
-ninja -C "$out" llc llvm-mc > "$out/ninja.log" 2>&1 || { grep -E -B2 -A8 'error|FAILED' "$out/ninja.log" | head -80; exit 1; }
+ninja -C "$out" llc llvm-mc llvm-objdump llvm-objcopy > "$out/ninja.log" 2>&1 || { grep -E -B2 -A8 'error|FAILED' "$out/ninja.log" | head -80; exit 1; }
 "$out/bin/llc" --version | sed -n '1,4p;/Registered/,$p' | grep -iE 'llvm version|registered|rx|x86'
 "$out/bin/llc" -march=rx -mcpu=help 2>&1 | head -20

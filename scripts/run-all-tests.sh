@@ -31,13 +31,19 @@ run() {
   fi
 }
 
-echo "== assembler and DFPU instruction sequences"
+echo "== assembler, disassembler and DFPU instruction sequences"
 for t in basic scc system fpu dsp v2 dfpu v3 v3e mov memex; do
   run "mc $t" bash "$S/mc-diff.sh" lines "$root/test/mc/$t.s"
 done
 for t in branch symbol string sizeless; do
   run "mc $t" bash "$S/mc-diff.sh" file "$root/test/mc/$t.s"
 done
+for t in basic scc system fpu dsp v2 dfpu v3 v3e mov memex branch symbol \
+         string sizeless brdisp; do
+  run "dis $t" bash "$S/mc-dis.sh" "$root/test/mc/$t.s"
+done
+# The RXv1 DSP forms (A0, no shift), decoded first only for RXv1.
+run "dis dsp rxv1" bash "$S/mc-dis.sh" -m rxv1 "$root/test/mc/dsp.s"
 run "check-dfpu" bash "$S/check-dfpu.sh"
 run "check-mem" bash "$S/check-mem.sh"
 
