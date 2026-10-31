@@ -18,6 +18,15 @@ fetch() {
 fetch binutils-2.43 https://ftp.gnu.org/gnu/binutils/binutils-2.43.tar.xz
 fetch gcc-14.2.0 https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz
 
+# Local fixes in scripts/patches, applied once (skipped when already applied).
+#   binutils-2.43-rx-isa-flags.patch: ld kept E_FLAG_RX_V2/V3 only when every
+#     input had identical e_flags, so a RXv3 program lost V3 as soon as one
+#     object used string instructions and another did not.
+for p in "$root"/scripts/patches/binutils-2.43-*.patch; do
+  patch -d "$gnu/src/binutils-2.43" -p1 -R -s -f --dry-run < "$p" > /dev/null 2>&1 ||
+    patch -d "$gnu/src/binutils-2.43" -p1 -s < "$p"
+done
+
 cd "$gnu/build/bu"
 [ -f Makefile ] || ../../src/binutils-2.43/configure --target=rx-elf \
   --prefix="$gnu/install" --disable-nls --disable-werror > configure.log 2>&1
