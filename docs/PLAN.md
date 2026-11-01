@@ -112,7 +112,7 @@
   atomic.ll 1080 チェック、core-smoke の CAS / fetch_* も QEMU（RXv1）で通過。RXv2 経路も CDEF-inc/qemu の rxv2 以降で実行
 - [x] `-Zbuild-std=core` で `core` がビルドでき、テスト crate を GCC とリンクして QEMU で 80 チェック全通過（release/dev）
 - [x] RX の target feature（rxv2 / rxv3 / rxv3e / fpu / dfpu、rust #4）とインライン asm（`asm!`、M5、`test/codegen/inline-asm.ll`）
-- [x] 配布用ツールチェイン（`scripts/dist-toolchain.sh`、rx-rust #40）。astron の CI の RX ジョブがこれを使う
+- [x] 配布用ツールチェイン（`scripts/dist-toolchain.sh`、rx-rust #40）。CI の RX ジョブで使う
 - [ ] `alloc` の確認
 - [ ] tidy / UI テスト / platform-support のドキュメント（上流化する場合）
 
@@ -125,5 +125,5 @@
   実機と QEMU の違いは CDEF-inc/qemu で直した（NOTES-qemu.md）
 - [x] rx72m-pac と rx72m-hal: クロック（PLL 240 MHz）、GPIO、MPC、CMT の遅延、SCI2 の UART 送信、rx-rt の critical-section
 - [x] L チカ: `examples/blinky`（embedded-hal で LD1 / LD2 を点滅、コードフラッシュから起動）
-- [x] astron（VERTOS）の RX 版が QEMU と RX72M で動く（astron #66）
+- [x] Rust で書いた RTOS が QEMU と RX72M で動く
 - [ ] UART の受信、SPI / I2C / PWM / ADC（NOTES-hal.md の「予定」）

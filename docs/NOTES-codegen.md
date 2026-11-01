@@ -228,7 +228,7 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - 検証: `test/codegen/frame.ll` + `frame_main.c`（GCC の呼び出し側が R6〜R13 に値を置いたまま呼ぶ。範囲の穴、1 本、
   8 本、1020 バイトの境目、スタック渡しの引数、i64 の戻り値）を各 CPU の -O0 / -O2 で実行し、`scripts/check-frame.sh`
   で関数ごとの命令列を `frame.expected` と比較。復帰を 1 本減らした版では frame_main.c が失敗することも確かめた。
-- astron の qemu-rx（rx72m.elf）で .text が 16,491 → 15,825 バイト（−4.0%）、push.l が 211 → 5 本（2026-11-01 に
+- 非公開の RTOS アプリケーション（QEMU 向け ELF）で .text が 16,491 → 15,825 バイト（−4.0%）、push.l が 211 → 5 本（2026-11-01 に
   target を消して作り直した値。rx-rust #44 に書いた 16,188 バイト・106 本は、cargo が古いオブジェクトを使い回した値だった。
   rustc を作り直してもバージョン文字列が変わらないと cargo は再コンパイルしない）。
 
@@ -251,10 +251,10 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
     確かめる。CFI をわざと壊した 3 通り（位置、CFA、.cfi_offset の欠落）を検出することも確かめた。
   - QEMU の gdbstub と rx-elf-gdb（e2 studio 同梱の 16.2）で、frame.ll の関数の入口、pushm の直後、GCC の関数
     `touch` の中から `bt` で main までたどれ、`frame 1` の r6〜r13 と SP が退避した値と一致した（1 KB を超えるフレームも）。
-  - astron の rx72m.elf（release、`debug = true`）は .debug_frame を持ち、デバッグ情報なしで作った ELF と命令が同じ
+  - 同じ RTOS アプリケーション（release、`debug = true`）は .debug_frame を持ち、デバッグ情報なしで作った ELF と命令が同じ
     （関数の並びだけが違う。シンボルのハッシュが変わるため）。
-  - astron（release）を QEMU の gdbstub で止めると、`Scheduler::delay` からタスクの入口 `task_high` まで、タイマー割り込み
-    の中の `on_alarm` から `rx_isr_common` まで、インライン展開された関数を含めてたどれた。ただしこれは CFI ではなく gdb の
+  - これを QEMU の gdbstub で止めると、スケジューラの関数からタスクの入口関数まで、タイマー割り込みの handler から
+    `rx_isr_common` まで、インライン展開された関数を含めてたどれた。ただしこれは CFI ではなく gdb の
     プロローグ解析によるものだった（下記「e2 studio の gdb と rustc の .debug_frame」）。
 
 ### 割り込み入口の CFI（rx-rt、2026-11-01）
@@ -268,7 +268,7 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   DWARF には USP の番号が無い（gdb の rx_dwarf_reg_to_regnum も 0〜17 だけ）。そこで `_rx_isr_common` の先頭で USP を
   積み（`mvfc usp, r1` + `push.l r1`、CFA − 40）、R0 を `DW_CFA_val_expression` で `PSW.U ? [CFA − 40] : CFA` と書く
   （`.cfi_escape`。式はソースのコメント参照）。割り込み 1 回あたり 3 命令（復帰側は `add #4, r0`）・4 バイトのスタック増。
-  astron のタスクは USP で動くので、これが無いとタスクのフレームより先が狂う。
+  RTOS のタスクは USP で動くことが多く、その場合これが無いとタスクのフレームより先が狂う。
 - gdb の RX 移植（rx-tdep.c）は unwinder を「rx exception」→ dwarf2 →「rx prologue」の順に試し、関数の中に `rte` が
   あると（現在の PC から関数末尾まで命令を読む）CFI より先に自前の解析で割り込みフレームとして扱う。その解析は関数の
   先頭から push を数えるので、入口（`_rx_vector_N`）で積んだ 36 バイトが見えず、PC を誤る。`rte` に別のシンボル
@@ -283,11 +283,11 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
     位置と R0 の式を .debug_frame（llvm-dwarfdump）と比べる。run-all-tests.sh が isr-save（`save-acc` 付き）の
     ELF に対して CPU・プロファイルごとに実行する（rx62n: FPU + RXv1 ACC、rxv2: FPU + A0/A1、rxv3: + DFPU）。CFA を
     1 つ変えた ELF と R0 の式を壊した ELF を検出することも確かめた。
-  - astron（release）を QEMU の gdbstub で `Scheduler::on_alarm` で止め、e2 studio の rx-elf-gdb（下記の producer の変更後）で
-    `bt` が on_alarm → … → `cmi0` → `rx_isr_common` → `regs_hold`（インライン）→ `task_low` → タスクの初期フレーム
-    （`init_task_frame` が積んだ値。その先は PC = 0 で止まる）とたどれた。タスクのフレームの SP = 0x47e8（USP）、
-    PSW = 0x30001、R1 / R5 / R14 = 0x11111111 / 0x55555555 / 0xeeeeeeee（`regs_hold` が置いた値）。変更前は
-    `rx_isr_common` の次が PC = 0x102 などのごみだった。
+  - USP で動くタスクを持つ RTOS アプリケーション（release）を QEMU の gdbstub でタイマー割り込みの handler の中で止め、
+    e2 studio の rx-elf-gdb（下記の producer の変更後）で `bt` が handler → … → `interrupt!` の入口 → `rx_isr_common`
+    → 割り込まれた関数（インライン）→ タスクの入口関数 → タスクの初期フレーム（RTOS が積んだ値。その先は PC = 0 で
+    止まる）とたどれた。タスクのフレームの SP = USP、PSW = 0x30001、R1 / R5 / R14 = 0x11111111 / 0x55555555 /
+    0xeeeeeeee（割り込まれた関数が置いた値）。変更前は `rx_isr_common` の次が PC = 0x102 などのごみだった。
 
 ### e2 studio の gdb と rustc の .debug_frame
 - e2 studio 同梱の rx-elf-gdb（`GNU gdb (GDB) 16.2-20260702-a2e38af0`、llvm-gcc-renesas.com のビルド）は、rustc が出した
@@ -296,7 +296,7 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - 原因は DW_AT_producer: rustc の CU の producer は `clang LLVM (rustc version …)`。同じ長さの文字列に書き換えて
   試すと、`clang` か `LLVM` で**始まる**と捨てられ（`clang xxxx (rustc`、`LLVM (rustc`、`LLVMx xxxx (rustc`）、それ以外は
   受け付ける（`xxxxx LLVM (rustc`、`rustc LLVM (rustc`、`xclang LLVM(rustc`、`GNU C 17.1 (rustc`）。.debug_frame の
-  中身は関係ない（GCC の .debug_frame のバイト列を astron の ELF に移しても捨てられ、.debug_info・.debug_abbrev・
+  中身は関係ない（GCC の .debug_frame のバイト列を rustc の ELF に移しても捨てられ、.debug_info・.debug_abbrev・
   .debug_str のどれかを消すと受け付ける。CIE を v3 にしても、.eh_frame 形式に直しても駄目）。upstream の gdb 16 の
   dwarf2/frame.c には producer による分岐が無いので、Renesas の追加の変更と思われる。llc + GCC でリンクした frame.ll
   には CU が無いので影響を受けない。
@@ -304,8 +304,8 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   debuginfo/metadata.rs。ほかのターゲットは `clang LLVM (…)` のまま）。upstream の gdb 16 が "clang " を見るのは
   producer_is_llvm だけで、使うのは x86 のプロローグ解析だけ（producer_is_clang は "clang version " で始まるものだけ）
   なので、RX では upstream の gdb の動作は変わらない。e2 studio の gdb では、書き換えていない ELF で .debug_frame が使われ、
-  上の `bt`（タスクまで）、行番号つきのブレークポイント（main.rs:126）、`info line`、引数と構造体（`p *self`）の表示を
+  上の `bt`（タスクまで）、行番号つきのブレークポイント、`info line`、引数と構造体（`p *self`）の表示を
   確かめた。`check-isr-cfi.py` が producer の先頭も確かめる。
-- タスクの入口関数（`task_low` など）より先は、`init_task_frame` がスタックの上端の外に残した値をたどるので、
-  初期フレームと PC = 0 で止まるか、"previous frame inner to this frame" で止まる（astron 側の作り。入口の戻り先に
+- タスクの入口関数より先は、RTOS がタスクのスタックの上端の外に残した値をたどるので、
+  初期フレームと PC = 0 で止まるか、"previous frame inner to this frame" で止まる（RTOS 側の作り。入口の戻り先に
   0 を置けば止まる）。
