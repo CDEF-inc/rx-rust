@@ -11,17 +11,20 @@
   C シンボルに `_` を付ける（M2、NOTES-codegen.md の「シンボル名」）。
 - リポジトリ: https://github.com/CDEF-inc/rx-rust（作業場所: WSL Ubuntu `/work/rx_rust_toolchain/rx-rust`）
 
-## 残っていること（2026-10-31 時点）
-各マイルストーンの `[ ]` のまとめ。2026-10-31 に llc とテストで確かめた。
+## 残っていること（2026-11-01 時点）
+各マイルストーンの `[ ]` のまとめ。2026-10-31 に llc とテストで確かめた。issue #1（RXv2 / RXv3 対応）は
+2026-11-01 に閉じ、残りはそれぞれ別の issue にした。
 
-| 項目 | いまの動き | 影響 |
-|---|---|---|
-| フレームポインタ | 使わない（`-frame-pointer=all` も効かない） | 動的 alloca の前提 |
-| 動的 alloca | llc が `RX: dynamic stack allocation is not supported yet` で止まる | Rust では普通は出ない |
-| 可変長関数の定義（va_start / va_arg） | llc が `Cannot select: vastart` で止まる。呼ぶ側（printf など）は動く | Rust では C 用の `...` 関数の定義だけ |
-| `alloc` | 未試験 | ヒープを使う crate |
-| tidy・UI テスト・platform-support ドキュメント | 未対応 | 上流化する場合だけ必要 |
-| 周辺機能（UART 受信、SPI / I2C / PWM / ADC） | rx72m-hal に未実装 | NOTES-hal.md の「予定」 |
+| 項目 | いまの動き | 影響 | issue |
+|---|---|---|---|
+| フレームポインタ | 使わない（`-frame-pointer=all` も効かない） | 動的 alloca の前提 | #51 |
+| 動的 alloca | llc が `RX: dynamic stack allocation is not supported yet` で止まる | Rust では普通は出ない | #51 |
+| 可変長関数の定義（va_start / va_arg） | llc が `Cannot select: vastart` で止まる。呼ぶ側（printf など）は動く | Rust では C 用の `...` 関数の定義だけ | #51 |
+| DFPU: dtoi / dtof / ftod、f64 の DR への常駐 | libcall、演算ごとに GPR を経由 | 倍精度の速度 | #49 |
+| FPU のメモリオペランド、RXv2 の 3 オペランド形式 | レジスタ形式だけを選ぶ | 単精度の命令数 | #50 |
+| `alloc` | 未試験 | ヒープを使う crate | #52 |
+| tidy・UI テスト・platform-support ドキュメント | 未対応 | 上流化する場合だけ必要 | #53 |
+| 周辺機能（UART 受信、SPI / I2C / PWM / ADC） | rx72m-hal に未実装 | NOTES-hal.md の「予定」 | #54 |
 
 ## ディレクトリ
 - `rust/` — サブモジュール CDEF-inc/rust `rx-none-elf`（rust-lang/rust `7189d39d9ce` + RX）。
