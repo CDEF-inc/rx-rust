@@ -110,7 +110,7 @@ bash scripts/mc-diff.sh lines test/mc/fpu.s   # dsp.s, v2.s, dfpu.s, v3.s も同
   RX の MCInstrAnalysis が直接の分岐と呼び出しの飛び先を求めるので、objdump は飛び先のシンボル
   （`bra.a 0x0 <foo>`）も付ける。jmp / bsr.l などの間接分岐には付かない（既定の MCInstrAnalysis は飛び先を求めない）。
 - CPU は `--mcpu` で選ぶ。既定は rxv3（v1〜v3 の命令を全部含む）。e_flags からは選ばない: GNU ld 2.43 は入力の
-  e_flags が 1 ビットでも違うと出力から V2 / V3 を落とす（astron の qemu-rx の ELF は 0xc9 で V3 が無かった）。
+  e_flags が 1 ビットでも違うと出力から V2 / V3 を落とす（RXv3 向けのアプリケーションの ELF が 0xc9 で V3 が無かった）。
   rx-rust のツールチェーンの ld は直したが（#42）、他の ld でリンクした ELF の印は当てにならない。
 - マニュアルで未定義の組み合わせは読まない（`<unknown>`）。GNU objdump は ld=11 のメモリ形式、.B に 32 ビット即値、
   setpsw / clrpsw の未定義ビット、06 プレフィクスと ld=11 なども読んでしまう。
@@ -122,7 +122,7 @@ bash scripts/mc-diff.sh lines test/mc/fpu.s   # dsp.s, v2.s, dfpu.s, v3.s も同
 | `test/mc/brdisp.s` | 定数の変位の分岐（各形式の端の値） | 35/35 |
 | `mc-dis.sh -m rxv1 test/mc/dsp.s` | RXv1 の DSP 形式を RXv1 の書き方で読む | 11/11 |
 | `scripts/dis-fuzz.py`（16,384 個のランダムなバイト列、全先頭バイト） | 先頭の命令の長さと命令名を GNU objdump と比較、逆アセンブル結果の再アセンブル | 長さ・命令名の不一致 0。GNU だけが読むのは上の未定義の組み合わせ |
-| astron qemu-rx の ELF（6,253 命令） | アドレスごとに GNU objdump と比較 | 長さは全部一致。命令名の違いは別名（scc / scgeu、scnc / scltu）だけ |
+| Rust のアプリケーションの ELF（6,253 命令） | アドレスごとに GNU objdump と比較 | 長さは全部一致。命令名の違いは別名（scc / scgeu、scnc / scltu）だけ |
 
 ランダム比較で逆アセンブル結果が元と違う文字列になるのは、`0[Rs]`（変位 0 の dsp:8 形式。アセンブラは `[Rs]` に
 縮める）と、32 ビット即値の形式で 24 ビットに収まる値（アセンブラは短い形式を選び、符号付きで表示される）だけ。
