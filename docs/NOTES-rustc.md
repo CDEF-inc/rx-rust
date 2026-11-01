@@ -7,7 +7,7 @@
 | compiler/rustc_target/src/spec/mod.rs | `Arch::Rx`、ターゲット一覧に `rx-none-elf`、網羅 match（scalable vector / c-variadic(不安定) / object の Architecture なし） |
 | compiler/rustc_target/src/callconv/rx.rs | C ABI（新規、下記） |
 | compiler/rustc_target/src/callconv/mod.rs | `Arch::Rx => rx::compute_abi_info` |
-| compiler/rustc_target/src/target_features.rs, asm/mod.rs | `Arch::Rx`（Rust 側の機能一覧なし、インライン asm 未対応） |
+| compiler/rustc_target/src/target_features.rs, asm/mod.rs | `Arch::Rx`（M4 の時点では機能一覧とインライン asm なし。どちらも後で追加、下記と NOTES-rt.md） |
 | compiler/rustc_codegen_llvm/src/va_arg.rs | `Arch::Rx` は LLVM の va_arg に任せる |
 | compiler/rustc_span/src/symbol.rs | `sym::rx` |
 | compiler/rustc_llvm/build.rs, src/lib.rs | LLVM コンポーネント `rx` と `LLVMInitializeRX*` |
@@ -72,8 +72,9 @@ bash scripts/run-rust-test.sh     # -Zbuild-std=core でテスト crate をビ�
 - 既存の LLVM レベルのテスト（i32 4131 / m3 3957 / struct 142）も全通過。
 
 ## 注意・未対応
-- 実行検証は QEMU（RXv1 命令のみ）。rustc の既定 CPU は rxv3 で、アトミックは movli/movco（RXv2）になるため、
-  `scripts/run-rust-test.sh` は `-C target-cpu=rxv1` でビルドする（qemu-demo は .cargo/config.toml で指定済み）。
-  RXv2/v3 経路の実行には別の検証手段が必要。
-- インライン asm（`asm!`）は M5 で対応（NOTES-rt.md）。alloc / std は未試験。
-- tidy・UI テスト・platform-support のドキュメントは未対応（上流化する場合に必要）。
+- `scripts/run-rust-test.sh` は、`RX_CPU` が無ければ `-C target-cpu=rxv1` でビルドして QEMU の rx62n で走らせる
+  （qemu-demo も .cargo/config.toml で rxv1 を指定）。`RX_CPU=rxv2|rxv3|rxv3e` なら、その CPU 向けにビルドして
+  CDEF-inc/qemu の同じコアで走らせる（`scripts/cpu.sh`）。`scripts/run-all-tests.sh` は 4 つのコアすべてで実行し、
+  core-smoke は実機の RX72M（`-C target-cpu=rxv3`）でも通る（NOTES-hw.md）。
+- インライン asm（`asm!`）は M5 で対応（NOTES-rt.md）。alloc は未試験（rx-rust #52）、std は対象外。
+- tidy・UI テスト・platform-support のドキュメントは未対応（上流化する場合に必要、rx-rust #53）。

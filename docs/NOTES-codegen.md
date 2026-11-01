@@ -49,7 +49,8 @@ DataLayout を `e-m:o-p:32:32-i64:32-f64:32-n8:16:32-S32` に変更。`m:o` で 
 - M1 の MC 差分テストも全通過（basic 210、branch、symbol、scc 14）
 
 シミュレータについて: Zephyr SDK の gdb は `target sim` 非搭載、GDB sim は未ビルド。QEMU 8.2 の RX は RXv1 のみ
-なので実行テストは `-mcpu=rxv1`。RXv2/v3 の命令を出すようになったら別の検証手段（実機 or GDB sim）が要る。
+なので実行テストは `-mcpu=rxv1`。RXv2/v3 の命令は、その後 CDEF-inc/qemu の rxv2 / rxv3 / rxv3e コア
+（`RX_CPU`、NOTES-qemu.md）と実機の AP-RX72M-0A（NOTES-hw.md）で実行している。
 
 ## M3: i64 / float / double（2026-10-23）
 
@@ -206,15 +207,17 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 
 ## 未対応（M4 以降）
 - LLVM が戻り値を自動で sret 化する場合（16 バイト超のスカラー集合）の R15 渡しは未検証
-- LLVM 側で定義する可変長関数（va_start / va_arg）
-- DFPU の実行検証（QEMU も GDB の RX シミュレータも RXv2/v3 命令を持たない）、f64 の DR への常駐（fast-math の連鎖で
-  毎回 GPR を経由する）、dtoi / dtof / ftod（非正規化数・DDN の扱いのため libcall のまま）
-- FPU のメモリオペランド形式（fadd [r1], r2 など）と RXv2 の 3 オペランド形式の選択
+- LLVM 側で定義する可変長関数（va_start / va_arg）（rx-rust #51）
+- f64 の DR への常駐（fast-math の連鎖で毎回 GPR を経由する）、dtoi / dtof / ftod（非正規化数・DDN の扱いのため
+  libcall のまま）（rx-rust #49）
+- FPU のメモリオペランド形式（fadd [r1], r2 など）と RXv2 の 3 オペランド形式の選択（rx-rust #50）
 - emulu を使った i64 乗算の高速化
-- 動的 alloca、フレームポインタ、ジャンプテーブル
+- 動的 alloca、フレームポインタ（rx-rust #51）、ジャンプテーブル
 - エピローグの CFI（下記「CFI」）、`-g` 付きの .s を GNU as でアセンブルすること（GNU as が .cfi_* 非対応）
-- アトミックの RXv2 経路（movli/movco ループ）の実行検証
 - mulhs/mulhu（emul の利用）
+
+DFPU のコードと、アトミックの RXv2 経路（movli/movco ループ）は、CDEF-inc/qemu の rxv2 以降のコアと
+実機の RX72M で実行して確かめた（NOTES-qemu.md、NOTES-hw.md）。
 
 ## プロローグとエピローグ（pushm / rtsd、2026-11-01）
 - callee-saved（R6〜R13）は 1 つの範囲として保存する。determineCalleeSaves で、使うレジスタの最小〜最大の間を全部足す
