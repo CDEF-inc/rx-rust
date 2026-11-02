@@ -45,7 +45,19 @@ fn main() {
     for (_, name) in EXCEPTIONS {
         writeln!(provide, "PROVIDE(_rx_exception_{name} = _rx_default_exception);").unwrap();
     }
-    let link = fs::read_to_string("link.x.in").unwrap().replace("@PROVIDE@", &provide);
+    // With the critical-section feature, pull in rx-rt's implementation
+    // even when only a crate linked after rx-rt uses critical sections
+    // (such as a global allocator): the linker would not go back to rx-rt's
+    // archive for it. (Symbols carry a leading underscore on RX.)
+    let extern_ = if env::var_os("CARGO_FEATURE_CRITICAL_SECTION").is_some() {
+        "EXTERN(__critical_section_1_0_acquire)\nEXTERN(__critical_section_1_0_release)\n"
+    } else {
+        ""
+    };
+    let link = fs::read_to_string("link.x.in")
+        .unwrap()
+        .replace("@EXTERN@", extern_)
+        .replace("@PROVIDE@", &provide);
     fs::write(out.join("link.x"), link).unwrap();
 
     println!("cargo:rustc-link-search={}", out.display());
