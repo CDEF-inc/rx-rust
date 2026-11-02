@@ -174,13 +174,27 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   - FNEG / FABS / FCOPYSIGN はビット演算、その他（frem、fma、min/max、丸め、超越関数、half 変換など）は Expand（libcall）。
   - 定数は `mov.l #ビット列`（isFPImmLegal）、ロード・ストア・bitcast・select は整数と同じ命令。
   - パターン述語を使うため RXDAGToDAGISel に `Subtarget` メンバを追加。
-- 検証: `test/codegen/fpu.ll` + `fpu_main.c`（`ATTRS=+fpu`）を QEMU で **3110 チェック全通過（-O0〜-O3、.s 経由・.o 直接とも）**、
+  - メモリオペランド（2026-11-02、rx-rust #50）: 1 回だけ使うロードは fadd / fsub / fmul / fdiv / fcmp（RXv2 では fsqrt も）の
+    ソースに畳む（`fadd [r2], r1`、`fsub 12[r2], r1`、`fmul 1200[r2], r1`）。擬似命令 FADD_mP などが LD_L と同じ
+    (base, dsp) オペランドを持ち、RXMCInstLower が dsp:16 の形にしてから [Rs] / dsp:8 / dsp:16 の最短を選ぶ（dsp は 4 倍で
+    数える。FPU には dsp:5 の形が無い）。eliminateFrameIndex も 4 倍として扱う（スタック渡しの float もそのまま読める）。
+    fsub / fdiv / fcmp はロードが 2 番目のオペランドのときだけ畳む（fadd / fmul は交換して畳む）。
+    itof / utof のメモリ（memex）形式はまだ使わない。
+  - RXv2 の 3 オペランド形式（2026-11-02、rx-rust #50）: rxv2 以降は fadd / fsub / fmul を常に 3 オペランドで選ぶ
+    （2 オペランド形式と同じ 3 バイトで、両方のソースが生きていてもコピーが要らない）。書き込み先がソースと同じなら
+    RXMCInstLower が 2 オペランド形式で出す（整数の add / sub / mul と同じ shrinkRRR）。fdiv に 3 オペランド形式は無い。
+    fpu.ll の `f3_live` で 9 → 5 命令、`f_args` で 1 命令減る。
+- 検証: `test/codegen/fpu.ll` + `fpu_main.c`（`ATTRS=+fpu`）を QEMU で **4244 チェック全通過（-O0〜-O3、.s 経由・.o 直接とも。
+  メモリオペランドと 3 オペランド形式の前は 3110）**、
   `+fpu` なしでも全通過。fast-math（preserve-sign の関数）の四則・比較・select・分岐が GCC（FPU 使用）とビット単位で一致、
   IEEE 側は NaN / ±無限大 / ±0 を含めて正しいこと、nnan+ninf でも IEEE 環境の関数（fa_add_ieee / fa_olt_ieee）は
   libcall のままで非正規化数の加算・比較が正確なこと、ビット演算・変換・定数・メモリ・6 引数（スタック渡し）の呼び出し。
   既存の i32 / m3 / struct / atomic も `+fpu` 付きで全通過。多数の f32 演算（frem、fma、min/max、丸め、sin、powi、
   飽和変換、i64 変換、is.fpclass、ldexp、lrint、half 変換、canonicalize、ベクトル、atomic）が rxv1+fpu / rxv2 / rxv3 の
   -O0 / -O2 でコンパイルでき GNU as でアセンブルできることも確認。
+- `scripts/check-fpu.sh` が fpu.ll を rxv1 + fpu / rxv2 / rxv3 の -O0 / -O2 でコンパイルし、GNU as の結果と llc の .o を
+  比べ、-O2 の各関数の FPU 命令と呼び出しを `fpu.expected` と比べる（メモリオペランドの各 dsp、3 オペランド形式、
+  RXv1 の 2 オペランド形式と sqrtf の呼び出し）。
 - **QEMU 8.2.2 のバグ**: 同じ変換ブロック内で直前にフラグを変える整数命令があると、`fcmp` の後の条件分岐が古いフラグを見る
   （`mov.l #1, r3 / add #1, r3 / mov.l #0, r4 / mov.l #0, r5 / fcmp r4, r5 / bne` が分岐する。`fcmp` 単独なら正しい）。
   fpu.ll を -O0 にすると `fa_max` の前にスタック確保の `add` が入ってこれに当たり失敗する（ISA 上は正しいコード）。
@@ -254,7 +268,6 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - LLVM 側で定義する可変長関数（va_start / va_arg）（rx-rust #51）
 - f64 の DR への常駐（fast-math の連鎖で毎回 GPR を経由する）、dtoi / dtof / ftod（非正規化数・DDN の扱いのため
   libcall のまま）（rx-rust #49）
-- FPU のメモリオペランド形式（fadd [r1], r2 など）と RXv2 の 3 オペランド形式の選択（rx-rust #50）
 - 動的 alloca、フレームポインタ（rx-rust #51）
 
 DFPU のコードと、アトミックの RXv2 経路（movli/movco ループ）は、CDEF-inc/qemu の rxv2 以降のコアと

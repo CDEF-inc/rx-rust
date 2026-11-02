@@ -23,8 +23,23 @@ void f_store(float *, float);
 float f_args(float, float, float, float, float, float);
 float fa_add_ieee(float, float);
 int fa_olt_ieee(float, float);
+float fm_add(float, float *), fm_sub(float, float *), fm_mul(float, float *);
+float fm_rsub(float, float *), fm_div(float, float *), fm_sqrt(float *);
+float fm_twice(float, float *), f3_live(float, float);
+int fm_olt(float, float *);
 
 float c_fmul(float a, float b) { return a * b; }
+
+/* RXv1 has no fsqrt, so fm_sqrt calls sqrtf there; the driver links no
+   libm. Newton's method in double is exact for the perfect squares used. */
+float sqrtf(float x) {
+  double r = (double)x + 1.0;
+  for (int i = 0; i < 64; i++)
+    r = 0.5 * (r + (double)x / r);
+  return (float)r;
+}
+
+static float mem[310];
 
 int checks, failures, first_failure = -1;
 int got_value, want_value;
@@ -88,7 +103,24 @@ int main(void) {
       check_f(f_sel(a, b), a > b ? a : b);
       check_f(f_copysign(a, b),
               from_bits((bits(a) & 0x7fffffffu) | (bits(b) & 0x80000000u)));
+      /* a memory source at [Rs], dsp:8 and dsp:16 */
+      mem[0] = mem[1] = mem[2] = mem[3] = mem[255] = mem[300] = b;
+      check_f(fm_add(a, mem), a + b);
+      check_f(fm_sub(a, mem), a - b);
+      check_f(fm_mul(a, mem), b * a);
+      check_f(fm_rsub(a, mem), b - a);
+      if (b != 0.0f)
+        check_f(fm_div(a, mem), a / b);
+      check(fm_olt(a, mem), a < b);
+      check_f(fm_twice(a, mem), (a + b) * b);
+      check_f(f3_live(a, b), (a + b) * (a - b) + a * b);
     }
+  static const float squares[] = {4.0f, 2.25f, 1.0f, 0.0625f, 6.25f, 1e10f};
+  static const float roots[] = {2.0f, 1.5f, 1.0f, 0.25f, 2.5f, 1e5f};
+  for (unsigned i = 0; i < 6; i++) {
+    mem[4] = squares[i];
+    check_f(fm_sqrt(mem), roots[i]);
+  }
   for (unsigned i = 0; i < NV; i++) {
     float a = vals[i];
     /* fa_poly is cubic: a^3 / 3 overflows (poison under ninf) for |a| >= ~1e13 */

@@ -44,6 +44,7 @@ for t in basic scc system fpu dsp v2 dfpu v3 v3e mov memex branch symbol \
 done
 # The RXv1 DSP forms (A0, no shift), decoded first only for RXv1.
 run "dis dsp rxv1" bash "$S/mc-dis.sh" -m rxv1 "$root/test/mc/dsp.s"
+run "check-fpu" bash "$S/check-fpu.sh"
 run "check-dfpu" bash "$S/check-dfpu.sh"
 run "check-jt" bash "$S/check-jt.sh"
 run "check-mem" bash "$S/check-mem.sh"

@@ -1,0 +1,444 @@
+== rxv1
+
+_fa_add
+  fadd r2, r1
+
+_fa_sub
+  fsub r2, r1
+
+_fa_mul
+  fmul r2, r1
+
+_fa_div
+  fdiv r2, r1
+
+_fa_poly
+  fmul r2, r2
+  fmul r3, r2
+  fadd r3, r2
+  fmul r1, r2
+  fadd r1, r2
+
+_fm_add
+  fadd [r2], r1
+
+_fm_sub
+  fsub 12[r2], r1
+
+_fm_mul
+  fmul 1200[r2], r1
+
+_fm_rsub
+  fsub r1, r2
+
+_fm_div
+  fdiv 1020[r2], r1
+
+_fm_olt
+  fcmp 8[r2], r1
+
+_fm_sqrt
+  bsr.a _sqrtf
+
+_fm_twice
+  fadd r2, r1
+  fmul r2, r1
+
+_f3_live
+  fsub r2, r4
+  fadd r2, r3
+  fmul r4, r3
+  fmul r2, r1
+  fadd r1, r3
+
+_fa_olt
+  fcmp r2, r1
+
+_fa_ole
+  fcmp r2, r1
+
+_fa_ogt
+  fcmp r2, r1
+
+_fa_oge
+  fcmp r2, r1
+
+_fa_oeq
+  fcmp r2, r1
+
+_fa_une
+  fcmp r2, r1
+
+_fa_max
+  fcmp r2, r1
+
+_fa_branch
+  fcmp r2, r1
+  fcmp r2, r1
+
+_f_add
+  bsr.a ___addsf3
+
+_fa_add_ieee
+  bsr.a ___addsf3
+
+_fa_olt_ieee
+  bsr.a ___ltsf2
+
+_f_mul
+  bsr.a ___mulsf3
+
+_f_div
+  bsr.a ___divsf3
+
+_f_olt
+  bsr.a ___ltsf2
+
+_f_ult
+  bsr.a ___gesf2
+
+_f_oeq
+  bsr.a ___eqsf2
+
+_f_une
+  bsr.a ___nesf2
+
+_f_uno
+  bsr.a ___unordsf2
+
+_f_sel
+  bsr.a ___gtsf2
+
+_f_neg
+
+_f_abs
+
+_f_copysign
+
+_f_fromi
+  itof r1, r1
+
+_f_fromu
+  bsr.a ___floatunsisf
+
+_f_toi
+  bsr.a ___fixsfsi
+
+_f_tou
+  bsr.a ___fixunssfsi
+
+_f_ext
+  bsr.a ___extendsfdf2
+
+_f_trunc
+  bsr.a ___truncdfsf2
+
+_f_const
+
+_f_load
+
+_f_store
+
+_f_args
+  bsr.a _c_fmul
+  fadd r6, r9
+  fsub r1, r9
+  fmul r8, r9
+  fdiv r7, r9
+
+== rxv2
+
+_fa_add
+  fadd r2, r1
+
+_fa_sub
+  fsub r2, r1
+
+_fa_mul
+  fmul r2, r1
+
+_fa_div
+  fdiv r2, r1
+
+_fa_poly
+  fmul r1, r1, r2
+  fmul r3, r2
+  fadd r3, r2
+  fmul r2, r1
+  fadd r2, r1
+
+_fm_add
+  fadd [r2], r1
+
+_fm_sub
+  fsub 12[r2], r1
+
+_fm_mul
+  fmul 1200[r2], r1
+
+_fm_rsub
+  fsub r1, r2, r1
+
+_fm_div
+  fdiv 1020[r2], r1
+
+_fm_olt
+  fcmp 8[r2], r1
+
+_fm_sqrt
+  fsqrt 16[r1], r1
+
+_fm_twice
+  fadd r2, r1
+  fmul r2, r1
+
+_f3_live
+  fsub r2, r1, r3
+  fadd r1, r2, r4
+  fmul r4, r3
+  fmul r2, r1
+  fadd r3, r1
+
+_fa_olt
+  fcmp r2, r1
+
+_fa_ole
+  fcmp r2, r1
+
+_fa_ogt
+  fcmp r2, r1
+
+_fa_oge
+  fcmp r2, r1
+
+_fa_oeq
+  fcmp r2, r1
+
+_fa_une
+  fcmp r2, r1
+
+_fa_max
+  fcmp r2, r1
+
+_fa_branch
+  fcmp r2, r1
+  fcmp r2, r1
+
+_f_add
+  bsr.a ___addsf3
+
+_fa_add_ieee
+  bsr.a ___addsf3
+
+_fa_olt_ieee
+  bsr.a ___ltsf2
+
+_f_mul
+  bsr.a ___mulsf3
+
+_f_div
+  bsr.a ___divsf3
+
+_f_olt
+  bsr.a ___ltsf2
+
+_f_ult
+  bsr.a ___gesf2
+
+_f_oeq
+  bsr.a ___eqsf2
+
+_f_une
+  bsr.a ___nesf2
+
+_f_uno
+  bsr.a ___unordsf2
+
+_f_sel
+  bsr.a ___gtsf2
+
+_f_neg
+
+_f_abs
+
+_f_copysign
+
+_f_fromi
+  itof r1, r1
+
+_f_fromu
+  utof r1, r1
+
+_f_toi
+  bsr.a ___fixsfsi
+
+_f_tou
+  bsr.a ___fixunssfsi
+
+_f_ext
+  bsr.a ___extendsfdf2
+
+_f_trunc
+  bsr.a ___truncdfsf2
+
+_f_const
+
+_f_load
+
+_f_store
+
+_f_args
+  bsr.a _c_fmul
+  fadd r9, r6, r2
+  fsub r1, r2, r1
+  fmul r8, r1
+  fdiv r7, r1
+
+== rxv3
+
+_fa_add
+  fadd r2, r1
+
+_fa_sub
+  fsub r2, r1
+
+_fa_mul
+  fmul r2, r1
+
+_fa_div
+  fdiv r2, r1
+
+_fa_poly
+  fmul r1, r1, r2
+  fmul r3, r2
+  fadd r3, r2
+  fmul r2, r1
+  fadd r2, r1
+
+_fm_add
+  fadd [r2], r1
+
+_fm_sub
+  fsub 12[r2], r1
+
+_fm_mul
+  fmul 1200[r2], r1
+
+_fm_rsub
+  fsub r1, r2, r1
+
+_fm_div
+  fdiv 1020[r2], r1
+
+_fm_olt
+  fcmp 8[r2], r1
+
+_fm_sqrt
+  fsqrt 16[r1], r1
+
+_fm_twice
+  fadd r2, r1
+  fmul r2, r1
+
+_f3_live
+  fsub r2, r1, r3
+  fadd r1, r2, r4
+  fmul r4, r3
+  fmul r2, r1
+  fadd r3, r1
+
+_fa_olt
+  fcmp r2, r1
+
+_fa_ole
+  fcmp r2, r1
+
+_fa_ogt
+  fcmp r2, r1
+
+_fa_oge
+  fcmp r2, r1
+
+_fa_oeq
+  fcmp r2, r1
+
+_fa_une
+  fcmp r2, r1
+
+_fa_max
+  fcmp r2, r1
+
+_fa_branch
+  fcmp r2, r1
+  fcmp r2, r1
+
+_f_add
+  bsr.a ___addsf3
+
+_fa_add_ieee
+  bsr.a ___addsf3
+
+_fa_olt_ieee
+  bsr.a ___ltsf2
+
+_f_mul
+  bsr.a ___mulsf3
+
+_f_div
+  bsr.a ___divsf3
+
+_f_olt
+  bsr.a ___ltsf2
+
+_f_ult
+  bsr.a ___gesf2
+
+_f_oeq
+  bsr.a ___eqsf2
+
+_f_une
+  bsr.a ___nesf2
+
+_f_uno
+  bsr.a ___unordsf2
+
+_f_sel
+  bsr.a ___gtsf2
+
+_f_neg
+
+_f_abs
+
+_f_copysign
+
+_f_fromi
+  itof r1, r1
+
+_f_fromu
+  utof r1, r1
+
+_f_toi
+  bsr.a ___fixsfsi
+
+_f_tou
+  bsr.a ___fixunssfsi
+
+_f_ext
+  bsr.a ___extendsfdf2
+
+_f_trunc
+  bsr.a ___truncdfsf2
+
+_f_const
+
+_f_load
+
+_f_store
+
+_f_args
+  bsr.a _c_fmul
+  fadd r9, r6, r2
+  fsub r1, r2, r1
+  fmul r8, r1
+  fdiv r7, r1
+
