@@ -68,6 +68,64 @@ define i32 @frame_big() {
   ret i32 %v
 }
 
+; --- an epilogue in the middle of the function: the early return is laid
+; out before the rest, so the CFI after its add needs .cfi_remember_state /
+; .cfi_restore_state around it (1012 + 12 bytes, r6-r8)
+define i32 @early_1024(i32 %n) {
+  %p = alloca [253 x i32]
+  call void asm sideeffect "mov.l #0, r6\0A\09mov.l #0, r7", "~{r6},~{r7}"()
+  call void @touch(ptr %p, i32 253)
+  %c = icmp ult i32 %n, 16
+  br i1 %c, label %early, label %late, !prof !0
+early:
+  %q = getelementptr i32, ptr %p, i32 %n
+  %v = load i32, ptr %q
+  ret i32 %v
+late:
+  call void @touch(ptr %p, i32 %n)
+  %q2 = getelementptr i32, ptr %p, i32 1
+  %v2 = load i32, ptr %q2
+  %r = add i32 %v2, %n
+  ret i32 %r
+}
+
+; the same with no registers (add #1024, r0 then rts on both paths)
+define i32 @early_big(i32 %n) {
+  %p = alloca [256 x i32]
+  call void @touch(ptr %p, i32 256)
+  %c = icmp ult i32 %n, 16
+  br i1 %c, label %early, label %late, !prof !0
+early:
+  %q = getelementptr i32, ptr %p, i32 %n
+  %v = load i32, ptr %q
+  ret i32 %v
+late:
+  call void @touch(ptr %p, i32 %n)
+  %q2 = getelementptr i32, ptr %p, i32 2
+  %v2 = load i32, ptr %q2
+  %r = sub i32 %v2, %n
+  ret i32 %r
+}
+
+; and a small frame: rtsd alone moves SP, so the epilogue has no CFI
+define i32 @early_small(i32 %n) {
+  %p = alloca [8 x i32]
+  call void asm sideeffect "mov.l #0, r6", "~{r6}"()
+  call void @touch(ptr %p, i32 8)
+  %c = icmp ult i32 %n, 8
+  br i1 %c, label %early, label %late, !prof !0
+early:
+  %q = getelementptr i32, ptr %p, i32 %n
+  %v = load i32, ptr %q
+  ret i32 %v
+late:
+  call void @touch(ptr %p, i32 1)
+  %q2 = getelementptr i32, ptr %p, i32 3
+  %v2 = load i32, ptr %q2
+  %r = mul i32 %v2, %n
+  ret i32 %r
+}
+
 ; --- incoming arguments on the stack, above the saved range (r6-r9, with
 ; r7 / r8 filled in) and the locals
 define i32 @stack_args(i32 %a, i32 %b, i32 %c, i32 %d, i32 %e, i32 %f) {
@@ -97,3 +155,6 @@ define i64 @ret64(i64 %a, i32 %n) {
   %r = add i64 %a, %w
   ret i64 %r
 }
+
+; the early return is the likely path, so it is laid out first
+!0 = !{!"branch_weights", i32 1000, i32 1}

@@ -90,8 +90,8 @@
   実機（AP-RX72M-0A）でも codegen テストが -O0 / -O2 で通過（M5）
 - [x] プロローグ・エピローグ: callee-saved を 1 つの範囲にして pushm（1 本なら push.l）で保存し、rtsd で解放・復帰・戻り
   （2026-11-01、`test/codegen/frame.ll`、`scripts/check-frame.sh`、NOTES-codegen.md）
-- [x] CFI: デバッグ情報があれば .debug_frame（uwtable なら .eh_frame）にプロローグを記述し、gdb がスタックをたどれる
-  （2026-11-01、`scripts/check-frame.sh`、NOTES-codegen.md の「CFI」）
+- [x] CFI: デバッグ情報があれば .debug_frame（uwtable なら .eh_frame）にプロローグとエピローグを記述し、gdb がスタックを
+  たどれる（2026-11-01、エピローグは 2026-11-02、`scripts/check-frame.sh`、NOTES-codegen.md の「CFI」）
 - [ ] フレームポインタと動的 alloca
 
 ### M3 拡張 — i64 / float / double は完了（詳細 `NOTES-codegen.md` の M3 節）

@@ -6,8 +6,10 @@
 #     file;
 #   - compiles it again with CFI (-force-dwarf-frame-section, what debug info
 #     turns on) and checks that the code stays the same, and that the CFI
-#     follows the prologue: the CFA offset after each push and SP adjustment,
-#     and the slot of each saved register;
+#     follows the prologue and the epilogues: the CFA offset at every
+#     instruction (through .cfi_remember_state / .cfi_restore_state around
+#     an epilogue in the middle of the function), and the slot of each saved
+#     register;
 #   - compares the stack instructions (push / pop, SP adjustments, returns) of
 #     every function at -O2 with test/codegen/frame.expected, and the
 #     .debug_frame (as rx-elf-readelf prints it) with frame-cfi.expected
@@ -25,26 +27,38 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 # Reads llc assembly with CFI and prints a line for each mismatch between
-# the prologue and its CFI. The CFA is SP + 4 on entry; a push of lo..hi
-# adds 4 bytes per register and puts lo at the lowest address.
+# the stack instructions and the CFI. It follows the CFA offset from the
+# instructions (cfa) and from the CFI (tab), and compares them at every
+# instruction. The CFA is SP + 4 on entry; a push of lo..hi adds 4 bytes per
+# register and puts lo at the lowest address; the block after a return, if
+# any, runs with the whole frame.
 check_cfi() {
   awk '
     function fail(msg) { print "  " fn ": " msg; bad = 1 }
-    /^_[A-Za-z0-9_]+:/ { fn = $1; sub(":", "", fn) }
-    /\.cfi_startproc/ { cfa = 4; pend = 0; lo = -1; nreg = 0; noff = 0 }
-    /^\t(pushm|push\.l)\t/ {
-      n = split($2, r, "-")
+    function nregs(s,  r, n) {
+      n = split(s, r, "-")
       lo = substr(r[1], 2) + 0; hi = substr(r[n], 2) + 0
-      nreg = hi - lo + 1; cfa += 4 * nreg; pend = cfa; pushcfa = cfa
+      return hi - lo + 1
     }
-    /^\tadd\t#-[0-9]+, r0, r0$/ {
-      a = $2; sub("#-", "", a); sub(",", "", a)
-      cfa += a; pend = cfa
+    /^_[A-Za-z0-9_]+:/ { fn = $1; sub(":", "", fn) }
+    /\.cfi_startproc/ {
+      infn = 1; cfa = tab = frame = 4; lo = -1; nreg = 0; noff = 0; nsaved = 0
     }
-    /\.cfi_def_cfa_offset/ {
-      if (!pend) fail("unexpected .cfi_def_cfa_offset " $2)
-      else if ($2 != pend) fail(".cfi_def_cfa_offset " $2 ", want " pend)
-      pend = 0
+    infn && /^\t[a-z]/ && cfa != tab {
+      fail("CFA offset " tab " at line " NR " (" $1 "), want " cfa); tab = cfa
+    }
+    /^\t(pushm|push\.l)\t/ { nreg = nregs($2); cfa += 4 * nreg; pushcfa = cfa }
+    /^\t(popm|pop)\t/ { cfa -= 4 * nregs($2) }
+    /^\tadd\t#-?[0-9]+, r0, r0$/ {
+      a = $2; sub("#", "", a); sub(",", "", a); cfa -= a
+    }
+    infn && cfa > frame { frame = cfa }
+    /^\t(rtsd\t|rts$)/ { cfa = frame }
+    /\.cfi_def_cfa_offset/ { tab = $2 }
+    /\.cfi_remember_state/ { saved[nsaved++] = tab }
+    /\.cfi_restore_state/ {
+      if (!nsaved) fail(".cfi_restore_state with no state remembered")
+      else tab = saved[--nsaved]
     }
     /\.cfi_offset/ {
       reg = $2; sub(",", "", reg); reg += 0; noff++
@@ -53,7 +67,7 @@ check_cfi() {
       else if ($3 != want) fail("r" reg " at " $3 ", want " want)
     }
     /\.cfi_endproc/ {
-      if (pend) fail("no .cfi_def_cfa_offset " pend)
+      infn = 0
       if (noff != nreg) fail(noff " .cfi_offset for " nreg " registers")
       funcs++
     }
@@ -90,7 +104,7 @@ for cpu in rxv1 rxv2 rxv3; do
       status=1
     fi
     if ! check_cfi "$tmp/cfi.s"; then
-      echo "[frame $cpu -O$o] the CFI does not follow the prologue"
+      echo "[frame $cpu -O$o] the CFI does not follow the stack instructions"
       status=1
     fi
   done
