@@ -27,7 +27,7 @@
     mvtipl #0〜31（他のコアは #0〜15）。制御レジスタ ivc / wpri / wid（mvtc / mvfc / pushc / popc）、
     trmvtc / trmvfc では isp / intb / bpc / bpsw / extb / ivc / trctb / wintb。これらのレジスタ名も rxv3e でのみ受け付ける
   - DFPU（`+dfpu`、rxv3 / rxv3e の既定）: dadd/dsub/dmul/ddiv、dabs/dneg/dsqrt/dround/dtoi/dtou/dtof、
-    dcmp{un,eq,lt,le}、ftod/itod/utod、dmov.d（DR↔DR、[Rb]/dsp8/dsp16（8 倍）、Rs→DRHn、#imm32→DRHn）、
+    dcmp{un,eq,lt,le}、ftod/itod/utod、dmov.d（DR↔DR、[Rb]/dsp8/dsp16（4 倍。マニュアルの注記と GNU as は 8 倍。NOTES-qemu.md）、Rs→DRHn、#imm32→DRHn）、
     dmov.l（Rs↔DRHn/DRLn、#imm32→DRHn/DRLn）、dpushm/dpopm.{d,l}、mvtdc/mvfdc、mvfdr
   - レジスタ: DR0〜DR15、半分を指す drh0〜15 / drl0〜15（dmov.l 用、アセンブラのみ）、
     DFPU 制御レジスタ dpsw/dcmr/decnt/depc（別名 dcr0〜dcr3）

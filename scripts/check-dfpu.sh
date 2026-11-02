@@ -7,9 +7,10 @@
 # operand order was checked against the RXv3 manual (DSUB src, src2, dest:
 # dest = src2 - src; DCMPcm src, src2: RES = src2 cm src; MVFDR: Z = RES).
 #
-# GNU as 2.43 swaps the register fields of ftod / itod / utod (see
-# docs/NOTES-mc.md), so their register numbers are exchanged in the copy
-# given to GNU as, which then produces the encoding the manual specifies.
+# GNU as 2.43 swaps the register fields of ftod / itod / utod and scales the
+# dmov.d displacement by 8 instead of 4 (see docs/NOTES-mc.md), so
+# scripts/gas-dfpu.awk rewrites those in the copy given to GNU as, which then
+# produces the encoding the hardware uses.
 #
 #   check-dfpu.sh [-u]   (-u rewrites dfpu.expected)
 set -eu
@@ -26,8 +27,7 @@ status=0
 for o in 0 2; do
   $LLC -O$o -verify-machineinstrs "$ll" -o "$tmp/d.s"
   $LLC -O$o -filetype=obj "$ll" -o "$tmp/obj.o"
-  sed -E 's/^\t(ftod|itod|utod)\tr([0-9]+), dr([0-9]+)$/\t\1\tr\3, dr\2/' \
-    "$tmp/d.s" > "$tmp/gas.s"
+  awk -f "$root/scripts/gas-dfpu.awk" "$tmp/d.s" > "$tmp/gas.s"
   "$G/rx-elf-as" -mcpu=rxv3-dfpu -o "$tmp/as.o" "$tmp/gas.s"
   for v in as obj; do
     "$G/rx-elf-objcopy" -O binary -j .text -j P "$tmp/$v.o" "$tmp/$v.bin"
@@ -40,7 +40,7 @@ done
 
 # DFPU instructions, DR transfers and calls of each function at -O2.
 awk '/^_[A-Za-z0-9_]+:/ { sub(":", "", $1); print ""; print $1; next }
-     /^\t(d[a-z.]+|itod|utod|mvfdr|bsr\.a)\t/ ||
+     /^\t(d[a-z.]+|itod|utod|ftod|mvfdr|bsr\.a)\t/ ||
      /^\tmvfdr$/ { sub(/^\t/, "  "); gsub(/\t/, " "); print }' \
   "$tmp/d.s" | sed '1d' > "$tmp/got"
 

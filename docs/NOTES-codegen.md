@@ -213,14 +213,38 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - **型合法化の前**の PerformDAGCombine（LLVM 23 の SoftenFloatResult はターゲットのカスタム処理を呼ばない）で、
   nnan+ninf かつ double の非正規化数環境が preserve-sign（単精度 FPU と同じ canUseFPU）の
   FADD/FSUB/FMUL/FDIV/FSQRT、f64 比較（SETCC / SELECT_CC / BR_CC）と、常に i32 → f64 の
-  SINT_TO_FP / UINT_TO_FP を、ワード対を受け渡しする RXISD::DARITH / DSQRT / DCMP / ITOD / UTOD に置き換える
+  SINT_TO_FP / UINT_TO_FP、下記の条件の変換を RXISD::DARITH / DSQRT / DCMP / ITOD / UTOD / ... に置き換える
   （`bitcast(build_pair(lo, hi))` で f64 に戻すので、以降の型合法化はそのまま）。
   BR_CC を f64 で Custom にしているのは、DAGCombiner が brcond + setcc から fast-math フラグ付きの BR_CC を作るようにするため。
-- 擬似命令 DARITH_P / DSQRT_P / ITOD_P / UTOD_P / DCMP_P は DR0 / DR1 を固定の作業レジスタとして Defs に持ち、
-  RXAsmPrinter が展開する（DR の値は擬似命令の外では生きていないので、レジスタ割り付け・退避の対象にならない）:
-  `dmov.l alo, drl0 / dmov.l ahi, drh0 / dmov.l blo, drl1 / dmov.l bhi, drh1 / d<op> dr1, dr0, dr0 /
-  dmov.l drl0, lo / dmov.l drh0, hi`（28 バイト）。比較は `... / dcmp<cm> dr1, dr0 / mvfdr` で Z に結果
-  （EQ → Z、NE → !Z。GT/GE はオペランドを入れ替えて LT/LE）。
+- DR レジスタへの常駐（2026-11-02、rx-rust #49）: 置き換えたノードは DR レジスタの値を untyped の値として受け渡す。
+  `DR_PAIR(lo, hi)` がワード対を DR に入れ、`DR_SPLIT` がワード対に戻す。f64 のオペランドは
+  `DR_PAIR(splitF64(x))`、結果は `joinF64(DR_SPLIT(d))` にし、どの段階の DAG combine でも
+  `DR_PAIR(DR_SPLIT(d))` を `d` に畳む。これで DFPU が計算して DFPU が使う値（同じ基本ブロック内の連鎖）は
+  DR に残り、GPR を通らない。基本ブロックをまたぐ値・呼び出しの引数と戻り値・ロード / ストアは従来どおりワード対。
+  - f64 を DR の合法型にしない理由は従来どおり（IEEE の double がすべて DR を通るようになる）。untyped は型合法化の
+    対象外なので、合法化の前に作ってよい。
+  - 選択は RXISelDAGToDAG の `selectDFPU`（untyped にはパターンが書けない）。DADD / DSUB / DMUL / DDIV / DSQRT /
+    ITOD / UTOD / FTOD / DTOI / DTOU / DTOF は実命令をそのまま選び、DR_PAIR_P / DR_SPLIT_P / DR_LO_P（dtoi 等の結果の
+    下位ワードを GPR へ）/ DCMP_P（`dcmp<cm> y, x` + `mvfdr`）は RXAsmPrinter が `dmov.l` などに展開する。
+  - 割り付けるのは **DR0 と DR1 だけ**（DR2〜DR15 は予約レジスタ）。rx-rt の割り込み入口（dfpu feature）が退避するのが
+    DR0・DR1 だけで、DR はすべて caller-saved（呼び出しをまたぐ値は退避される）。DR の退避・復帰は `dmov.d` の
+    メモリ形（擬似命令 DST_D / DLD_D、dsp は 4 倍）、DR 間のコピーは `dmov.d dr, dr`。
+    2 本では足りない式（dfpu.ll の `da_tree`）や、同じ入力を 2 回使う式（`da_chain` の `a`）は退避が入る。
+    DR_PAIR_P は再実体化可能にしてあるが、入力の GPR が既に死んでいるので実際には使われない。
+    DR0〜DR3 を割り付けると da_chain が 71 → 49 バイト、da_tree が 158 → 113 バイトになる（rx-rt で dr0-dr3 を退避する
+    必要がある。今回は入れていない）。以前の方式（演算ごとに 28 バイトの擬似命令）では da_chain は約 85 バイト。
+- 変換（2026-11-02、rx-rust #49）: IEEE の libcall と結果が同じになる条件で DFPU を使う（`flushesDenormals` = その型の
+  非正規化数環境が preserve-sign）。
+  - `fptosi` / `fptoui`（f64 → i32）→ `dtoi` / `dtou`: 0 方向の切り捨てで同じ。範囲外・NaN は LLVM では poison なので
+    フラグは要らない。非正規化数はどちらも 0 になるが DDN = 0 だと例外になるので、double の環境が preserve-sign であること。
+  - `fpext`（f32 → f64）→ `ftod`: 正確。float の非正規化数を 0 にするので float の環境が preserve-sign、NaN の
+    ペイロードが libcall と違いうるので nnan。DFPU の命令なので float の非正規化数も DPSW.DDN で扱う（DDN = 0 なら
+    例外）ため、double の環境も preserve-sign であること（llvm-project#23 のレビュー。dfpu.ll の `d_ext_f32only` は
+    float だけ preserve-sign で libcall のまま）。
+  - `fptrunc`（f64 → f32）→ `dtof`: 最近接丸め（DPSW.RM = 0）・オーバーフローで無限大は libcall と同じ。非正規化数の
+    入力・結果を 0 にするので double と float の両方が preserve-sign、NaN のため nnan。
+  - i64 との変換、飽和変換（Rust の `as` は `fptosi.sat`）は libcall のまま。rustc は非正規化数環境を指定しないので、
+    Rust のコードでは int → double 以外は使われない。
 - DPSW などの DFPU 制御レジスタを予約レジスタに追加（暗黙の Uses が未定義使用として MachineVerifier に落とされるため）。
 - 検証（QEMU に DFPU がないので実行はしていない）: `scripts/check-dfpu.sh` が `test/codegen/dfpu.ll` を rxv3 でコンパイルし、
   -verify-machineinstrs、GNU as でのアセンブル（直接出力の .o と同一。GNU as は itod / utod / ftod のレジスタ欄を
@@ -229,6 +253,15 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   int → double・呼び出しをまたぐ値、IEEE 側が libcall のままであること（nnan+ninf でも IEEE 環境の
   da_add_ieee / da_olt_ieee を含め 25 関数）。f64 の多数の演算（fops.ll の double 版）も
   rxv1〜rxv3 の -O0 / -O2 でコンパイル・アセンブルできることを確認。
+- 検証（rx-rust #49 の後）: CDEF-inc/qemu の rxv3 / rxv3e で `dfpu.ll` + `dfpu_main.c` を -O0〜-O3、両経路で実行し
+  7762 チェック全通過（GCC の soft-fp とビット単位で比較）。追加した関数: 3 つの中間値が同時に生きる `da_tree`
+  （退避あり）、連鎖の先の比較・dtoi・dtof、ftod の後の連鎖、変換 4 種と IEEE 側の fpext / fptrunc（libcall で
+  非正規化数を保つ）。float の非正規化数の ftod と、結果が非正規化数になる dtof が 0 になること。
+  `check-dfpu.sh` の `dfpu.expected` は 36 関数。ループ・select・呼び出し・定数・変換が混ざる f64 の IR も
+  rxv3 / rxv3e の -O0〜-O3 で -verify-machineinstrs を通り、GNU as でアセンブルできた。
+- GNU as は dmov.d の dsp を 8 倍として符号化する（ハードウェアと LLVM は 4 倍。NOTES-qemu.md）。DR の退避で dmov.d の
+  メモリ形を使うようになったので、run-codegen-test.sh と check-dfpu.sh が GNU as に渡す .s では
+  `scripts/gas-dfpu.awk` が dsp 付きの dmov.d を `.byte` にする（ftod / itod / utod のレジスタ欄の入れ替えも同じ awk）。
 
 ## 乗算の上位半分（emul / emulu、rx-rust #58、2026-11-02）
 - `emul` / `emulu src, Rd` は 32 × 32 → 64 ビットの積を Rd+1:Rd（Rd が下位）に書く。この組を表すレジスタクラスは
@@ -266,8 +299,6 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 
 ## 未対応（M4 以降）
 - LLVM 側で定義する可変長関数（va_start / va_arg）（rx-rust #51）
-- f64 の DR への常駐（fast-math の連鎖で毎回 GPR を経由する）、dtoi / dtof / ftod（非正規化数・DDN の扱いのため
-  libcall のまま）（rx-rust #49）
 - 動的 alloca、フレームポインタ（rx-rust #51）
 
 DFPU のコードと、アトミックの RXv2 経路（movli/movco ループ）は、CDEF-inc/qemu の rxv2 以降のコアと
