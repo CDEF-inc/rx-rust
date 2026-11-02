@@ -45,6 +45,7 @@ done
 # The RXv1 DSP forms (A0, no shift), decoded first only for RXv1.
 run "dis dsp rxv1" bash "$S/mc-dis.sh" -m rxv1 "$root/test/mc/dsp.s"
 run "check-dfpu" bash "$S/check-dfpu.sh"
+run "check-jt" bash "$S/check-jt.sh"
 run "check-mem" bash "$S/check-mem.sh"
 run "check-mulh" bash "$S/check-mulh.sh"
 run "check-frame" bash "$S/check-frame.sh"
@@ -77,6 +78,7 @@ for cpu in "${cpus[@]}"; do
     run "$cpu codegen mem -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/mem.ll" "$C/mem_main.c"
     run "$cpu codegen mulh -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/mulh.ll" "$C/mulh_main.c"
     run "$cpu codegen frame -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/frame.ll" "$C/frame_main.c"
+    run "$cpu codegen jt -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/jt.ll" "$C/jt_main.c"
   done
   attrs=; [ "$cpu" = rx62n ] && attrs=+fpu
   for o in 0 1 2 3; do
