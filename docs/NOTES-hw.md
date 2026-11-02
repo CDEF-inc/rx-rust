@@ -41,7 +41,7 @@ first_failure、got、want）と実行時間を表示し、最後に `== N passe
 |---|---|---|
 | insns | test/qemu の命令テスト（cpu-features、fcmp-flags、fpu-status、rxv2-fpu、dsp-v2、dfpu-insns、rxv3-insns、mem-insns、cmt、memex-insns）。V2 = V3 = FPU = DFPU = 1、V3E = 0 でアセンブル | RAM（0x4000〜）、EXTB を RAM の固定ベクタテーブルに向ける |
 | rom | rxv2-insns（EXTB を書き換えるので RAM 版の起動処理と両立しない） | コードフラッシュ、リセットベクタから起動 |
-| codegen | test/codegen の i32、m3、struct、atomic、fpu、dfpu、mem（`llc -mcpu=rxv3`、-O0 と -O2）と GCC でコンパイルした C ドライバ | RAM |
+| codegen | test/codegen の i32、m3、struct、atomic、fpu、dfpu、mem、mulh、frame、jt（`llc -mcpu=rxv3`、-O0 と -O2）と GCC でコンパイルした C ドライバ | RAM |
 | rust | test/rust/core-smoke（`-C target-cpu=rxv3`、release と dev） | RAM |
 | rt | rx-rt のアプリケーション: test/rust/isr-save（ソフトウェア割り込みで FPSW・A0/A1・DR0/DR1・DPSW/DCMR の退避を確かめる）と test/rust/hw-irq（CMT0/CMT1 の割り込み、`interrupt::free`、IPL によるマスク、多重割り込み）、test/rust/hw-pac（rx72m-pac と rx-rt の critical-section）、test/rust/hw-hal（rx72m-hal のクロックと GPIO、LED が点滅する）、test/rust/hw-uart（DelayNs、MPC、SCI2。docs/NOTES-hal.md）。`-C target-cpu=rxv3`、release と dev | コードフラッシュ（test/hw/rx72m-memory.x）、rx-rt の `_rx_reset` からリセット起動 |
 
@@ -92,6 +92,23 @@ GDB は使わず、Python から直接リモートプロトコルを話す。e²
 - e² studio もサーバーの起動前にポートを調べに接続する。プロキシでパケットを記録するときは、データのない接続を無視すること。
 
 ## 結果
+
+2026-11-02、rx-rust#66 のブランチ（llvm-project d1b19fc、rust f2be09e。epilogue の CFI、jump table、emul / emulu、
+FPU のメモリオペランドと 3 オペランド形式、DFPU の DR 常駐と変換を含む）に、codegen の mulh / frame / jt を足したもの
+（rx-rust #57）。hw-run.sh で 43 本、計 97,650 チェックが 2 回ともすべて失敗 0。
+
+| グループ | テスト | チェック数 |
+|---|---|---|
+| insns | 下の 2026-10-28 と同じ 10 本 | 2002 |
+| rom | rxv2-insns | 16 |
+| codegen（-O0 と -O2 のそれぞれ） | i32 4131、m3 3957、struct 142、atomic 1080、fpu 4244、dfpu 7762、mem 78、mulh 23438、frame 104、jt 2564 | 95000（2 回分） |
+| rust | core-smoke release 233、dev 233 | 466 |
+| rt | isr-save 29、hw-irq 11、hw-pac 11、hw-hal 17、hw-uart 15（それぞれ release と dev） | 166 |
+
+- mulh は emul / emulu（64 ビット積、mulhu / mulhs、定数除算の掛け算列）を含み、QEMU と同じ 23,438 チェック。
+- hw-hal（release）のチェック 14（PJ5 のプルアップを有効にした直後に読むと high）が毎回失敗した。release では PCR の
+  書き込みから PIDR の読み出しまで数命令（240 MHz で十数 ns）しかなく、プルアップがピンを充電する前に読んでいた
+  （dev は遅いので通る）。テストに 1000 回の volatile 読み出しの待ちを入れて、3 回とも通ることを確かめた。
 
 2026-10-28、rx-rust main（llvm-project 417e313、rust 534e54e）に rt グループと cmt の CMCR bit 7 の
 チェックを足したもの。hw-run.sh で 31 本、計 35,560 チェックがすべて失敗 0。
