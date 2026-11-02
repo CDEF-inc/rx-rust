@@ -71,10 +71,32 @@ bash scripts/run-rust-test.sh     # -Zbuild-std=core でテスト crate をビ�
 - サイズ: text 18 KB（release, opt-level=s, gc-sections）。gc-sections なしだと 277 KB で内蔵 RAM に入らなかった。
 - 既存の LLVM レベルのテスト（i32 4131 / m3 3957 / struct 142）も全通過。
 
+## alloc（2026-11-02、rx-rust #52）
+- `-Zbuild-std=core,alloc`（.cargo/config.toml の `build-std = ["core", "alloc"]`）で rxv1〜rxv3e のどれでもビルドできる。
+  RX 向けの変更は要らなかった。std は対象外。
+- `test/rust/alloc-smoke`: グローバルアロケータは embedded-alloc 0.6 の `LlffHeap`（linked_list_allocator）を 16 KB の
+  static 配列に置く。Box（u64、16 バイト揃えの型、スライス、`dyn Fn`）、Vec（1000 要素の push / sort / retain /
+  shrink、入れ子）、String / format!（整数・16 進・Debug・幅指定・f64 / f32）、BTreeMap（200 個の挿入・削除・range）、
+  VecDeque、BinaryHeap、Rc、Arc を 3 周まわし、毎周 `HEAP.used() == 0`（すべて解放された）を確かめる。115 チェック。
+  QEMU の rx62n / rxv2 / rxv3 / rxv3e の release / dev と、実機の RX72M（rxv3、release / dev）で全通過。
+- アラインメント: u64 / f64 は 4 バイト境界（GCC と同じ、DataLayout の `i64:32-f64:32`）。それより大きい
+  `#[repr(align(16))]` などはアロケータが Layout どおりに揃える（16 バイト境界になることを確かめた）。
+- アトミック: Arc の参照カウントは AtomicUsize の CAS（RXv2 以降は movli / movco のループ、RXv1 は割り込みを止めた
+  列。NOTES-codegen.md）。embedded-alloc は `critical-section` で排他するので、rx-rt の `critical-section` feature が要る。
+- **リンク順の問題（rx-rt で修正）**: critical-section の実装（`__critical_section_1_0_acquire` / `_release`）は
+  rx-rt にあり、使うのが rx-rt より後ろにリンクされる crate（embedded-alloc）だけだと、ld が rx-rt のアーカイブを
+  見た時点ではまだ未定義参照がないので、実装のオブジェクトが取り込まれず未定義になる。dev（オブジェクトが細かく
+  分かれる）で起き、release では他のコードと同じオブジェクトに入っていたので起きなかった。rx-rt の build.rs が
+  `critical-section` feature のとき link.x に `EXTERN(__critical_section_1_0_acquire)` / `release` を足して
+  常に取り込むようにした（RX のシンボルは先頭に `_` が付くので、Rust の `_critical_section_1_0_acquire` は `__` になる）。
+- サイズ（rx62n、release、opt-level = "s"）: .text 39,806 バイト、.rodata 16,372 バイト（dev は 72,502 / 61,788）。
+  大きいのは書式化と浮動小数点の文字列化（約 15.7 KB。f64 / f32 の `{}` / `{:.3}` を使っているため）、BTreeMap
+  （約 5.9 KB）、u32 の sort（2.1 KB）、`to_uppercase`（Unicode 表を含む）。アロケータ自体は約 1.3 KB。
+
 ## 注意・未対応
 - `scripts/run-rust-test.sh` は、`RX_CPU` が無ければ `-C target-cpu=rxv1` でビルドして QEMU の rx62n で走らせる
   （qemu-demo も .cargo/config.toml で rxv1 を指定）。`RX_CPU=rxv2|rxv3|rxv3e` なら、その CPU 向けにビルドして
   CDEF-inc/qemu の同じコアで走らせる（`scripts/cpu.sh`）。`scripts/run-all-tests.sh` は 4 つのコアすべてで実行し、
   core-smoke は実機の RX72M（`-C target-cpu=rxv3`）でも通る（NOTES-hw.md）。
-- インライン asm（`asm!`）は M5 で対応（NOTES-rt.md）。alloc は未試験（rx-rust #52）、std は対象外。
+- インライン asm（`asm!`）は M5 で対応（NOTES-rt.md）。alloc は上記。std は対象外。
 - tidy・UI テスト・platform-support のドキュメントは未対応（上流化する場合に必要、rx-rust #53）。

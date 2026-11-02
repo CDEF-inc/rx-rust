@@ -11,7 +11,7 @@ ENTRY(_rx_reset)
 EXTERN(_rx_reset)
 EXTERN(_rx_vectors)
 EXTERN(_rx_fixed_vectors)
-
+@EXTERN@
 @PROVIDE@
 PROVIDE(_rx_stack_top = ORIGIN(RAM) + LENGTH(RAM));
 
