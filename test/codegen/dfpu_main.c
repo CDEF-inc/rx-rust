@@ -22,6 +22,7 @@ int da_chain_cmp(double, double), da_chain_toi(double, double);
 int da_toi(double);
 u32 da_tou(double);
 double da_ext(float), da_ext_chain(float, double), d_ext(float);
+double d_ext_f32only(float);
 float da_trunc(double), da_trunc_chain(double, double), d_trunc(double);
 
 static u32 fbits(float f) {
@@ -135,6 +136,8 @@ int main(void) {
   float fmin = ffrom_bits(1);
   check_d(da_ext(fmin), 0.0);
   check_d(d_ext(fmin), (double)fmin);
+  check_d(d_ext_f32only(fmin), (double)fmin);
+  check_d(d_ext_f32only(1.5f), 1.5);
   check((int)fbits(d_trunc(1e-40)), (int)fbits((float)1e-40));
   check((int)fbits(da_trunc(1e-40)), 0);
 
