@@ -2,15 +2,25 @@
 
 CDEF-inc/llvm-project の `lld/ELF/Arch/RX.cpp`。`ld.lld` が RX（`EM_RX`、
 `-m elf32rx`）の ELF を GNU ld（binutils 2.43 の `bfd/elf32-rx.c`）と同じ
-結果でリンクする。GNU ld は引き続き既定で、lld は選んだときだけ使う。
+結果でリンクする。lld が既定のリンカで（rx-rust #74 から）、GNU ld も
+選べる。
 
 ## 使い方
 
-- rustc: `-C linker=ld.lld`（`rx-none-elf` の既定リンカは `rx-elf-ld`）。
-  配布物（`scripts/dist-toolchain.sh`）は `bin/ld.lld` を含む。
-- テストスクリプト: `RX_LD=<ld.lld>` で `run-codegen-test.sh` と
-  `hw-build.sh` が lld でリンクする。`run-rust-rom.sh` には
-  `RUST_EXTRA_FLAGS="-C linker=<ld.lld>"`。
+- rustc: `rx-none-elf` の既定リンカは `rust-lld`
+  （`LinkerFlavor::Gnu(Cc::No, Lld::Yes)`）。rustc は sysroot の
+  `lib/rustlib/<host>/bin/rust-lld` を使う。`scripts/build-rustc.sh` が
+  build/llvm の lld をそこに置き、配布物（`scripts/dist-toolchain.sh`）にも
+  入る。配布物の `bin/ld.lld` は C などを直接リンクするためのもの。
+- GNU ld にするには `-C linker=rx-elf-ld`（rustc は名前から GNU ld 型の
+  フラグを選ぶ）。
+- テストスクリプト（`run-codegen-test.sh`、`run-rust-test.sh`、
+  `hw-build.sh`）も既定は build/llvm の `ld.lld`。`RX_LD=<rx-elf-ld>` で
+  GNU ld でリンクする（`hw-build.sh` は Rust アプリにも `-C linker` を
+  渡す）。`run-rust-rom.sh` には `RUST_EXTRA_FLAGS="-C linker=<rx-elf-ld>"`。
+- リンカスクリプトの解釈には GNU ld との違いがある（下の `.fixedvec` の
+  例）。GNU ld で通っていたスクリプトが lld であふれたら、領域のない
+  出力セクションを疑う。
 - C のオブジェクトと混ぜてよい（GCC の libgcc もそのままリンクできる）。
 
 ## 再配置
@@ -72,9 +82,9 @@ GNU ld の RX エミュレーションは `--no-flag-mismatch-warnings` が既�
   アーカイブからのメンバの取り出し順は lld（深さ優先）と GNU ld
   （アーカイブを周回）で違い、配置が変わるので、GNU ld のマップから
   libgcc のメンバを GNU ld の順で明示して渡す。
-- `run-all-tests.sh` の最後: rx62n / rxv3 で codegen テスト（-O2）と
-  Rust アプリ（qemu-demo、isr-save、alloc-smoke、float-smoke、hw-irq）を
-  lld でリンクして QEMU で実行。
+- `run-all-tests.sh`: 全体を lld でリンクして回し、最後に rx62n / rxv3 で
+  codegen テスト（-O2）と Rust アプリ（qemu-demo、isr-save、alloc-smoke、
+  float-smoke、hw-irq）を GNU ld でリンクして QEMU で実行（#73 では逆）。
 - 実機（AP-RX72M-0A）: `RX_LD=build/llvm/bin/ld.lld scripts/hw-build.sh`
   の 57 本を `hw-run.sh` で実行し、すべて失敗 0（NOTES-hw.md の「結果」）。
 

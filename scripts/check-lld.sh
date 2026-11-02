@@ -9,8 +9,8 @@
 # member's dependencies at once, GNU ld goes round the archive), which only
 # moves code around. So the libgcc members GNU ld used, in its order (from
 # its map), are given to both as object files. The ELFs that lld links from
-# the archive itself are run on QEMU by run-codegen-test.sh with
-# RX_LD=ld.lld.
+# the archive itself are run on QEMU by run-codegen-test.sh (lld is its
+# default linker).
 #
 #   check-lld.sh
 set -eu
