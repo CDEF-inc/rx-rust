@@ -82,9 +82,13 @@ scripts/build-rustc.sh    # stage1 rustc using build/llvm
 
 For machines that do not build it (CI), `scripts/dist-toolchain.sh` packs
 the built toolchain into `build/dist/rx-toolchain-x86_64-linux.tar.xz`:
-the stage1 rustc with the library sources for `-Zbuild-std`, cargo, the
-rx-elf binutils, lld (rustc's `rust-lld`, and `ld.lld`) and `qemu-system-rx`, with the commits they were built from
-in `VERSIONS`. The
+the stage1 rustc with the library sources for `-Zbuild-std`, cargo, lld
+(rustc's `rust-lld`, and `ld.lld`), the LLVM binary tools (`llvm-objcopy`,
+`llvm-objdump`, `llvm-nm`, `llvm-size`, `llvm-readelf`, ...; also under the
+`rx-elf-*` names) and `qemu-system-rx`, with the commits they were built
+from in `VERSIONS`. It has no GNU binutils: Rust programs do not need them.
+The tests in this repository still use GNU as, ld and GCC, to compare with
+them and to call GCC-compiled C. The
 [releases](https://github.com/CDEF-inc/rx-rust/releases) carry it. It runs
 on x86-64 Linux with glibc 2.39 or later (built on Ubuntu 24.04); QEMU
 needs its usual shared libraries (`apt-get install qemu-system-misc`

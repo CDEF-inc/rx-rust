@@ -1,14 +1,18 @@
 #!/bin/bash
 # Packs the built toolchain into one archive, for machines that do not build
 # it (CI): the stage1 rustc with the library sources for -Zbuild-std, the
-# stage0 cargo, the rx-elf binutils, lld (the RX port: rustc's rust-lld and
-# bin/ld.lld) and qemu-system-rx (CDEF-inc/qemu).
+# stage0 cargo, lld (the RX port: rustc's rust-lld, and bin/ld.lld), the
+# LLVM binary tools (objcopy, objdump, nm, ...; also as rx-elf-*) and
+# qemu-system-rx (CDEF-inc/qemu). No GNU binutils: Rust programs do not
+# need them (C code built with rx-elf-gcc brings its own).
 #
 #   dist-toolchain.sh [NAME]   -> build/dist/NAME.tar.xz
 #                                 (default rx-toolchain-x86_64-linux)
 #
 # The archive holds NAME/ with
-#   bin/       rustc, cargo, rx-elf-* (binutils), ld.lld, qemu-system-rx
+#   bin/       rustc, cargo, ld.lld, llvm-{objcopy,objdump,nm,size,readelf,
+#              readobj,ar,strip,strings,addr2line,symbolizer} and the same
+#              as rx-elf-* (symbolic links), qemu-system-rx
 #   lib/       librustc_driver, rustlib/x86_64-unknown-linux-gnu (the host
 #              std, for build scripts and proc macros; bin/rust-lld) and
 #              rustlib/src/rust/library (core etc. for -Zbuild-std)
@@ -24,12 +28,14 @@ set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 host=x86_64-unknown-linux-gnu
 s1=$root/rust/build/$host/stage1
-G=$root/gnu/install/bin
+L=$root/build/llvm/bin
 name=${1:-rx-toolchain-x86_64-linux}
 QEMU=${QEMU:-$root/../qemu/build/qemu-system-rx}
 [ -x "$s1/bin/rustc" ] || { echo "no stage1 rustc; run scripts/build-rustc.sh" >&2; exit 2; }
 [ -x "$s1/lib/rustlib/$host/bin/rust-lld" ] || { echo "no rust-lld in the sysroot; run scripts/build-rustc.sh" >&2; exit 2; }
-[ -x "$G/rx-elf-ld" ] || { echo "no rx-elf binutils; run scripts/build-gnu.sh" >&2; exit 2; }
+for t in lld llvm-objcopy llvm-objdump llvm-nm llvm-size llvm-readobj llvm-ar llvm-strings llvm-symbolizer; do
+  [ -x "$L/$t" ] || { echo "no $L/$t; run scripts/build-llvm.sh" >&2; exit 2; }
+done
 [ -x "$QEMU" ] || { echo "no qemu-system-rx at $QEMU; set QEMU" >&2; exit 2; }
 
 tmp=$(mktemp -d)
@@ -40,11 +46,21 @@ cp "$s1/bin/rustc" "$root/rust/build/$host/stage0/bin/cargo" "$d/bin/"
 cp "$s1"/lib/librustc_driver-*.so "$d/lib/"
 cp -r "$s1/lib/rustlib/$host" "$d/lib/rustlib/"
 tar -C "$root/rust" -cf - --exclude=.git library | tar -C "$d/lib/rustlib/src/rust" -xf -
-for t in addr2line ar as ld ld.bfd nm objcopy objdump readelf size strings strip; do
-  cp "$G/rx-elf-$t" "$d/bin/"
-done
 cp "$QEMU" "$d/bin/"
-cp "$root/build/llvm/bin/lld" "$d/bin/ld.lld"
+# One lld: rustc's rust-lld (in the sysroot, from build-rustc.sh), and
+# ld.lld for linking by hand. lld picks its flavour from its name.
+ln -s "../lib/rustlib/$host/bin/rust-lld" "$d/bin/ld.lld"
+# The LLVM tools read RX ELF files (objdump disassembles them). The ones
+# that are one program under several names are links, as LLVM installs them.
+for t in objcopy objdump nm size readobj ar strings symbolizer; do
+  cp "$L/llvm-$t" "$d/bin/"
+done
+ln -s llvm-objcopy "$d/bin/llvm-strip"
+ln -s llvm-readobj "$d/bin/llvm-readelf"
+ln -s llvm-symbolizer "$d/bin/llvm-addr2line"
+for t in objcopy objdump nm size readelf ar strip strings addr2line; do
+  ln -s "llvm-$t" "$d/bin/rx-elf-$t"
+done
 
 {
   echo "rx-rust        $(git -C "$root" rev-parse HEAD)"
@@ -52,7 +68,7 @@ cp "$root/build/llvm/bin/lld" "$d/bin/ld.lld"
   echo "llvm-project   $(git -C "$root/rust/src/llvm-project" rev-parse HEAD)"
   echo "qemu           $(git -C "$(dirname "$QEMU")/.." rev-parse HEAD 2>/dev/null || echo unknown)"
   echo "rustc          $("$s1/bin/rustc" -V)"
-  echo "binutils       $("$G/rx-elf-ld" --version | head -1)"
+  echo "llvm tools     $("$L/llvm-objcopy" --version | grep -i 'llvm version' | head -1 | sed 's/^ *//')"
   echo "qemu-system-rx $("$QEMU" --version | head -1)"
 } > "$d/VERSIONS"
 cat "$d/VERSIONS"

@@ -11,9 +11,11 @@ CDEF-inc/llvm-project の `lld/ELF/Arch/RX.cpp`。`ld.lld` が RX（`EM_RX`、
   （`LinkerFlavor::Gnu(Cc::No, Lld::Yes)`）。rustc は sysroot の
   `lib/rustlib/<host>/bin/rust-lld` を使う。`scripts/build-rustc.sh` が
   build/llvm の lld をそこに置き、配布物（`scripts/dist-toolchain.sh`）にも
-  入る。配布物の `bin/ld.lld` は C などを直接リンクするためのもの。
+  入る。配布物の `bin/ld.lld`（`rust-lld` へのリンク）は C などを直接
+  リンクするためのもの。
 - GNU ld にするには `-C linker=rx-elf-ld`（rustc は名前から GNU ld 型の
-  フラグを選ぶ）。
+  フラグを選ぶ）。配布物は GNU binutils を含まない（`rx-elf-objcopy` などは
+  LLVM のツールへのリンク）ので、GNU ld は別に用意する。
 - テストスクリプト（`run-codegen-test.sh`、`run-rust-test.sh`、
   `hw-build.sh`）も既定は build/llvm の `ld.lld`。`RX_LD=<rx-elf-ld>` で
   GNU ld でリンクする（`hw-build.sh` は Rust アプリにも `-C linker` を
