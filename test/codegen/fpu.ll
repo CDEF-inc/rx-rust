@@ -24,6 +24,61 @@ define float @fa_poly(float %x) #0 {
   ret float %w
 }
 
+; --- a memory source (fadd [r2], r1, fsub dsp[r2], r1, ...): [Rs], dsp:8 and
+; dsp:16 (scaled by 4, so p[300] needs dsp:16)
+define float @fm_add(float %a, ptr %p) #0 {
+  %b = load float, ptr %p
+  %r = fadd nnan ninf float %a, %b
+  ret float %r }
+define float @fm_sub(float %a, ptr %p) #0 {
+  %q = getelementptr float, ptr %p, i32 3
+  %b = load float, ptr %q
+  %r = fsub nnan ninf float %a, %b
+  ret float %r }
+; the load is the first operand: fadd and fmul commute, fsub cannot fold
+define float @fm_mul(float %a, ptr %p) #0 {
+  %q = getelementptr float, ptr %p, i32 300
+  %b = load float, ptr %q
+  %r = fmul nnan ninf float %b, %a
+  ret float %r }
+define float @fm_rsub(float %a, ptr %p) #0 {
+  %q = getelementptr float, ptr %p, i32 1
+  %b = load float, ptr %q
+  %r = fsub nnan ninf float %b, %a
+  ret float %r }
+define float @fm_div(float %a, ptr %p) #0 {
+  %q = getelementptr float, ptr %p, i32 255
+  %b = load float, ptr %q
+  %r = fdiv nnan ninf float %a, %b
+  ret float %r }
+define i32 @fm_olt(float %a, ptr %p) #0 {
+  %q = getelementptr float, ptr %p, i32 2
+  %b = load float, ptr %q
+  %c = fcmp nnan ninf olt float %a, %b
+  %r = zext i1 %c to i32
+  ret i32 %r }
+define float @fm_sqrt(ptr %p) #0 {
+  %q = getelementptr float, ptr %p, i32 4
+  %b = load float, ptr %q
+  %r = call nnan ninf float @llvm.sqrt.f32(float %b)
+  ret float %r }
+; a loaded value used twice stays in a register
+define float @fm_twice(float %a, ptr %p) #0 {
+  %b = load float, ptr %p
+  %s = fadd nnan ninf float %a, %b
+  %r = fmul nnan ninf float %s, %b
+  ret float %r }
+declare float @llvm.sqrt.f32(float)
+
+; --- both sources stay live: the RXv2 3-operand forms need no copy
+define float @f3_live(float %a, float %b) #0 {
+  %s = fadd nnan ninf float %a, %b
+  %d = fsub nnan ninf float %a, %b
+  %p = fmul nnan ninf float %a, %b
+  %t = fmul nnan ninf float %s, %d
+  %r = fadd nnan ninf float %t, %p
+  ret float %r }
+
 ; --- fast-math compares (fcmp), as values, selects and branches
 define i32 @fa_olt(float %a, float %b) #0 { %c = fcmp nnan ninf olt float %a, %b
   %r = zext i1 %c to i32
