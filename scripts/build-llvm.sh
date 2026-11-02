@@ -24,6 +24,7 @@ fi
 grep -q '^LLVM_ENABLE_PROJECTS:STRING=.*lld' "$out/CMakeCache.txt" ||
   cmake -DLLVM_ENABLE_PROJECTS=lld "$out" >> "$out/cmake.log" 2>&1
 ninja -C "$out" llc llvm-mc llvm-objdump llvm-objcopy lld \
-  FileCheck not count llvm-readobj llvm-readelf llvm-ar > "$out/ninja.log" 2>&1 || { grep -E -B2 -A8 'error|FAILED' "$out/ninja.log" | head -80; exit 1; }
+  FileCheck not count llvm-readobj llvm-readelf llvm-ar \
+  llvm-nm llvm-size llvm-strip llvm-strings llvm-symbolizer llvm-addr2line > "$out/ninja.log" 2>&1 || { grep -E -B2 -A8 'error|FAILED' "$out/ninja.log" | head -80; exit 1; }
 "$out/bin/llc" --version | sed -n '1,4p;/Registered/,$p' | grep -iE 'llvm version|registered|rx|x86'
 "$out/bin/llc" -march=rx -mcpu=help 2>&1 | head -20
