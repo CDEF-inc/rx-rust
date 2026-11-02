@@ -21,7 +21,9 @@
 #            default list)
 #
 # Each NAME.elf gets a NAME.sym with the symbols the runner needs. The
-# start-up code, harness and linker scripts are in test/hw.
+# start-up code, harness and linker scripts are in test/hw. RX_LD picks the
+# linker (default GNU ld; e.g. RX_LD=build/llvm/bin/ld.lld), also for the
+# Rust applications (-C linker).
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 G=$root/gnu/install/bin
@@ -31,6 +33,14 @@ out=$root/build/hw
 groups=("$@"); [ ${#groups[@]} -gt 0 ] || groups=(insns rom codegen rust rt examples)
 GCCFLAGS="-mcpu=rx600 -m64bit-doubles"
 libgcc=$("$G/rx-elf-gcc" $GCCFLAGS -print-libgcc-file-name)
+LD=${RX_LD:-$G/rx-elf-ld}
+# GNU ld's warnings about the RWX segment and the stack note (lld has
+# neither the warnings nor the options).
+case $LD in
+  *lld*) nowarn= ;;
+  *) nowarn="--no-warn-rwx-segments --no-warn-execstack" ;;
+esac
+linker_flag=${RX_LD:+-C linker=$(realpath "$RX_LD")}
 # The RX72M has the RXv2 and RXv3 instructions, the FPU and the DFPU.
 defs=(--defsym V2=1 --defsym V3=1 --defsym V3E=0 --defsym FPU=1 --defsym DFPU=1)
 
@@ -49,7 +59,7 @@ insn_tests() {
   for name in "$@"; do
     "$MC" -triple=rx -mcpu=rxv3e -filetype=obj -g -I "$root/test/qemu" "${defs[@]}" \
       "$root/test/qemu/$name.s" -o "$d/$name.o"
-    "$G/rx-elf-ld" --no-warn-rwx-segments -T "$T/$ld" \
+    "$LD" $nowarn -T "$T/$ld" \
       "$d/start.o" "$d/harness.o" "$d/$name.o" -o "$d/$name.elf"
     sym "$d/$name.elf"
     echo "built $d/$name.elf"
@@ -79,7 +89,7 @@ for g in "${groups[@]}"; do
         for o in 0 2; do
           "$root/build/llvm/bin/llc" -mtriple=rx-none-elf -mcpu=rxv3 \
             -mattr=+64bit-doubles${4:+,$4} -O$o -filetype=obj "$C/$1.ll" -o "$d/$n-O$o.o"
-          "$G/rx-elf-ld" --no-warn-rwx-segments --no-warn-execstack -T "$T/rx72m-ram.ld" \
+          "$LD" $nowarn -T "$T/rx72m-ram.ld" \
             -o "$d/$n-O$o.elf" "$d/start.o" "$d/$2.o" "$d/$n-O$o.o" "$libgcc"
           sym "$d/$n-O$o.elf"
           echo "built $d/$n-O$o.elf"
@@ -100,7 +110,7 @@ for g in "${groups[@]}"; do
            --target rx-none-elf -Zbuild-std=core \
            -Zbuild-std-features=compiler-builtins-mem --target-dir "$target_dir")
         lib=$(ls "$target_dir/rx-none-elf/$([ "$profile" = dev ] && echo debug || echo "$profile")"/lib*.a | head -1)
-        "$G/rx-elf-ld" --no-warn-rwx-segments --no-warn-execstack --gc-sections -T "$T/rx72m-ram.ld" \
+        "$LD" $nowarn --gc-sections -T "$T/rx72m-ram.ld" \
           -o "$d/core-smoke-$profile.elf" "$d/start.o" "$d/main.o" "$lib" "$libgcc"
         sym "$d/core-smoke-$profile.elf"
         echo "built $d/core-smoke-$profile.elf"
@@ -117,7 +127,7 @@ for g in "${groups[@]}"; do
           # rx62n), so it gives the linker script too.
           (cd "$root/test/rust/$crate" &&
            RUSTC=$root/rust/build/$host/stage1/bin/rustc RUSTC_BOOTSTRAP=1 \
-           RUSTFLAGS="-C link-arg=-Tlink.x -C target-cpu=rxv3 $extra" \
+           RUSTFLAGS="-C link-arg=-Tlink.x -C target-cpu=rxv3 $extra $linker_flag" \
            RX_MEMORY_X=$T/rx72m-memory.x PATH=$G:$PATH \
            "$root/rust/build/$host/stage0/bin/cargo" build -q --profile "$profile" \
              --target-dir "$root/build/hw/rt-target$suffix")

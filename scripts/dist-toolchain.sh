@@ -1,13 +1,14 @@
 #!/bin/bash
 # Packs the built toolchain into one archive, for machines that do not build
 # it (CI): the stage1 rustc with the library sources for -Zbuild-std, the
-# stage0 cargo, the rx-elf binutils and qemu-system-rx (CDEF-inc/qemu).
+# stage0 cargo, the rx-elf binutils, ld.lld (the RX port) and qemu-system-rx
+# (CDEF-inc/qemu).
 #
 #   dist-toolchain.sh [NAME]   -> build/dist/NAME.tar.xz
 #                                 (default rx-toolchain-x86_64-linux)
 #
 # The archive holds NAME/ with
-#   bin/       rustc, cargo, rx-elf-* (binutils), qemu-system-rx
+#   bin/       rustc, cargo, rx-elf-* (binutils), ld.lld, qemu-system-rx
 #   lib/       librustc_driver, rustlib/x86_64-unknown-linux-gnu (the host
 #              std, for build scripts and proc macros) and
 #              rustlib/src/rust/library (core etc. for -Zbuild-std)
@@ -42,6 +43,7 @@ for t in addr2line ar as ld ld.bfd nm objcopy objdump readelf size strings strip
   cp "$G/rx-elf-$t" "$d/bin/"
 done
 cp "$QEMU" "$d/bin/"
+cp "$root/build/llvm/bin/lld" "$d/bin/ld.lld"
 
 {
   echo "rx-rust        $(git -C "$root" rev-parse HEAD)"

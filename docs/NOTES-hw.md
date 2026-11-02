@@ -93,6 +93,10 @@ GDB は使わず、Python から直接リモートプロトコルを話す。e²
 
 ## 結果
 
+2026-11-03、rx-rust#72 のブランチ（lld の RX 対応）で、`RX_LD=build/llvm/bin/ld.lld scripts/hw-build.sh`
+（insns rom codegen rust rt を lld でリンク）の 57 本、計 170,024 チェックがすべて失敗 0。GNU ld でリンクした
+rom（rxv2-insns）と hw-irq も、rx72m-rom.ld の変更後に通ることを確かめた。
+
 2026-11-02、rx-rust#66 のブランチ（llvm-project d1b19fc、rust f2be09e。epilogue の CFI、jump table、emul / emulu、
 FPU のメモリオペランドと 3 オペランド形式、DFPU の DR 常駐と変換を含む）に、codegen の mulh / frame / jt を足したもの
 （rx-rust #57）。hw-run.sh で 43 本、計 97,650 チェックが 2 回ともすべて失敗 0。

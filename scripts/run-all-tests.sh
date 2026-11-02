@@ -51,6 +51,9 @@ run "check-mem" bash "$S/check-mem.sh"
 run "check-mulh" bash "$S/check-mulh.sh"
 run "check-frame" bash "$S/check-frame.sh"
 run "check-fp" bash "$S/check-fp.sh"
+run "check-lld" bash "$S/check-lld.sh"
+run "lld lit" "$root/build/llvm/bin/llvm-lit" -q \
+  "$root"/rust/src/llvm-project/lld/test/ELF/rx-*
 
 echo "== QEMU instruction tests"
 run "qemu cpu-features" "$S/run-qemu-test.sh" cpu-features rx62n rxv1 rxv2 rxv3 rxv3e
@@ -113,6 +116,34 @@ for cpu in "${cpus[@]}"; do
     run "$cpu rust hw-irq $p" env PROFILE=$p RX_MEMORY_X="$root/test/rust/qemu-demo/memory.x" \
       bash "$S/run-rust-rom.sh" "$root/test/rust/hw-irq"
   done
+done
+
+# The codegen tests and the Rust applications linked with ld.lld (the RX
+# port in build/llvm) instead of GNU ld.
+LLD=$root/build/llvm/bin/ld.lld
+for cpu in rx62n rxv3; do
+  echo "== $cpu, linked with ld.lld"
+  export RX_CPU=$cpu
+  unset QEMU_CPU
+  for t in "i32 main" "m3 m3_main" "struct struct_main" "demote demote_main" \
+           "atomic atomic_main" "mem mem_main" "mulh mulh_main" "frame frame_main" \
+           "fp fp_main" "va va_main" "jt jt_main"; do
+    set -- $t
+    run "$cpu lld codegen $1" env OPT=2 RX_LD=$LLD bash "$S/run-codegen-test.sh" "$C/$1.ll" "$C/$2.c"
+  done
+  attrs=; [ "$cpu" = rx62n ] && attrs=+fpu
+  run "$cpu lld codegen fpu" env OPT=2 ATTRS=$attrs RX_LD=$LLD \
+    bash "$S/run-codegen-test.sh" "$C/fpu.ll" "$C/fpu_main.c"
+  run "$cpu lld codegen fpu_ieee" env OPT=2 ATTRS=${attrs:+$attrs,}+flush-denormals RX_LD=$LLD \
+    bash "$S/run-codegen-test.sh" "$C/fpu_ieee.ll" "$C/fpu_ieee_main.c"
+  [ "$cpu" = rxv3 ] && run "$cpu lld codegen dfpu" env OPT=2 RX_LD=$LLD \
+    bash "$S/run-codegen-test.sh" "$C/dfpu.ll" "$C/dfpu_main.c"
+  for c in qemu-demo isr-save alloc-smoke float-smoke; do
+    run "$cpu lld rust $c" env PROFILE=release RUST_EXTRA_FLAGS="-C linker=$LLD" \
+      bash "$S/run-rust-rom.sh" "$root/test/rust/$c"
+  done
+  run "$cpu lld rust hw-irq" env PROFILE=release RUST_EXTRA_FLAGS="-C linker=$LLD" \
+    RX_MEMORY_X="$root/test/rust/qemu-demo/memory.x" bash "$S/run-rust-rom.sh" "$root/test/rust/hw-irq"
 done
 
 echo "== $pass passed, ${#fail[@]} failed"

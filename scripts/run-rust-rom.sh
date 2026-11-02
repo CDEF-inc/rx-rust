@@ -21,7 +21,7 @@ profile=${PROFILE:-release}
 G=$root/gnu/install/bin
 host=x86_64-unknown-linux-gnu
 cargo=$root/rust/build/$host/stage0/bin/cargo
-target_dir=$root/build/rust-rom/${RX_CPU:-default}${RUST_EXTRA_FLAGS:+-extra}
+target_dir=$root/build/rust-rom/${RX_CPU:-default}${RUST_EXTRA_FLAGS:+-$(echo "$RUST_EXTRA_FLAGS" | md5sum | cut -c1-8)}
 if [ -z "${QEMU:-}" ]; then
   QEMU=$root/../qemu/build/qemu-system-rx
   [ -x "$QEMU" ] || QEMU=qemu-system-rx
