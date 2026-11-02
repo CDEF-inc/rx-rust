@@ -104,12 +104,24 @@
   DW_CFA_advance_loc: 4 to 00000138
   DW_CFA_def_cfa: r6 ofs 1220
 
-00000124 00000018 00000000 FDE cie=00000000 pc=00000178..0000019f
+00000124 0000001c 00000000 FDE cie=00000000 pc=00000178..000001bb
   DW_CFA_advance_loc: 2 to 0000017a
+  DW_CFA_def_cfa_offset: 16
+  DW_CFA_offset: r6 at cfa-16
+  DW_CFA_offset: r7 at cfa-12
+  DW_CFA_offset: r8 at cfa-8
+  DW_CFA_advance_loc: 3 to 0000017d
+  DW_CFA_def_cfa: r6 ofs 24
+  DW_CFA_nop
+  DW_CFA_nop
+  DW_CFA_nop
+
+00000144 00000018 00000000 FDE cie=00000000 pc=000001bb..000001e2
+  DW_CFA_advance_loc: 2 to 000001bd
   DW_CFA_def_cfa_offset: 12
   DW_CFA_offset: r6 at cfa-12
   DW_CFA_offset: r7 at cfa-8
-  DW_CFA_advance_loc: 3 to 0000017d
+  DW_CFA_advance_loc: 3 to 000001c0
   DW_CFA_def_cfa: r6 ofs 16
   DW_CFA_nop
 

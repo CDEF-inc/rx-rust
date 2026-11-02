@@ -8,6 +8,9 @@ declare i32 @c_sum6(i32, i32, i32, i32, i32, i32)
 declare ptr @llvm.stacksave.p0()
 declare void @llvm.stackrestore.p0(ptr)
 
+%S3 = type { i8, i8, i8 }
+declare i32 @c_s3(ptr byval(%S3) align 1)
+
 define internal i32 @elem(ptr %p, i32 %i) {
   %q = getelementptr i32, ptr %p, i32 %i
   %v = load i32, ptr %q
@@ -104,6 +107,24 @@ define i32 @dyn_big(i32 %n) {
   %b = call i32 @elem(ptr %p, i32 0)
   %r = add i32 %a, %b
   ret i32 %r
+}
+
+; a 3-byte byval argument after a dynamic alloca: the call's argument area
+; is rounded up to 4 bytes, so SP stays aligned (c_s3 reports the alignment
+; of its own local)
+define i32 @dyn_byval(i32 %n) {
+  %p = alloca i32, i32 %n
+  call void @touch(ptr %p, i32 %n)
+  %s = alloca %S3
+  store i8 1, ptr %s
+  %s1 = getelementptr i8, ptr %s, i32 1
+  store i8 2, ptr %s1
+  %s2 = getelementptr i8, ptr %s, i32 2
+  store i8 3, ptr %s2
+  %r = call i32 @c_s3(ptr byval(%S3) align 1 %s)
+  %v = call i32 @elem(ptr %p, i32 0)
+  %t = add i32 %r, %v
+  ret i32 %t
 }
 
 ; an over-aligned dynamic alloca (16 bytes)

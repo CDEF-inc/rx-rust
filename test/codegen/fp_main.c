@@ -2,7 +2,7 @@
 
 int fp_locals(int), fp_args(int, int, int, int, int, int), fp_leaf(int);
 int fp_big(int), dyn(int), dyn_call(int), dyn_loop(int), dyn_big(int);
-int dyn_align(int);
+int dyn_align(int), dyn_byval(int);
 
 int checks, failures, first_failure = -1;
 int got_value, want_value;
@@ -25,6 +25,16 @@ static int elem(int i) { return i * 7 + 1; }
 
 int c_sum6(int a, int b, int c, int d, int e, int f) {
   return a + 10 * b + 100 * c + 1000 * d + 10000 * e + 100000 * f;
+}
+
+/* Called by dyn_byval with a 3-byte structure on the stack: returns its
+   fields and, times 1000, SP mod 4 (read from R0: GCC would fold the
+   alignment of a local's address, assuming SP is aligned). */
+struct S3 { char a, b, c; };
+int c_s3(struct S3 s) {
+  unsigned sp;
+  __asm__ volatile("mov.l r0, %0" : "=r"(sp));
+  return (int)(sp & 3) * 1000 + s.a + 10 * s.b + 100 * s.c;
 }
 
 volatile int seed = 3;
@@ -63,6 +73,8 @@ int main(void) {
     check(dyn_big(i + 1), elem(299) + elem(0));
     check(SUM(), want);
     check(dyn_align(i + 2), elem(1));
+    check(dyn_byval(i + 1), 321 + elem(0));
+    check(SUM(), want);
   }
   /* Many iterations: stackrestore must give the space back. */
   int acc = 0;

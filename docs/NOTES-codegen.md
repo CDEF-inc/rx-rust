@@ -312,7 +312,9 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
     動かない（GCC も同じ）。
 - 動的 alloca: DYNAMIC_STACKALLOC / STACKSAVE / STACKRESTORE は既定の展開（SP = R0 から引いて揃える）。
   SP が動くので呼び出しの引数領域はプロローグで確保せず（hasReservedCallFrame = false）、呼び出しごとに
-  `add #-N, r0` / `add #N, r0` で確保・解放する（eliminateCallFramePseudoInstr）。16 バイト揃えの alloca は `and #-16`。
+  `add #-N, r0` / `add #N, r0` で確保・解放する（eliminateCallFramePseudoInstr）。N はスタックの揃え（4）に切り上げる
+  （byval の引数は自分の大きさで置くので、3 バイトの構造体なら引数領域が 3 バイトになる。llvm-project#24 のレビュー）。
+  16 バイト揃えの alloca は `and #-16`。
 - 可変長関数の定義: 引数の置き場所は呼ぶ側と同じ analyzeRXArguments（最後の名前付き引数と名前なしの引数は
   スタック）。va_list は次の名前なし引数を指すポインタ（GCC と同じ）で、va_start は名前付きのスタック引数の直後の
   固定オブジェクトのアドレスを書く（lowerVASTART）。va_arg / va_copy / va_end は既定の展開。va_arg はポインタを
@@ -321,7 +323,8 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - 検証:
   - `test/codegen/fp.ll` + `fp_main.c`: frame-pointer=all のローカル・スタック渡しの引数・ローカルなし・1020 バイト超、
     動的 alloca（呼び出しをまたぐ、スタック渡しの引数のある呼び出し、ループ内で stacksave / stackrestore して 200 回、
-    1020 バイト超の固定フレームと併用、16 バイト揃え）。GCC の呼び出し側が R6〜R13 に値を置いたまま呼ぶ。91 チェック。
+    1020 バイト超の固定フレームと併用、16 バイト揃え、3 バイトの byval 引数のある呼び出し（呼ばれた GCC の関数が SP の
+    下位 2 ビットを返す。切り上げないと 1 になる））。GCC の呼び出し側が R6〜R13 に値を置いたまま呼ぶ。103 チェック。
   - `test/codegen/va.ll` + `va_main.c`: GCC が呼ぶ可変長関数（int の和、long long / int / double / ポインタの混在、
     double の和、va_copy、va_list を GCC の関数に渡す、ローカルと退避レジスタのある関数）。13 チェック。
   - どちらも各 CPU の -O0〜-O3、両経路で全通過。`scripts/check-fp.sh` が rxv1〜rxv3 の -O0 / -O2 で

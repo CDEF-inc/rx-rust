@@ -83,6 +83,19 @@ _dyn_big
   add #1200, r0, r0
   rtsd #16, r6-r9
 
+_dyn_byval
+  pushm r6-r8
+  add #-8, r0, r6
+  mov.l r6, r0
+  sub r1, r0, r7
+  bsr.a _touch
+  add #-4, r0, r0
+  bsr.a _c_s3
+  add #4, r0
+  bsr.a _elem
+  mov.l r6, r0
+  rtsd #20, r6-r8
+
 _dyn_align
   pushm r6-r7
   add #-4, r0, r6
