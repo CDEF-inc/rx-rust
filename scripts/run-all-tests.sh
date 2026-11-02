@@ -72,6 +72,7 @@ for cpu in "${cpus[@]}"; do
     run "$cpu codegen i32 -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/i32.ll" "$C/main.c"
     run "$cpu codegen m3 -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/m3.ll" "$C/m3_main.c"
     run "$cpu codegen struct -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/struct.ll" "$C/struct_main.c"
+    run "$cpu codegen demote -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/demote.ll" "$C/demote_main.c"
     run "$cpu codegen atomic -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/atomic.ll" "$C/atomic_main.c"
     run "$cpu codegen mem -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/mem.ll" "$C/mem_main.c"
     run "$cpu codegen frame -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/frame.ll" "$C/frame_main.c"

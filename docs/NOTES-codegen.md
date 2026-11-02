@@ -117,6 +117,8 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   サイズを 4 に切り上げた分だけ進める（後続の引数はレジスタに戻りうる）。呼び出し側のコピーはインライン展開
   （libc の memcpy に頼らない）。
 - メモリで返す構造体 → `sret` 引数。R15 で渡し、カウンタに数えない。呼ばれた側は R1 に同じアドレスを返す。
+  IR で値として返していて R1-R4 に入らない戻り値（16 バイト超の構造体・配列）は、LLVM 自身が隠れた sret 引数に
+  変える。この引数も `sret` 属性付きなので、同じく R15・カウンタに数えない・R1 に返す、になる。
 - 構造体戻り値をレジスタで返す場合は `{i32, ...}` / `[N x i32]`（R1 から順）。
 
 ### 検証
@@ -126,6 +128,13 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - LLVM → GCC: L_cross_s から C_g3〜C_g7（[3 x i32] と byval）、C_r8、C_r20 / C_r3（sret バッファ）
 - sret の R1 返却は GCC のインラインアセンブリで `bsr.a _L_r20` 後の R1 を読んで確認
 - 生成コードのオフセット（L_g4 の 6[r0] と R2、L_g5 の 9/11[r0] と R4、L_g7 の 4/8[r0]）が GCC と一致することも目視で確認
+
+`test/codegen/demote.ll` + `demote_main.c`: LLVM が隠れた sret に変える戻り値（rx-rust #56）。**254 チェック全通過**
+（各 CPU の -O0 / -O2、両経路）。
+- GCC → LLVM: `{i32 ×5}`、`[5 x i32]`、末尾が char の 20 バイト、`{i64 ×3}`（i64 引数 2 つが R1-R4）、引数 5 つ
+  （a〜d が R1-R4、e がスタック）、byval の後の引数が R2、戻る経路が 2 つある関数
+- LLVM → GCC / LLVM: L_cross_d から C_d20、C_q24、C_d5（引数 5 つ）、L_d5、L_dsel
+- `bsr.a _L_d20` の後の R1 が渡したアドレスであることをインラインアセンブリで確認
 
 ## アトミック（CAS / RMW、issue #1）
 - 32bit の cmpxchg を擬似命令 `CMPXCHG32`（出力 dst / tmp は early-clobber、入力 ptr / cmp / new、PSW を破壊、16 バイト）で選択し、
@@ -206,7 +215,6 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   rxv1〜rxv3 の -O0 / -O2 でコンパイル・アセンブルできることを確認。
 
 ## 未対応（M4 以降）
-- LLVM が戻り値を自動で sret 化する場合（16 バイト超のスカラー集合）の R15 渡しは未検証
 - LLVM 側で定義する可変長関数（va_start / va_arg）（rx-rust #51）
 - f64 の DR への常駐（fast-math の連鎖で毎回 GPR を経由する）、dtoi / dtof / ftod（非正規化数・DDN の扱いのため
   libcall のまま）（rx-rust #49）
