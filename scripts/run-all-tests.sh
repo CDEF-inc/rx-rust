@@ -53,7 +53,7 @@ run "check-frame" bash "$S/check-frame.sh"
 run "check-fp" bash "$S/check-fp.sh"
 run "check-lld" bash "$S/check-lld.sh"
 run "lld lit" "$root/build/llvm/bin/llvm-lit" -q \
-  "$root"/rust/src/llvm-project/lld/test/ELF/rx-*.s
+  "$root"/rust/src/llvm-project/lld/test/ELF/rx-*
 
 echo "== QEMU instruction tests"
 run "qemu cpu-features" "$S/run-qemu-test.sh" cpu-features rx62n rxv1 rxv2 rxv3 rxv3e

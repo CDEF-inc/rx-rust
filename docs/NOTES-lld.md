@@ -29,7 +29,8 @@ GNU ld と同じ計算（`elf32-rx.c` の `rx_elf_relocate_section`）:
 - スタック再配置: `R_RX_SYM` が S + A を積み、`R_RX_OP*` が取り出して
   結果を積み、`R_RX_ABS*` が取り出して書く。`a - b` のように assembler が
   解決できない式に出る。オペランドの順は GNU ld と同じ（`OPsub` は
-  次 − 先頭）。
+  次 − 先頭）。値は 32 ビットで折り返す（INT32_MIN / −1 は INT32_MIN、
+  INT32_MIN % −1 は 0）。シフト量が 0〜31 の外なら、0 除算と同じくエラー。
 - `R_RX_RH_RELAX`: 無視する（lld は緩和をしない。GNU ld も `--relax`
   なしでは何もしない）。
 
@@ -62,7 +63,8 @@ GNU ld の RX エミュレーションは `--no-flag-mismatch-warnings` が既�
 ## 検証
 
 - lit: `lld/test/ELF/rx-reloc.s`（各再配置の値、GNU ld と同じバイト列を
-  確認済み）、`rx-reloc-error.s`（範囲外）、`rx-eflags.s`。lld の ELF
+  確認済み）、`rx-reloc-error.s`（範囲外）、`rx-reloc-stack.test`（スタックの
+  演算の桁あふれ、シフト量、0 除算。yaml2obj で書く）、`rx-eflags.s`。lld の ELF
   テストは全部通る。
 - `scripts/check-lld.sh`: codegen テスト 14 本 × rxv1 / rxv3 × llc 直接 /
   GNU as 経由を GNU ld と lld でリンクし、セクションの配置・中身・
