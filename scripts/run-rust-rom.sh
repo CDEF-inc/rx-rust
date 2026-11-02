@@ -9,7 +9,9 @@
 # PROFILE=dev|release (default release), RUN_SECONDS (default 3). RX_CPU
 # picks the CPU model (see cpu.sh; it replaces the target-cpu and
 # target-feature flags of the crate's .cargo/config.toml, which are for
-# QEMU's default rx62n). QEMU as in qemu-run.sh.
+# QEMU's default rx62n). RUST_EXTRA_FLAGS adds rustc flags (with RX_CPU),
+# e.g. "-C target-feature=+flush-denormals", in a separate target
+# directory. QEMU as in qemu-run.sh.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -19,7 +21,7 @@ profile=${PROFILE:-release}
 G=$root/gnu/install/bin
 host=x86_64-unknown-linux-gnu
 cargo=$root/rust/build/$host/stage0/bin/cargo
-target_dir=$root/build/rust-rom/${RX_CPU:-default}
+target_dir=$root/build/rust-rom/${RX_CPU:-default}${RUST_EXTRA_FLAGS:+-extra}
 if [ -z "${QEMU:-}" ]; then
   QEMU=$root/../qemu/build/qemu-system-rx
   [ -x "$QEMU" ] || QEMU=qemu-system-rx
@@ -28,9 +30,13 @@ fi
 export RUSTC=$root/rust/build/$host/stage1/bin/rustc
 export RUSTC_BOOTSTRAP=1
 export PATH=$G:$PATH
+if [ -n "${RUST_EXTRA_FLAGS:-}" ] && [ -z "${RUST_CPU_FLAGS:-}" ]; then
+  echo "RUST_EXTRA_FLAGS needs RX_CPU" >&2
+  exit 2
+fi
 if [ -n "${RUST_CPU_FLAGS:-}" ]; then
   # RUSTFLAGS replaces the crate's rustflags, so give the linker script too.
-  export RUSTFLAGS="-C link-arg=-Tlink.x $RUST_CPU_FLAGS"
+  export RUSTFLAGS="-C link-arg=-Tlink.x $RUST_CPU_FLAGS ${RUST_EXTRA_FLAGS:-}"
 fi
 (cd "$crate" && "$cargo" build --profile "$profile" --target-dir "$target_dir")
 
@@ -71,7 +77,7 @@ get() {
   awk -v k="$key" '{a = tolower($1); sub(/:$/, "", a); sub(/^0+/, "", a)
                     if (a == k) print $2}' "$tmp/monitor.log"
 }
-label=$(basename "$crate")-$profile${RX_CPU:+-$RX_CPU}
+label=$(basename "$crate")-$profile${RX_CPU:+-$RX_CPU}${RUST_EXTRA_FLAGS:+ ($RUST_EXTRA_FLAGS)}
 if [ "$(get finished)" != "1" ]; then
   pc=$(grep -o 'pc=0x[0-9a-f]*' "$tmp/monitor.log" | head -1)
   echo "[$label] did not finish ($pc)"

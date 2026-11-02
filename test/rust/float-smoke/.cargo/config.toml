@@ -1,0 +1,13 @@
+[build]
+target = "rx-none-elf"
+
+[target.rx-none-elf]
+# QEMU models an RX62N: RXv1 with the single-precision FPU. Without
+# +flush-denormals float stays soft-float; scripts/run-all-tests.sh also
+# builds it with -C target-feature=+flush-denormals (RUST_EXTRA_FLAGS).
+rustflags = ["-C", "link-arg=-Tlink.x", "-C", "target-cpu=rxv1",
+             "-C", "target-feature=+fpu"]
+
+[unstable]
+build-std = ["core"]
+build-std-features = ["compiler-builtins-mem"]

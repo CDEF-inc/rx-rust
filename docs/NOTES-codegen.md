@@ -86,6 +86,8 @@ GCC rx は FPU を使うとき **`-ffinite-math-only` を自動で有効にす�
 Rust は IEEE 754 の NaN/Inf を前提とするので、LLVM 側は f32 もソフトフロートにしている（現状の選択が正しい）。
 FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）に限る、が今後の最適化方針。
 テストのドライバでは NaN をビット列から作っている（GCC が 0.0/0.0 を畳んでしまうため）。
+（2026-11-03 追記: RX の FPU / DFPU は NaN・無限大を IEEE どおりに扱い、違うのは非正規化数だけだった。nnan / ninf の
+条件は外し、非正規化数を 0 にしてよい関数（または `flush-denormals`）で FPU / DFPU を使う。下記「IEEE の FPU / DFPU」）
 
 ### 検証
 `scripts/run-codegen-test.sh test/codegen/m3.ll test/codegen/m3_main.c`:
@@ -162,6 +164,7 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   clang なら `-fdenormal-fp-math=preserve-sign`）の演算だけ** FPU 命令にし、それ以外は従来どおりソフトフロート
   （__addsf3 など）で IEEE の意味を保つ。nnan / ninf だけでは非正規化数の正しい扱いは免除されない（llvm-project#4 のレビュー）。
   rustc は非正規化数環境を指定しないので、Rust から FPU の四則・比較が使われることはない（int → float の変換だけ）。
+  （2026-11-03、rx-rust #70 で変更: nnan / ninf は不要になり、`flush-denormals` でも使う。下記「IEEE の FPU / DFPU」）
 - `+fpu` のとき f32 は GPR の合法型（`GPR` を [i32, f32] に）。FPU は汎用レジスタで演算し、ABI も float を整数レジスタで
   渡すので、呼び出し規約は変わらない（RetCC に f32 を追加しただけ。引数は analyzeRXArguments が型に依らない）。
   - FADD/FSUB/FMUL/FDIV（と RXv2 の FSQRT）は Custom: 上の条件（canUseFPU）を満たせばそのまま（fadd 等を選択）、
@@ -245,6 +248,7 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
     入力・結果を 0 にするので double と float の両方が preserve-sign、NaN のため nnan。
   - i64 との変換、飽和変換（Rust の `as` は `fptosi.sat`）は libcall のまま。rustc は非正規化数環境を指定しないので、
     Rust のコードでは int → double 以外は使われない。
+  - （2026-11-03、rx-rust #70: nnan の条件は外し、飽和変換も DFPU で展開する。下記「IEEE の FPU / DFPU」）
 - DPSW などの DFPU 制御レジスタを予約レジスタに追加（暗黙の Uses が未定義使用として MachineVerifier に落とされるため）。
 - 検証（QEMU に DFPU がないので実行はしていない）: `scripts/check-dfpu.sh` が `test/codegen/dfpu.ll` を rxv3 でコンパイルし、
   -verify-machineinstrs、GNU as でのアセンブル（直接出力の .o と同一。GNU as は itod / utod / ftod のレジスタ欄を
@@ -262,6 +266,44 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - GNU as は dmov.d の dsp を 8 倍として符号化する（ハードウェアと LLVM は 4 倍。NOTES-qemu.md）。DR の退避で dmov.d の
   メモリ形を使うようになったので、run-codegen-test.sh と check-dfpu.sh が GNU as に渡す .s では
   `scripts/gas-dfpu.awk` が dsp 付きの dmov.d を `.byte` にする（ftod / itod / utod のレジスタ欄の入れ替えも同じ awk）。
+
+## IEEE の FPU / DFPU（2026-11-03、rx-rust #70）
+- 前提の見直し: RX の FPU / DFPU は NaN・無限大を IEEE 754 どおりに扱う（NaN の伝搬、NaN を入力にしない無効演算の
+  quiet NaN 7FFFFFFFh、無限大の演算、最近接丸め）。IEEE と違うのは非正規化数だけで、DN / DDN = 1 なら同符号の 0、
+  0 なら未実装処理例外。そこで FPU / DFPU を使う条件から nnan / ninf を外し、**その型の非正規化数を 0 にしてよい関数**
+  （`denormal_fpenv(preservesign)`）か、サブターゲット機能 **`flush-denormals`**（関数によらず 0 にしてよい）のときに使う
+  （canUseFPU）。それ以外は従来どおり libgcc / compiler-builtins のソフトフロートで、完全に IEEE。
+- `flush-denormals` は rustc 用（rustc は非正規化数環境を指定できない）。`-C target-feature=+flush-denormals` で
+  Rust の通常の f32 / f64 演算が FPU / DFPU を使う。既定は無効（ユーザーの選択で opt-in にした。Rust の意味は非正規化数を
+  含む IEEE なので）。rx-rt はリセット時に FPSW / DPSW = 0x100（DN / DDN = 1）にする。
+- 比較（NaN で正しく）: `fcmp` は等しいと Z、LHS < RHS で S、順序なし（NaN）では O だけを立てる（fcmp-flags、実機で確認済み）。
+  - oeq → EQ、une → NE、olt → N（S = 1）、uge → PZ、oge → GE（S = O。順序なしは S = 0・O = 1 なので偽）、ult → LT、
+    ogt / ule / ole / ugt は被演算子を入れ替えて N / PZ / GE / LT、uno → O、ord → NO。
+  - DFPU は `dcmp{un,eq,lt,le}` が IEEE の述語（順序なしでは un 以外が偽）で、MVFDR で Z にする。oeq / olt / ole は
+    そのまま、une / uge / ugt は否定（NE）、ogt / oge / ule / ult は入れ替え、uno / ord は dcmpun。
+  - ueq / one は 1 つの条件では書けないので libcall（__eqsf2 + __unordsf2 など）のまま。
+- 変換: float → int は `ftoi`（RXv2 では `ftou` も）、double → int は `dtoi` / `dtou`。fptosi / fptoui は範囲外・NaN が
+  poison なので命令の結果のままでよい。Rust の `as`（`fptosi.sat` / `fptoui.sat`）は汎用の展開（変換 + 比較 + select、
+  NaN → 0）で、float は合法化で、double は型合法化の前の PerformDAGCombine で expandFP_TO_INT_SAT を呼び、出てきた
+  変換と比較を DFPU にする。fpext / fptrunc は ftod / dtof（nnan の条件を外した。NaN は NaN のまま）。
+- 検証:
+  - `test/codegen/fpu_ieee.ll` + `fpu_ieee_main.c`: float / double の四則、14 種の比較（select・分岐を含む）、
+    fptosi / fptoui と飽和変換、fpext / fptrunc、dsqrt を、±0、±1 など、最大値、±1e-20 / ±1e-180、±無限大、quiet NaN
+    （符号・ペイロード違い、7FFFFFFF）、signalling NaN の全組で libgcc（__addsf3、__ltdf2、__fixsfsi …）と比べる
+    （NaN の結果は NaN であればよい。IEEE の結果が非正規化数になる組は除く）。13,988 チェック。
+    `-mattr=+flush-denormals` で rx62n / rxv2 / rxv3 / rxv3e の -O0 / -O2、ソフトフロートでも、両経路で全通過。
+    実機の RX72M（rxv3: FPU + DFPU）でも -O0 / -O2 で全通過。
+  - `scripts/check-fpu.sh` が fpu_ieee.ll を rxv1 + fpu / rxv3 の +flush-denormals でコンパイルし、命令・条件・残る
+    libcall を `fpu-ieee.expected`（102 関数）と比べる。
+  - `test/rust/float-smoke`: Rust の `+ - * /`、`== != < <= > >=`、`partial_cmp`、`as i32 / u32 / f64 / f32` を
+    compiler-builtins の関数と比べる（`is_nan` は浮動小数点の比較なので使わずビットで判定）。3,988 チェック。
+    QEMU の 4 コアの release / dev で、flush-denormals の有無とも全通過、実機でも全通過。
+    flush-denormals では f32 の関数から呼び出しが消え（`bench_f` は 9 呼び出し → FPU 命令 9 個、117 → 80 バイト）、
+    rxv3 では f64 も DFPU になる（`bench_d` は 162 → 228 バイト。DR への出し入れが GPR 経由のため大きい）。
+  - 速度（RX72M、rx-rt のままの LOCO クロック）: float-smoke のベンチマーク（64 要素の内積と 3 次多項式、f32 と f64）
+    1 周がソフトフロートで約 0.82 秒、FPU / DFPU で約 0.029 秒（約 28 倍）。200 周と 10 周の実行時間の差から求めた。
+- 未対応: f64 のロード・ストアを `dmov.d` で直接 DR に出し入れすること（いまは GPR 対を経由）、ueq / one の 2 条件化、
+  min / max（`llvm.maxnum` は libcall）。
 
 ## 乗算の上位半分（emul / emulu、rx-rust #58、2026-11-02）
 - `emul` / `emulu src, Rd` は 32 × 32 → 64 ビットの積を Rd+1:Rd（Rd が下位）に書く。この組を表すレジスタクラスは

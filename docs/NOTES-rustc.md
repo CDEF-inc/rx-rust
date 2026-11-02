@@ -63,6 +63,7 @@ bash scripts/run-rust-test.sh     # -Zbuild-std=core でテスト crate をビ�
 - `-C target-cpu=rxv1 -C target-feature=+fpu`（f32 が合法型になる経路）でも 233 チェック全通過（itof 10 箇所）。
   rxv3（既定で fpu あり）でも core / compiler_builtins がビルドできる。Rust の通常の f32 演算は fast-math フラグが
   付かないので libcall のまま（FPU を使うのは int→float と `core::intrinsics::fadd_fast` 等）。
+  （2026-11-03: `-C target-feature=+flush-denormals` で通常の演算も FPU / DFPU を使う。下記「FPU / DFPU」）
 - RX の target feature（rxv2 / rxv3 / rxv3e / fpu / dfpu）を `rustc_target/src/target_features.rs` に追加
   （unstable `rx_target_feature`。`rustc_feature` と `rustc_span` にも登録、`tests/ui/check-cfg/target_feature.stderr` も更新）。
   `-C target-feature=±fpu` の警告が出なくなり、`cfg(target_feature = "dfpu")` などで分岐できる（rx-rt が使う）。
@@ -70,6 +71,21 @@ bash scripts/run-rust-test.sh     # -Zbuild-std=core でテスト crate をビ�
   rustc_span のシンボルが変わると古い rustc でビルドした core のメタデータが合わず ICE になるので、`build/rust-*` を消す。
 - サイズ: text 18 KB（release, opt-level=s, gc-sections）。gc-sections なしだと 277 KB で内蔵 RAM に入らなかった。
 - 既存の LLVM レベルのテスト（i32 4131 / m3 3957 / struct 142）も全通過。
+
+## FPU / DFPU（2026-11-03、rx-rust #70）
+- target feature `flush-denormals`（unstable `rx_target_feature`。`target_features.rs` と
+  `tests/ui/check-cfg/target_feature.stderr` に追加）: `-C target-feature=+flush-denormals` で、Rust の通常の f32 演算・
+  比較・`as` 変換が FPU、rxv3 / rxv3e では f64 も DFPU を使う（LLVM の同名のサブターゲット機能。NOTES-codegen.md の
+  「IEEE の FPU / DFPU」）。既定は無効で、そのときは従来どおり compiler-builtins のソフトフロート（完全に IEEE）。
+- 有効にしたときの意味: NaN・無限大・符号付きゼロ・丸めは IEEE どおり（`float-smoke` が compiler-builtins とビットで比較）。
+  **非正規化数だけは 0 になる**（入力も結果も、同符号の 0。FPSW.DN / DPSW.DDN = 1 の動作）。DN / DDN = 0 だと未実装処理
+  例外になるので、rx-rt を使わない場合は FPSW / DPSW を 0x100 にしておく。漸近アンダーフローが要るコードでは有効にしない。
+- NaN の結果のビット列（符号・ペイロード）は IEEE でも Rust でも決まっていない。RX の FPU は NaN を入力にしない無効演算で
+  7FFFFFFFh（f64 は 7FFFFFFFFFFFFFFFh）を返す。
+- `cfg(target_feature = "flush-denormals")` で分岐できる。
+- `test/rust/float-smoke`: 3,988 チェック、QEMU の 4 コア × release / dev × 有無、実機 RX72M（release / dev × 有無）で全通過。
+  `scripts/run-rust-rom.sh` に `RUST_EXTRA_FLAGS`（RX_CPU と一緒に使う追加の rustc フラグ。別の target ディレクトリ）を足した。
+- 速度: ベンチマーク 1 周がソフトフロート約 0.82 秒 → FPU / DFPU 約 0.029 秒（実機、LOCO クロック）。
 
 ## alloc（2026-11-02、rx-rust #52）
 - `-Zbuild-std=core,alloc`（.cargo/config.toml の `build-std = ["core", "alloc"]`）で rxv1〜rxv3e のどれでもビルドできる。
