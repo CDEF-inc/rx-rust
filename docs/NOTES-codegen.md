@@ -7,7 +7,7 @@
 | RXInstrInfo.td 後半 | SDNode、AddrB/W/L（ComplexPattern）、擬似命令、選択パターン |
 | RXISelLowering | 引数・戻り値・呼び出し、BR_CC/SETCC/SELECT_CC → RXISD::CMP + フラグ |
 | RXISelDAGToDAG | アドレス選択（base + dsp、dsp はサイズの倍数かつ dsp:16 に収まる場合のみ）、FrameIndex → FRMIDX |
-| RXFrameLowering | pushm で CSR 保存、`add #-N, r0, r0` で確保、rtsd で解放・復帰・戻り（下記）、プロローグとエピローグの CFI（下記）、フレームポインタなし |
+| RXFrameLowering | pushm で CSR 保存、`add #-N, r0, r0` で確保、rtsd で解放・復帰・戻り（下記）、プロローグとエピローグの CFI（下記）、必要なときだけフレームポインタ R6（下記） |
 | RXRegisterInfo | R0(SP)/PSW/FPSW/ACC 予約、eliminateFrameIndex（SP 相対） |
 | RXInstrInfo | コピー・スピル・分岐解析、BranchRelaxation 用の範囲判定 |
 | RXMCInstLower | 擬似命令の展開 + **最短符号への縮小**（下記） |
@@ -297,9 +297,44 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   表を使う関数を `jt.expected` と比べる。
 - Rust: qemu-demo（release）に表が 1 つでき、.text が 4,133 → 4,151 バイト（rxv3、emul と合わせた値）。
 
-## 未対応（M4 以降）
-- LLVM 側で定義する可変長関数（va_start / va_arg）（rx-rust #51）
-- 動的 alloca、フレームポインタ（rx-rust #51）
+## フレームポインタ・動的 alloca・可変長関数（2026-11-02、rx-rust #51）
+- フレームポインタは R6（GCC と同じ）。`"frame-pointer"="all"`（`-frame-pointer=all`、rustc の
+  `-C force-frame-pointers`）、動的 alloca、`llvm.frameaddress` のある関数で使う（hasFPImpl）。
+  - プロローグは GCC と同じ `pushm r6-..` / `add #-N, r0, r6` / `mov.l r6, r0`（ローカルが無ければ `mov.l r0, r6`）。
+    R6 は SP と同じく固定フレームの底を指すので、フレームオブジェクトのオフセットは SP 相対のときと同じで、
+    eliminateFrameIndex は基底を R6 に替えるだけ。R6 は保存範囲に必ず入り（determineCalleeSaves）、予約レジスタになる。
+  - CFI: R6 を設定した命令の後に `.cfi_def_cfa r6, 4 + 退避バイト数 + N`。以後 SP が動いても CFA は正しいので、
+    rtsd で終わるエピローグには CFI が要らない（R6 は rtsd が戻す）。popm の経路だけ、popm の前に `.cfi_def_cfa r0, …`。
+  - エピローグ: 動的 alloca がある関数は先に `mov.l r6, r0` で SP を固定フレームの底に戻し、あとは従来どおり rtsd
+    （1020 バイトを超えるときは add + rtsd）。
+  - R6 を壊すインラインアセンブリには LLVM の "inline asm clobber list contains reserved registers" 警告が出る
+    （isAsmClobberable。SP も同じ）。frame.ll のように R6 を書き換える asm は、フレームポインタのある関数では正しく
+    動かない（GCC も同じ）。
+- 動的 alloca: DYNAMIC_STACKALLOC / STACKSAVE / STACKRESTORE は既定の展開（SP = R0 から引いて揃える）。
+  SP が動くので呼び出しの引数領域はプロローグで確保せず（hasReservedCallFrame = false）、呼び出しごとに
+  `add #-N, r0` / `add #N, r0` で確保・解放する（eliminateCallFramePseudoInstr）。N はスタックの揃え（4）に切り上げる
+  （byval の引数は自分の大きさで置くので、3 バイトの構造体なら引数領域が 3 バイトになる。llvm-project#24 のレビュー）。
+  16 バイト揃えの alloca は `and #-16`。
+- 可変長関数の定義: 引数の置き場所は呼ぶ側と同じ analyzeRXArguments（最後の名前付き引数と名前なしの引数は
+  スタック）。va_list は次の名前なし引数を指すポインタ（GCC と同じ）で、va_start は名前付きのスタック引数の直後の
+  固定オブジェクトのアドレスを書く（lowerVASTART）。va_arg / va_copy / va_end は既定の展開。va_arg はポインタを
+  4 に揃えてから大きさ（4 の倍数）だけ進める。i64 / double も 4 バイト境界で、GCC の va_arg と同じ。
+  構造体の va_arg はフロントエンドの仕事（clang の RX 対応は無い）。
+- 検証:
+  - `test/codegen/fp.ll` + `fp_main.c`: frame-pointer=all のローカル・スタック渡しの引数・ローカルなし・1020 バイト超、
+    動的 alloca（呼び出しをまたぐ、スタック渡しの引数のある呼び出し、ループ内で stacksave / stackrestore して 200 回、
+    1020 バイト超の固定フレームと併用、16 バイト揃え、3 バイトの byval 引数のある呼び出し（呼ばれた GCC の関数が SP の
+    下位 2 ビットを返す。切り上げないと 1 になる））。GCC の呼び出し側が R6〜R13 に値を置いたまま呼ぶ。103 チェック。
+  - `test/codegen/va.ll` + `va_main.c`: GCC が呼ぶ可変長関数（int の和、long long / int / double / ポインタの混在、
+    double の和、va_copy、va_list を GCC の関数に渡す、ローカルと退避レジスタのある関数）。13 チェック。
+  - どちらも各 CPU の -O0〜-O3、両経路で全通過。`scripts/check-fp.sh` が rxv1〜rxv3 の -O0 / -O2 で
+    -verify-machineinstrs、GNU as と直接出力の一致、CFI でコードが変わらないこと、R6 を壊す asm の警告を確かめ、
+    関数ごとのスタック命令を `fp.expected`、fp.ll の .debug_frame を `fp-cfi.expected` と比べる。
+  - 既存の i32 / m3 / struct / mulh / jt / mem / demote / atomic / fpu / dfpu を `-frame-pointer=all` でコンパイルしても
+    QEMU で全通過（frame.ll は asm が R6 を壊すので、R6 を R10 に替えた版で通過）。
+  - QEMU の gdbstub と rx-elf-gdb（e2 studio の 16.2）で、動的 alloca の後に呼んだ GCC の関数（`touch`、`c_sum6`。
+    呼び出し側は `add #-8, r0` の後）の中で止め、`bt` が dyn / dyn_call / dyn_align → main とたどれ、alloca の大きさが
+    違っても main の SP が同じになることを確かめた。
 
 DFPU のコードと、アトミックの RXv2 経路（movli/movco ループ）は、CDEF-inc/qemu の rxv2 以降のコアと
 実機の RX72M で実行して確かめた（NOTES-qemu.md、NOTES-hw.md）。

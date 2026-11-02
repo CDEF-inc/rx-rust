@@ -68,7 +68,8 @@ for g in "${groups[@]}"; do
       C=$root/test/codegen
       for t in "i32 main" "m3 m3_main" "struct struct_main" "atomic atomic_main" \
                "fpu fpu_main" "dfpu dfpu_main" "mem mem_main" \
-               "mulh mulh_main" "frame frame_main" "jt jt_main"; do
+               "mulh mulh_main" "frame frame_main" "jt jt_main" \
+               "fp fp_main" "va va_main"; do
         set -- $t
         "$G/rx-elf-gcc" $GCCFLAGS -O2 -c "$C/$2.c" -o "$d/$2.o"
         for o in 0 2; do
