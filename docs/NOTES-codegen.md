@@ -71,7 +71,8 @@ DataLayout を `e-m:o-p:32:32-i64:32-f64:32-n8:16:32-S32` に変更。`m:o` で 
 - `analyzeRXArguments`（RXISelLowering.cpp）: 上表の規則を C++ で実装。TableGen の CC_RX は削除。
   sret ポインタは R15。byval は未対応（エラー）。
 - i64 加減算: ADDC/ADDE/SUBC/SUBE を Legal にし `add`/`adc`、`sub`/`sbb` を選択（キャリーは PSW.C 経由）。
-  乗除算・可変シフトは libgcc（__muldi3, __divdi3, __udivdi3, __moddi3, __umoddi3）または展開。
+  除算・可変シフトは libgcc（__divdi3, __udivdi3, __moddi3, __umoddi3）または展開。乗算は emulu と mul
+  （下記「乗算の上位半分」。以前は __muldi3）。
 - float / double: レジスタクラスを持たせず soften。演算・比較・変換はすべて libgcc の soft-fp
   （__addsf3, __adddf3, __muldf3, __ltdf2, __unorddf2, __floatdidf, __fixdfdi, __extendsfdf2, …）。
   リンクは **64-bit-double multilib の libgcc**（`rx-elf-gcc -m64bit-doubles -print-libgcc-file-name`）。
@@ -205,16 +206,31 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   da_add_ieee / da_olt_ieee を含め 25 関数）。f64 の多数の演算（fops.ll の double 版）も
   rxv1〜rxv3 の -O0 / -O2 でコンパイル・アセンブルできることを確認。
 
+## 乗算の上位半分（emul / emulu、rx-rust #58、2026-11-02）
+- `emul` / `emulu src, Rd` は 32 × 32 → 64 ビットの積を Rd+1:Rd（Rd が下位）に書く。この組を表すレジスタクラスは
+  無いので、SMUL_LOHI / UMUL_LOHI を擬似命令 SMUL_LOHI_P / UMUL_LOHI_P で選び、custom inserter が
+  `R4 ← a; emul(u) b, R4（R5 を暗黙に定義）; lo ← R4; hi ← R5` に展開する。コピーはレジスタ割り付けが畳む。
+  emul / emulu はフラグを変えない。
+- MULHS / MULHU は Expand のままで、汎用の展開が *MUL_LOHI を使う。これで次が変わる（-mcpu=rxv3 -O2）。
+  - 定数での除算・剰余 → 掛け算の列（`x / 10` は `emulu` + `shlr #3`。以前は `divu`）
+  - `(u64)a * b`・mulhu / mulhs・32 ビットの overflow 付き乗算 → `emul(u)` 1 個（以前は `__muldi3`）
+  - `u64 * u64` → `mul`・`emulu`・`mul`（以前は `__muldi3`）
+  - `u64 / 10` などの一部の定数除算 → インライン展開（以前は `__udivdi3`）
+- 即値形式（`emulu #imm, Rd`）は使っていない。定数は `mov.l` でレジスタに置く。
+- 検証: `test/codegen/mulh.ll` + `mulh_main.c`（27 関数。除数を volatile にした GCC の除算・64 ビット積と比較、
+  23,438 チェック）を各 CPU の -O0〜-O3、両経路で実行。`scripts/check-mulh.sh` が rxv1〜rxv3 で
+  -verify-machineinstrs と GNU as / 直接出力の一致を見て、関数ごとの乗除算・呼び出し命令を `mulh.expected` と比べる。
+- Rust: core-smoke（release）の .text が 18,936 → 18,844 バイト、`emul(u)` が 111 個。qemu-demo から `__muldi3`
+  の呼び出しが消えた。
+
 ## 未対応（M4 以降）
 - LLVM が戻り値を自動で sret 化する場合（16 バイト超のスカラー集合）の R15 渡しは未検証
 - LLVM 側で定義する可変長関数（va_start / va_arg）（rx-rust #51）
 - f64 の DR への常駐（fast-math の連鎖で毎回 GPR を経由する）、dtoi / dtof / ftod（非正規化数・DDN の扱いのため
   libcall のまま）（rx-rust #49）
 - FPU のメモリオペランド形式（fadd [r1], r2 など）と RXv2 の 3 オペランド形式の選択（rx-rust #50）
-- emulu を使った i64 乗算の高速化
 - 動的 alloca、フレームポインタ（rx-rust #51）、ジャンプテーブル
 - エピローグの CFI（下記「CFI」）、`-g` 付きの .s を GNU as でアセンブルすること（GNU as が .cfi_* 非対応）
-- mulhs/mulhu（emul の利用）
 
 DFPU のコードと、アトミックの RXv2 経路（movli/movco ループ）は、CDEF-inc/qemu の rxv2 以降のコアと
 実機の RX72M で実行して確かめた（NOTES-qemu.md、NOTES-hw.md）。
