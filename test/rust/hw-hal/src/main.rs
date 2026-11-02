@@ -73,8 +73,14 @@ fn main() -> ! {
     check(13, ld2.is_low().unwrap() && ld2.is_set_low().unwrap());
 
     // PJ5 goes to the expansion connector only: the pull-up reads high,
-    // and driven low it reads low.
+    // and driven low it reads low. The pull-up takes microseconds to charge
+    // the pin; the release build reads it a few cycles after enabling it,
+    // so wait first (1000 volatile reads, over 4 us at 240 MHz).
     let mut pj5 = pins.pj5.into_pull_up_input();
+    let wait = 0u32;
+    for _ in 0..1000 {
+        unsafe { core::ptr::read_volatile(&wait) };
+    }
     check(14, pj5.is_high().unwrap());
     let mut pj5 = pj5.into_push_pull_output();
     check(15, pj5.is_low().unwrap());
