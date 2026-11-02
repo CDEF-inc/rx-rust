@@ -238,7 +238,9 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   - `fptosi` / `fptoui`（f64 → i32）→ `dtoi` / `dtou`: 0 方向の切り捨てで同じ。範囲外・NaN は LLVM では poison なので
     フラグは要らない。非正規化数はどちらも 0 になるが DDN = 0 だと例外になるので、double の環境が preserve-sign であること。
   - `fpext`（f32 → f64）→ `ftod`: 正確。float の非正規化数を 0 にするので float の環境が preserve-sign、NaN の
-    ペイロードが libcall と違いうるので nnan。
+    ペイロードが libcall と違いうるので nnan。DFPU の命令なので float の非正規化数も DPSW.DDN で扱う（DDN = 0 なら
+    例外）ため、double の環境も preserve-sign であること（llvm-project#23 のレビュー。dfpu.ll の `d_ext_f32only` は
+    float だけ preserve-sign で libcall のまま）。
   - `fptrunc`（f64 → f32）→ `dtof`: 最近接丸め（DPSW.RM = 0）・オーバーフローで無限大は libcall と同じ。非正規化数の
     入力・結果を 0 にするので double と float の両方が preserve-sign、NaN のため nnan。
   - i64 との変換、飽和変換（Rust の `as` は `fptosi.sat`）は libcall のまま。rustc は非正規化数環境を指定しないので、

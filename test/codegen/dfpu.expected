@@ -259,6 +259,9 @@ _d_ext
 _d_trunc
   bsr.a ___truncdfsf2
 
+_d_ext_f32only
+  bsr.a ___extendsfdf2
+
 _da_call
   dmov.l r1, drl1
   dmov.l r2, drh1

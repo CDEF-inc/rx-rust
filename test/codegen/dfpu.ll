@@ -126,6 +126,10 @@ define double @d_ext(float %a) { %r = fpext nnan float %a to double
   ret double %r }
 define float @d_trunc(double %a) { %r = fptrunc nnan double %a to float
   ret float %r }
+; only float may flush: ftod would still trap on a denormal with DPSW.DDN = 0,
+; so a libcall
+define double @d_ext_f32only(float %a) #1 { %r = fpext nnan float %a to double
+  ret double %r }
 ; Values live across calls stay in general registers.
 declare double @ext(double)
 define double @da_call(double %a, double %b) #0 {
@@ -137,3 +141,5 @@ declare double @llvm.sqrt.f64(double)
 
 ; Denormals may be flushed to a zero of the same sign (DPSW.DDN = 1).
 attributes #0 = { denormal_fpenv(preservesign) }
+; Only float denormals may be flushed.
+attributes #1 = { denormal_fpenv(float: preservesign) }
