@@ -12,6 +12,7 @@
 # RX_CPU picks a CPU model for both (see cpu.sh), e.g. RX_CPU=rxv2; or set
 # MCPU (llc's and GNU as's -mcpu, default rxv1) and QEMU_CPU (the QEMU core,
 # default rx62n; the GCC driver uses the FPU, so the core needs one).
+# RX_LD is the linker (default GNU ld; e.g. RX_LD=build/llvm/bin/ld.lld).
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -53,7 +54,7 @@ $LLC -filetype=obj "$ll" -o test_obj.o
 
 status=0
 for variant in as obj; do
-  "$G/rx-elf-ld" -T "$root/scripts/rx-qemu.ld" -o "t_$variant.elf" start.o \
+  "${RX_LD:-$G/rx-elf-ld}" -T "$root/scripts/rx-qemu.ld" -o "t_$variant.elf" start.o \
     main.o "test_$variant.o" "$libgcc" 2>/dev/null
   bash "$root/scripts/qemu-run.sh" "t_$variant.elf" "$variant" || status=1
 done
