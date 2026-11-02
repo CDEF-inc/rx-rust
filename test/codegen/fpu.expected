@@ -55,10 +55,10 @@ _fa_olt
   fcmp r2, r1
 
 _fa_ole
-  fcmp r2, r1
+  fcmp r1, r2
 
 _fa_ogt
-  fcmp r2, r1
+  fcmp r1, r2
 
 _fa_oge
   fcmp r2, r1
@@ -70,7 +70,7 @@ _fa_une
   fcmp r2, r1
 
 _fa_max
-  fcmp r2, r1
+  fcmp r1, r2
 
 _fa_branch
   fcmp r2, r1
@@ -203,10 +203,10 @@ _fa_olt
   fcmp r2, r1
 
 _fa_ole
-  fcmp r2, r1
+  fcmp r1, r2
 
 _fa_ogt
-  fcmp r2, r1
+  fcmp r1, r2
 
 _fa_oge
   fcmp r2, r1
@@ -218,7 +218,7 @@ _fa_une
   fcmp r2, r1
 
 _fa_max
-  fcmp r2, r1
+  fcmp r1, r2
 
 _fa_branch
   fcmp r2, r1
@@ -351,10 +351,10 @@ _fa_olt
   fcmp r2, r1
 
 _fa_ole
-  fcmp r2, r1
+  fcmp r1, r2
 
 _fa_ogt
-  fcmp r2, r1
+  fcmp r1, r2
 
 _fa_oge
   fcmp r2, r1
@@ -366,7 +366,7 @@ _fa_une
   fcmp r2, r1
 
 _fa_max
-  fcmp r2, r1
+  fcmp r1, r2
 
 _fa_branch
   fcmp r2, r1

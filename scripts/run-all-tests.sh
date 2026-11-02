@@ -92,11 +92,22 @@ for cpu in "${cpus[@]}"; do
       run "$cpu codegen dfpu -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/dfpu.ll" "$C/dfpu_main.c"
     fi
   done
+  # The same float / double code with the FPU / DFPU (flush-denormals) and
+  # in soft-float: both must give the IEEE results.
+  for o in 0 2; do
+    run "$cpu codegen fpu_ieee -O$o" env OPT=$o ATTRS=${attrs:+$attrs,}+flush-denormals \
+      bash "$S/run-codegen-test.sh" "$C/fpu_ieee.ll" "$C/fpu_ieee_main.c"
+  done
+  run "$cpu codegen fpu_ieee soft" env OPT=2 bash "$S/run-codegen-test.sh" "$C/fpu_ieee.ll" "$C/fpu_ieee_main.c"
   for p in release dev; do
     run "$cpu rust core-smoke $p" env PROFILE=$p bash "$S/run-rust-test.sh"
     run "$cpu rust qemu-demo $p" env PROFILE=$p bash "$S/run-rust-rom.sh"
     run "$cpu rust isr-save $p" env PROFILE=$p bash "$S/run-rust-rom.sh" "$root/test/rust/isr-save"
     run "$cpu rust alloc-smoke $p" env PROFILE=$p bash "$S/run-rust-rom.sh" "$root/test/rust/alloc-smoke"
+    run "$cpu rust float-smoke $p" env PROFILE=$p bash "$S/run-rust-rom.sh" "$root/test/rust/float-smoke"
+    run "$cpu rust float-smoke $p flush-denormals" env PROFILE=$p \
+      RUST_EXTRA_FLAGS="-C target-feature=+flush-denormals" \
+      bash "$S/run-rust-rom.sh" "$root/test/rust/float-smoke"
     run "$cpu rust isr-cfi $p" "$S/check-isr-cfi.py" \
       "$root/build/rust-rom/$cpu/rx-none-elf/$([ $p = dev ] && echo debug || echo $p)/isr-save"
     run "$cpu rust hw-irq $p" env PROFILE=$p RX_MEMORY_X="$root/test/rust/qemu-demo/memory.x" \

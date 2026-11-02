@@ -12,7 +12,8 @@
 #   rust     test/rust/core-smoke (target-cpu=rxv3,  -> build/hw/rust
 #            release / dev), in RAM
 #   rt       rx-rt applications, test/rust/isr-save,    -> build/hw/rt
-#            hw-irq, hw-pac, hw-hal, hw-uart, alloc-smoke (target-cpu=rxv3, release / dev), in the code
+#            hw-irq, hw-pac, hw-hal, hw-uart, alloc-smoke, float-smoke (also with
+#            +flush-denormals: float-smoke-fd) (target-cpu=rxv3, release / dev), in the code
 #            flash with test/hw/rx72m-memory.x, booted from the reset vector
 #   examples examples/* (blinky; release), in the code  -> build/hw/examples
 #            flash. They run until stopped; hw-run.sh runs one for
@@ -69,16 +70,19 @@ for g in "${groups[@]}"; do
       for t in "i32 main" "m3 m3_main" "struct struct_main" "atomic atomic_main" \
                "fpu fpu_main" "dfpu dfpu_main" "mem mem_main" \
                "mulh mulh_main" "frame frame_main" "jt jt_main" \
-               "fp fp_main" "va va_main"; do
+               "fp fp_main" "va va_main" "fpu_ieee fpu_ieee_main" \
+               "fpu_ieee fpu_ieee_main -fd +flush-denormals"; do
+        # TEST DRIVER [SUFFIX ATTRS]
         set -- $t
+        n=$1${3:-}
         "$G/rx-elf-gcc" $GCCFLAGS -O2 -c "$C/$2.c" -o "$d/$2.o"
         for o in 0 2; do
           "$root/build/llvm/bin/llc" -mtriple=rx-none-elf -mcpu=rxv3 \
-            -mattr=+64bit-doubles -O$o -filetype=obj "$C/$1.ll" -o "$d/$1-O$o.o"
+            -mattr=+64bit-doubles${4:+,$4} -O$o -filetype=obj "$C/$1.ll" -o "$d/$n-O$o.o"
           "$G/rx-elf-ld" --no-warn-rwx-segments --no-warn-execstack -T "$T/rx72m-ram.ld" \
-            -o "$d/$1-O$o.elf" "$d/start.o" "$d/$2.o" "$d/$1-O$o.o" "$libgcc"
-          sym "$d/$1-O$o.elf"
-          echo "built $d/$1-O$o.elf"
+            -o "$d/$n-O$o.elf" "$d/start.o" "$d/$2.o" "$d/$n-O$o.o" "$libgcc"
+          sym "$d/$n-O$o.elf"
+          echo "built $d/$n-O$o.elf"
         done
       done ;;
     rust)
@@ -104,20 +108,23 @@ for g in "${groups[@]}"; do
     rt)
       d=$out/rt; mkdir -p "$d"
       host=x86_64-unknown-linux-gnu
-      for crate in isr-save hw-irq hw-pac hw-hal hw-uart alloc-smoke; do
+      # NAME or NAME:SUFFIX:RUSTFLAGS (float-smoke also with the FPU / DFPU)
+      for spec in isr-save hw-irq hw-pac hw-hal hw-uart alloc-smoke float-smoke \
+                  "float-smoke:-fd:-C target-feature=+flush-denormals"; do
+        IFS=: read -r crate suffix extra <<< "$spec"
         for profile in release dev; do
           # RUSTFLAGS replaces the crate's rustflags (isr-save's are for QEMU's
           # rx62n), so it gives the linker script too.
           (cd "$root/test/rust/$crate" &&
            RUSTC=$root/rust/build/$host/stage1/bin/rustc RUSTC_BOOTSTRAP=1 \
-           RUSTFLAGS="-C link-arg=-Tlink.x -C target-cpu=rxv3" \
+           RUSTFLAGS="-C link-arg=-Tlink.x -C target-cpu=rxv3 $extra" \
            RX_MEMORY_X=$T/rx72m-memory.x PATH=$G:$PATH \
            "$root/rust/build/$host/stage0/bin/cargo" build -q --profile "$profile" \
-             --target-dir "$root/build/hw/rt-target")
-          cp "$root/build/hw/rt-target/rx-none-elf/$([ "$profile" = dev ] && echo debug || echo "$profile")/$crate" \
-            "$d/$crate-$profile.elf"
-          sym "$d/$crate-$profile.elf"
-          echo "built $d/$crate-$profile.elf"
+             --target-dir "$root/build/hw/rt-target$suffix")
+          cp "$root/build/hw/rt-target$suffix/rx-none-elf/$([ "$profile" = dev ] && echo debug || echo "$profile")/$crate" \
+            "$d/$crate$suffix-$profile.elf"
+          sym "$d/$crate$suffix-$profile.elf"
+          echo "built $d/$crate$suffix-$profile.elf"
         done
       done ;;
     examples)

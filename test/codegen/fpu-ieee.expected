@@ -1,0 +1,570 @@
+== rxv1
+
+_f_fadd
+  fadd r2, r1
+
+_f_fsub
+  fsub r2, r1
+
+_f_fmul
+  fmul r2, r1
+
+_f_fdiv
+  fdiv r2, r1
+
+_f_oeq
+  fcmp r2, r1
+  sceq.l r1
+
+_f_ogt
+  fcmp r1, r2
+  scn.l r1
+
+_f_oge
+  fcmp r2, r1
+  scge.l r1
+
+_f_olt
+  fcmp r2, r1
+  scn.l r1
+
+_f_ole
+  fcmp r1, r2
+  scge.l r1
+
+_f_one
+  bsr.a ___eqsf2
+  scne.l r8
+  bsr.a ___unordsf2
+  sceq.l r1
+  scne.l r1
+
+_f_ord
+  fcmp r2, r1
+  scno.l r1
+
+_f_ueq
+  bsr.a ___eqsf2
+  sceq.l r8
+  bsr.a ___unordsf2
+  scne.l r1
+  scne.l r1
+
+_f_ugt
+  fcmp r1, r2
+  sclt.l r1
+
+_f_uge
+  fcmp r2, r1
+  scpz.l r1
+
+_f_ult
+  fcmp r2, r1
+  sclt.l r1
+
+_f_ule
+  fcmp r1, r2
+  scpz.l r1
+
+_f_une
+  fcmp r2, r1
+  scne.l r1
+
+_f_uno
+  fcmp r2, r1
+  sco.l r1
+
+_f_sel
+  fcmp r1, r2
+  bn.b .L
+
+_f_br
+  fcmp r2, r1
+  bn.b .L
+
+_f_toi
+  ftoi r1, r1
+
+_f_tou
+  bsr.a ___fixunssfsi
+
+_f_sat
+  ftoi r1, r3
+  fcmp r4, r1
+  blt.b .L
+  fcmp r1, r4
+  bn.b .L
+  fcmp r1, r1
+  bo.b .L
+
+_f_usat
+  bsr.a ___fixunssfsi
+  fcmp r2, r6
+  blt.b .L
+  fcmp r6, r3
+  bn.b .L
+
+_d_fadd
+  bsr.a ___adddf3
+
+_d_fsub
+  bsr.a ___subdf3
+
+_d_fmul
+  bsr.a ___muldf3
+
+_d_fdiv
+  bsr.a ___divdf3
+
+_d_oeq
+  bsr.a ___eqdf2
+  sceq.l r1
+
+_d_ogt
+  bsr.a ___gtdf2
+  scgt.l r1
+
+_d_oge
+  bsr.a ___gedf2
+  scgt.l r1
+
+_d_olt
+  bsr.a ___ltdf2
+  sclt.l r1
+
+_d_ole
+  bsr.a ___ledf2
+  sclt.l r1
+
+_d_one
+  bsr.a ___eqdf2
+  scne.l r10
+  bsr.a ___unorddf2
+  sceq.l r1
+
+_d_ord
+  bsr.a ___unorddf2
+  sceq.l r1
+
+_d_ueq
+  bsr.a ___unorddf2
+  bsr.a ___eqdf2
+  sceq.l r1
+
+_d_ugt
+  bsr.a ___ledf2
+  scgt.l r1
+
+_d_uge
+  bsr.a ___ltdf2
+  scgt.l r1
+
+_d_ult
+  bsr.a ___gedf2
+  sclt.l r1
+
+_d_ule
+  bsr.a ___gtdf2
+  sclt.l r1
+
+_d_une
+  bsr.a ___nedf2
+  scne.l r1
+
+_d_uno
+  bsr.a ___unorddf2
+  scne.l r1
+
+_d_sel
+  bsr.a ___gtdf2
+  bgt.b .L
+  bgt.b .L
+
+_d_br
+  bsr.a ___ltdf2
+  blt.b .L
+
+_d_toi
+  bsr.a ___fixdfsi
+
+_d_tou
+  bsr.a ___fixunsdfsi
+
+_d_sat
+  bsr.a ___gtdf2
+  bsr.a ___gedf2
+  bsr.a ___fixdfsi
+  blt.b .L
+  bgt.b .L
+  bsr.a ___unorddf2
+  bne.b .L
+
+_d_usat
+  bsr.a ___gtdf2
+  bsr.a ___gedf2
+  bsr.a ___fixunsdfsi
+  blt.b .L
+  bgt.b .L
+
+_f_ext
+  bsr.a ___extendsfdf2
+
+_d_trunc
+  bsr.a ___truncdfsf2
+
+_d_sqrt
+  bsr.a _sqrt
+
+== rxv3
+
+_f_fadd
+  fadd r2, r1
+
+_f_fsub
+  fsub r2, r1
+
+_f_fmul
+  fmul r2, r1
+
+_f_fdiv
+  fdiv r2, r1
+
+_f_oeq
+  fcmp r2, r1
+  sceq.l r1
+
+_f_ogt
+  fcmp r1, r2
+  scn.l r1
+
+_f_oge
+  fcmp r2, r1
+  scge.l r1
+
+_f_olt
+  fcmp r2, r1
+  scn.l r1
+
+_f_ole
+  fcmp r1, r2
+  scge.l r1
+
+_f_one
+  bsr.a ___eqsf2
+  scne.l r8
+  bsr.a ___unordsf2
+  sceq.l r1
+  scne.l r1
+
+_f_ord
+  fcmp r2, r1
+  scno.l r1
+
+_f_ueq
+  bsr.a ___eqsf2
+  sceq.l r8
+  bsr.a ___unordsf2
+  scne.l r1
+  scne.l r1
+
+_f_ugt
+  fcmp r1, r2
+  sclt.l r1
+
+_f_uge
+  fcmp r2, r1
+  scpz.l r1
+
+_f_ult
+  fcmp r2, r1
+  sclt.l r1
+
+_f_ule
+  fcmp r1, r2
+  scpz.l r1
+
+_f_une
+  fcmp r2, r1
+  scne.l r1
+
+_f_uno
+  fcmp r2, r1
+  sco.l r1
+
+_f_sel
+  fcmp r1, r2
+  bn.b .L
+
+_f_br
+  fcmp r2, r1
+  bn.b .L
+
+_f_toi
+  ftoi r1, r1
+
+_f_tou
+  ftou r1, r1
+
+_f_sat
+  ftoi r1, r3
+  fcmp r4, r1
+  blt.b .L
+  fcmp r1, r4
+  bn.b .L
+  fcmp r1, r1
+  bo.b .L
+
+_f_usat
+  ftou r1, r2
+  fcmp r3, r1
+  blt.b .L
+  fcmp r1, r4
+  bn.b .L
+
+_d_fadd
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dadd dr1, dr0, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
+_d_fsub
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dsub dr1, dr0, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
+_d_fmul
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dmul dr1, dr0, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
+_d_fdiv
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  ddiv dr1, dr0, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
+_d_oeq
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmpeq dr0, dr1
+  mvfdr
+  sceq.l r1
+
+_d_ogt
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dcmplt dr0, dr1
+  mvfdr
+  sceq.l r1
+
+_d_oge
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dcmple dr0, dr1
+  mvfdr
+  sceq.l r1
+
+_d_olt
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmplt dr0, dr1
+  mvfdr
+  sceq.l r1
+
+_d_ole
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmple dr0, dr1
+  mvfdr
+  sceq.l r1
+
+_d_one
+  bsr.a ___eqdf2
+  scne.l r10
+  bsr.a ___unorddf2
+  sceq.l r1
+
+_d_ord
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmpun dr0, dr1
+  mvfdr
+  scne.l r1
+
+_d_ueq
+  bsr.a ___unorddf2
+  bsr.a ___eqdf2
+  sceq.l r1
+
+_d_ugt
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmple dr0, dr1
+  mvfdr
+  scne.l r1
+
+_d_uge
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmplt dr0, dr1
+  mvfdr
+  scne.l r1
+
+_d_ult
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dcmple dr0, dr1
+  mvfdr
+  scne.l r1
+
+_d_ule
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dcmplt dr0, dr1
+  mvfdr
+  scne.l r1
+
+_d_une
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmpeq dr0, dr1
+  mvfdr
+  scne.l r1
+
+_d_uno
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmpun dr0, dr1
+  mvfdr
+  sceq.l r1
+
+_d_sel
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dcmplt dr0, dr1
+  mvfdr
+  sceq.l r5
+  beq.b .L
+  beq.b .L
+  bne.b .L
+
+_d_br
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmplt dr0, dr1
+  mvfdr
+  sceq.l r1
+  bne.b .L
+
+_d_toi
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dtoi dr0, dr0
+  dmov.l drl0, r1
+
+_d_tou
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dtou dr0, dr0
+  dmov.l drl0, r1
+
+_d_sat
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmple dr0, dr1
+  mvfdr
+  scne.l r4
+  dtoi dr0, dr1
+  dmov.l drl1, r3
+  bne.b .L
+  dmov.l r4, drl1
+  dmov.l r3, drh1
+  dcmplt dr0, dr1
+  mvfdr
+  sceq.l r4
+  bne.b .L
+  dcmpun dr0, dr0
+  mvfdr
+  sceq.l r2
+  bne.b .L
+
+_d_usat
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r2, drl1
+  dmov.l r2, drh1
+  dcmple dr0, dr1
+  mvfdr
+  scne.l r3
+  dtou dr0, dr1
+  dmov.l drl1, r1
+  bne.b .L
+  dmov.l r3, drl1
+  dmov.l r1, drh1
+  dcmplt dr0, dr1
+  mvfdr
+  sceq.l r3
+  bne.b .L
+
+_f_ext
+  ftod r1, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
+_d_trunc
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dtof dr0, dr0
+  dmov.l drl0, r1
+
+_d_sqrt
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dsqrt dr0, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
