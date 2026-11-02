@@ -1,0 +1,137 @@
+_elem
+  rts
+
+_fp_locals
+  pushm r6-r8
+  add #-32, r0, r6
+  mov.l r6, r0
+  add #0, r6, r8
+  bsr.a _touch
+  bsr.a _elem
+  rtsd #44, r6-r8
+
+_fp_args
+  pushm r6-r9
+  add #-16, r0, r6
+  mov.l r6, r0
+  add #0, r6, r9
+  bsr.a _touch
+  bsr.a _elem
+  rtsd #32, r6-r9
+
+_fp_leaf
+  push.l r6
+  mov.l r0, r6
+  rtsd #4, r6-r6
+
+_fp_big
+  pushm r6-r8
+  add #-1200, r0, r6
+  mov.l r6, r0
+  add #0, r6, r8
+  bsr.a _touch
+  bsr.a _elem
+  add #1200, r0, r0
+  rtsd #12, r6-r8
+
+_dyn
+  pushm r6-r8
+  mov.l r0, r6
+  sub r1, r0, r8
+  bsr.a _touch
+  bsr.a _elem
+  mov.l r6, r0
+  rtsd #12, r6-r8
+
+_dyn_call
+  pushm r6-r8
+  mov.l r0, r6
+  sub r1, r0, r8
+  bsr.a _touch
+  add #-8, r0, r0
+  bsr.a _c_sum6
+  add #8, r0
+  bsr.a _elem
+  mov.l r6, r0
+  rtsd #12, r6-r8
+
+_dyn_loop
+  pushm r6-r11
+  add #-8, r0, r6
+  mov.l r6, r0
+  add #0, r6, r1
+  bsr.a _touch
+  sub r1, r0, r9
+  bsr.a _touch
+  bsr.a _elem
+  add #0, r6, r1
+  bsr.a _elem
+  mov.l r6, r0
+  rtsd #32, r6-r11
+
+_dyn_big
+  pushm r6-r9
+  add #-1200, r0, r6
+  mov.l r6, r0
+  add #0, r6, r8
+  bsr.a _touch
+  sub r1, r0, r9
+  bsr.a _touch
+  bsr.a _elem
+  bsr.a _elem
+  mov.l r6, r0
+  add #1200, r0, r0
+  rtsd #16, r6-r9
+
+_dyn_align
+  pushm r6-r7
+  add #-4, r0, r6
+  mov.l r6, r0
+  sub r1, r0, r7
+  and #-16, r7
+  bsr.a _touch
+  bsr.a _elem
+  mov.l r6, r0
+  rtsd #12, r6-r7
+
+_va_sum
+  add #-4, r0, r0
+  add #12, r0, r1
+  and #-4, r4
+  rtsd #4
+
+_va_mixed
+  push.l r6
+  add #-4, r0, r0
+  add #16, r0, r2
+  and #-4, r4
+  and #-4, r4
+  and #-4, r4
+  rtsd #8, r6-r6
+
+_va_dsum
+  pushm r6-r7
+  add #-4, r0, r0
+  add #20, r0, r1
+  and #-4, r4
+  bsr.a ___adddf3
+  rtsd #12, r6-r7
+
+_va_twice
+  add #-8, r0, r0
+  add #16, r0, r1
+  and #-4, r2
+  rtsd #8
+
+_va_fwd
+  add #-4, r0, r0
+  add #12, r0, r2
+  bsr.a _c_vsum
+  rtsd #4
+
+_va_frame
+  pushm r6-r9
+  add #-24, r0, r0
+  add #48, r0, r1
+  and #-4, r1
+  rtsd #40, r6-r9

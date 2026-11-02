@@ -17,11 +17,6 @@
 
 | 項目 | いまの動き | 影響 | issue |
 |---|---|---|---|
-| フレームポインタ | 使わない（`-frame-pointer=all` も効かない） | 動的 alloca の前提 | #51 |
-| 動的 alloca | llc が `RX: dynamic stack allocation is not supported yet` で止まる | Rust では普通は出ない | #51 |
-| 可変長関数の定義（va_start / va_arg） | llc が `Cannot select: vastart` で止まる。呼ぶ側（printf など）は動く | Rust では C 用の `...` 関数の定義だけ | #51 |
-| DFPU: dtoi / dtof / ftod、f64 の DR への常駐 | libcall、演算ごとに GPR を経由 | 倍精度の速度 | #49 |
-| FPU のメモリオペランド、RXv2 の 3 オペランド形式 | レジスタ形式だけを選ぶ | 単精度の命令数 | #50 |
 | `alloc` | 未試験 | ヒープを使う crate | #52 |
 | tidy・UI テスト・platform-support ドキュメント | 未対応 | 上流化する場合だけ必要 | #53 |
 | 周辺機能（UART 受信、SPI / I2C / PWM / ADC） | rx72m-hal に未実装 | NOTES-hal.md の「予定」 | #54 |
@@ -92,7 +87,8 @@
   （2026-11-01、`test/codegen/frame.ll`、`scripts/check-frame.sh`、NOTES-codegen.md）
 - [x] CFI: デバッグ情報があれば .debug_frame（uwtable なら .eh_frame）にプロローグとエピローグを記述し、gdb がスタックを
   たどれる（2026-11-01、エピローグは 2026-11-02、`scripts/check-frame.sh`、NOTES-codegen.md の「CFI」）
-- [ ] フレームポインタと動的 alloca
+- [x] フレームポインタ（R6）、動的 alloca、可変長関数の定義（2026-11-02、rx-rust #51、`test/codegen/fp.ll` /
+  `va.ll`、`scripts/check-fp.sh`、NOTES-codegen.md の「フレームポインタ・動的 alloca・可変長関数」）
 
 ### M3 拡張 — i64 / float / double は完了（詳細 `NOTES-codegen.md` の M3 節）
 - [x] 引数配置を GCC の規則（累積バイト数、溢れたら以降すべてスタック、可変長は最後の名前付きからスタック）で実装
