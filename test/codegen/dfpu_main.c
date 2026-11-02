@@ -17,6 +17,21 @@ double da_add_ieee(double, double);
 int da_olt_ieee(double, double), d_olt(double, double), d_uno(double, double);
 double d_fromll(long long), da_call(double, double);
 int d_toi(double);
+double da_tree(double, double, double, double);
+int da_chain_cmp(double, double), da_chain_toi(double, double);
+int da_toi(double);
+u32 da_tou(double);
+double da_ext(float), da_ext_chain(float, double), d_ext(float);
+float da_trunc(double), da_trunc_chain(double, double), d_trunc(double);
+
+static u32 fbits(float f) {
+  union { float f; u32 u; } v = {f};
+  return v.u;
+}
+static float ffrom_bits(u32 u) {
+  union { u32 u; float f; } v = {u};
+  return v.f;
+}
 
 /* Called by da_call. */
 double ext(double x) { return x * 2.0 + 1.0; }
@@ -78,7 +93,50 @@ int main(void) {
       if (a != 0.0)
         check_d(da_chain(a, b, 0.75), (a * b - 0.75) / a);
       check_d(da_call(a, b), ext(a + b) * a);
+      check(da_chain_cmp(a, b), a * b + a < b);
+      /* within float range, so that dtof neither overflows nor flushes */
+      double s = a + b;
+      if (s == 0.0 || (s > -3e38 && s < 3e38 && (s > 1e-37 || s < -1e-37)))
+        check((int)fbits(da_trunc_chain(a, b)), (int)fbits((float)s));
+      for (unsigned k = 0; k < NV; k++) {
+        double c = vals[k], d = 0.25 * (double)(k + 1);
+        double t = a * b - c * d, u = (a + b) * (c - d);
+        if (u != 0.0)
+          check_d(da_tree(a, b, c, d), t / u + t);
+      }
     }
+
+  /* conversions: dtoi / dtou truncate; ftod / dtof are exact or round to
+     nearest; the IEEE functions agree on these values */
+  static const double cv[] = {0.0, -0.0, 1.0, -1.0, 0.5, -0.5, 3.25, -7.125,
+                              123456.789, -123456.789, 1e-15, -3e-100,
+                              2147483647.0, -2147483648.0, 4294967295.0,
+                              0.1, 1e30, -2.5e15};
+  for (unsigned i = 0; i < sizeof cv / sizeof cv[0]; i++) {
+    double x = cv[i];
+    if (x > -2147483649.0 && x < 2147483648.0) {
+      check(da_toi(x), (int)x);
+      check(da_chain_toi(x, 1.0), (int)x);
+    }
+    if (x > -1.0 && x < 4294967296.0)
+      check((int)da_tou(x), (int)(u32)x);
+    if (x == 0.0 || (x > -3e38 && x < 3e38 && (x > 1e-37 || x < -1e-37))) {
+      check((int)fbits(da_trunc(x)), (int)fbits((float)x));
+      check((int)fbits(d_trunc(x)), (int)fbits((float)x));
+    }
+    float f = (float)x;
+    if (f == 0.0f || f > 1e-37f || f < -1e-37f) {
+      check_d(da_ext(f), (double)f);
+      check_d(d_ext(f), (double)f);
+      check_d(da_ext_chain(f, 3.0), (double)f * 3.0);
+    }
+  }
+  /* denormals: flushed by the DFPU, kept by the IEEE functions */
+  float fmin = ffrom_bits(1);
+  check_d(da_ext(fmin), 0.0);
+  check_d(d_ext(fmin), (double)fmin);
+  check((int)fbits(d_trunc(1e-40)), (int)fbits((float)1e-40));
+  check((int)fbits(da_trunc(1e-40)), 0);
 
   /* sqrt: exact squares, and sqrt(2) */
   static const double sq[][2] = {
