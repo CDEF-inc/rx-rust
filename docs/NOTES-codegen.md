@@ -30,6 +30,7 @@
 - BCC 擬似 → `b<cc>.b`（±128）。届かなければ BranchRelaxation が「逆条件 b<cc>.b + bra.a」に組み替える。
   無条件分岐は常に `bra.a`（24bit）。
 - SETCC → `sc<cc>.l`、SELECT_CC → 分岐の菱形（custom inserter）。
+- switch はジャンプテーブル（下記「ジャンプテーブル」）か比較の木。indirectbr は `jmp Rs`。
 
 ### シンボル名
 DataLayout を `e-m:o-p:32:32-i64:32-f64:32-n8:16:32-S32` に変更。`m:o` で C シンボルに `_` が付く（GCC rx と同じ）。
@@ -71,7 +72,8 @@ DataLayout を `e-m:o-p:32:32-i64:32-f64:32-n8:16:32-S32` に変更。`m:o` で 
 - `analyzeRXArguments`（RXISelLowering.cpp）: 上表の規則を C++ で実装。TableGen の CC_RX は削除。
   sret ポインタは R15。byval は未対応（エラー）。
 - i64 加減算: ADDC/ADDE/SUBC/SUBE を Legal にし `add`/`adc`、`sub`/`sbb` を選択（キャリーは PSW.C 経由）。
-  乗除算・可変シフトは libgcc（__muldi3, __divdi3, __udivdi3, __moddi3, __umoddi3）または展開。
+  除算・可変シフトは libgcc（__divdi3, __udivdi3, __moddi3, __umoddi3）または展開。乗算は emulu と mul
+  （下記「乗算の上位半分」。以前は __muldi3）。
 - float / double: レジスタクラスを持たせず soften。演算・比較・変換はすべて libgcc の soft-fp
   （__addsf3, __adddf3, __muldf3, __ltdf2, __unorddf2, __floatdidf, __fixdfdi, __extendsfdf2, …）。
   リンクは **64-bit-double multilib の libgcc**（`rx-elf-gcc -m64bit-doubles -print-libgcc-file-name`）。
@@ -205,16 +207,48 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   da_add_ieee / da_olt_ieee を含め 25 関数）。f64 の多数の演算（fops.ll の double 版）も
   rxv1〜rxv3 の -O0 / -O2 でコンパイル・アセンブルできることを確認。
 
+## 乗算の上位半分（emul / emulu、rx-rust #58、2026-11-02）
+- `emul` / `emulu src, Rd` は 32 × 32 → 64 ビットの積を Rd+1:Rd（Rd が下位）に書く。この組を表すレジスタクラスは
+  無いので、SMUL_LOHI / UMUL_LOHI を擬似命令 SMUL_LOHI_P / UMUL_LOHI_P で選び、custom inserter が
+  `R4 ← a; emul(u) b, R4（R5 を暗黙に定義）; lo ← R4; hi ← R5` に展開する。コピーはレジスタ割り付けが畳む。
+  emul / emulu はフラグを変えない。
+- MULHS / MULHU は Expand のままで、汎用の展開が *MUL_LOHI を使う。これで次が変わる（-mcpu=rxv3 -O2）。
+  - 定数での除算・剰余 → 掛け算の列（`x / 10` は `emulu` + `shlr #3`。以前は `divu`）
+  - `(u64)a * b`・mulhu / mulhs・32 ビットの overflow 付き乗算 → `emul(u)` 1 個（以前は `__muldi3`）
+  - `u64 * u64` → `mul`・`emulu`・`mul`（以前は `__muldi3`）
+  - `u64 / 10` などの一部の定数除算 → インライン展開（以前は `__udivdi3`）
+- 即値形式（`emulu #imm, Rd`）は使っていない。定数は `mov.l` でレジスタに置く。
+- 検証: `test/codegen/mulh.ll` + `mulh_main.c`（27 関数。除数を volatile にした GCC の除算・64 ビット積と比較、
+  23,438 チェック）を各 CPU の -O0〜-O3、両経路で実行。`scripts/check-mulh.sh` が rxv1〜rxv3 で
+  -verify-machineinstrs と GNU as / 直接出力の一致を見て、関数ごとの乗除算・呼び出し命令を `mulh.expected` と比べる。
+- Rust: core-smoke（release）の .text が 18,936 → 18,844 バイト、`emul(u)` が 111 個。qemu-demo から `__muldi3`
+  の呼び出しが消えた。
+
+## ジャンプテーブル（rx-rust #59、2026-11-02）
+- 以前は `setMinimumJumpTableEntries(UINT_MAX)` で無効にしていて、switch は全部比較と分岐の木だった。
+  いまは LLVM の既定の判断（4 ケース以上で十分密なら表）に任せる。
+- 形式は静的再配置モデルの既定（EK_BlockAddress）: `.rodata` に絶対アドレスの `.long` を並べ、
+  `mov.l #LJTIn_m, rt; mov.l [ri, rt], rd; jmp rd`（レジスタ間接の mov.l は添字を 4 倍する）。範囲外は手前の
+  `cmp` + `bgtu` で default へ。JumpTable は他のアドレスと同じく RXISD::Wrapper → `mov.l #imm32`。
+  `brind` のパターン（`jmp Rs`）もこのとき足したので、indirectbr（計算型 goto）も通る。
+- 表のラベルは `LJTI…`（DataLayout の `m:o` のため `.L` ではなく `L`）。`m:o` は MachO の扱いなので、表の直前に
+  使われない `lJTI…` ラベルも出る。どちらもローカルシンボルで、動作には関係ない。
+- GNU as は `.rodata + オフセット` を参照するときの加数を命令や表のバイト列に入れ、`llc -filetype=obj` は
+  再配置の r_addend に入れる。リンク前のバイト列は違うが、リンク後は同じ（`check-jt.sh` はリンクしてから比べる）。
+- 検証: `test/codegen/jt.ll` + `jt_main.c`（密、オフセット付きで穴あり、負のケース値、u8、1 関数に表 2 つ、疎、
+  indirectbr。同じ switch を C で書いたものと、全ケース値・その前後・遠い値で比較、2,564 チェック）を各 CPU の
+  -O0〜-O3、両経路で実行。`scripts/check-jt.sh` が rxv1〜rxv3 で -verify-machineinstrs とリンク後の一致を見て、
+  表を使う関数を `jt.expected` と比べる。
+- Rust: qemu-demo（release）に表が 1 つでき、.text が 4,133 → 4,151 バイト（rxv3、emul と合わせた値）。
+
 ## 未対応（M4 以降）
 - LLVM が戻り値を自動で sret 化する場合（16 バイト超のスカラー集合）の R15 渡しは未検証
 - LLVM 側で定義する可変長関数（va_start / va_arg）（rx-rust #51）
 - f64 の DR への常駐（fast-math の連鎖で毎回 GPR を経由する）、dtoi / dtof / ftod（非正規化数・DDN の扱いのため
   libcall のまま）（rx-rust #49）
 - FPU のメモリオペランド形式（fadd [r1], r2 など）と RXv2 の 3 オペランド形式の選択（rx-rust #50）
-- emulu を使った i64 乗算の高速化
-- 動的 alloca、フレームポインタ（rx-rust #51）、ジャンプテーブル
+- 動的 alloca、フレームポインタ（rx-rust #51）
 - エピローグの CFI（下記「CFI」）、`-g` 付きの .s を GNU as でアセンブルすること（GNU as が .cfi_* 非対応）
-- mulhs/mulhu（emul の利用）
 
 DFPU のコードと、アトミックの RXv2 経路（movli/movco ループ）は、CDEF-inc/qemu の rxv2 以降のコアと
 実機の RX72M で実行して確かめた（NOTES-qemu.md、NOTES-hw.md）。

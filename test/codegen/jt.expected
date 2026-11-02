@@ -1,0 +1,28 @@
+_L_dense
+  mov.l #LJTI0_0, r2
+  jmp r1
+
+_L_offset
+  mov.l #LJTI1_0, r2
+  jmp r1
+
+_L_neg
+  mov.l #LJTI2_0, r2
+  jmp r1
+
+_L_byte
+  mov.l #LJTI3_0, r2
+  jmp r1
+
+_L_two
+  mov.l #LJTI4_0, r4
+  jmp r4
+  mov.l #LJTI4_1, r3
+  jmp r2
+
+_L_sparse
+
+_L_goto
+  jmp r1
+
+_targets

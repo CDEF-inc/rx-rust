@@ -1,0 +1,90 @@
+_L_udiv3
+  emulu r2, r4
+
+_L_udiv7
+  emulu r2, r4
+
+_L_udiv10
+  emulu r2, r4
+
+_L_urem10
+  emulu r2, r4
+  mul #10, r2
+
+_L_udiv1000
+  emulu r2, r4
+
+_L_urem10000
+  emulu r2, r4
+  mul #10000, r2
+
+_L_udiv641
+  emulu r2, r4
+
+_L_udivbig
+  emulu r2, r4
+
+_L_udiv16
+
+_L_sdiv3
+  emul r2, r4
+
+_L_sdiv7
+  emul r2, r4
+
+_L_sdiv10
+  emul r2, r4
+
+_L_srem10
+  emul r2, r4
+  mul #10, r2
+
+_L_sdivm3
+  emul r2, r4
+
+_L_sremm7
+  emul r2, r4
+  mul #-7, r2
+
+_L_sdiv1000
+  emul r2, r4
+
+_L_udivh10
+  mul #52429, r1
+
+_L_udivvar
+  divu r2, r1
+
+_L_mulhu
+  emulu r2, r4
+
+_L_mulhs
+  emul r2, r4
+
+_L_umulo
+  emulu r2, r4
+
+_L_smulo
+  emul r2, r4
+
+_L_mulzz
+  emulu r2, r4
+
+_L_mulss
+  emul r2, r4
+
+_L_mul64
+  mul r1, r4, r14
+  emulu r3, r4
+  mul r3, r2
+
+_L_udiv64x10
+  emulu r14, r4
+  mul #5, r4
+  emulu r14, r4
+  mul #-858993460, r1
+  mul #-858993459, r2
+
+_L_urem64x3
+  emulu r2, r4
+  mul #3, r2
