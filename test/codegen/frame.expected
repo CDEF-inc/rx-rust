@@ -30,6 +30,28 @@ _frame_big
   add #1024, r0, r0
   rts
 
+_early_1024
+  pushm r6-r8
+  add #-1012, r0, r0
+  add #1012, r0, r0
+  rtsd #12, r6-r8
+  add #1012, r0, r0
+  rtsd #12, r6-r8
+
+_early_big
+  push.l r6
+  add #-1024, r0, r0
+  add #1024, r0, r0
+  rtsd #4, r6-r6
+  add #1024, r0, r0
+  rtsd #4, r6-r6
+
+_early_small
+  pushm r6-r7
+  add #-32, r0, r0
+  rtsd #40, r6-r7
+  rtsd #40, r6-r7
+
 _stack_args
   pushm r6-r9
   add #-32, r0, r0

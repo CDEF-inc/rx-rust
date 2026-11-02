@@ -2,6 +2,7 @@
 
 int clob_gap(int), clob_one(int), clob_all(int), locals_only(void);
 int frame_1020(int), frame_1024(int), frame_big(void);
+int early_1024(int), early_big(int), early_small(int);
 int stack_args(int, int, int, int, int, int);
 long long ret64(long long, int);
 
@@ -53,6 +54,15 @@ int main(void) {
     check(frame_1020(i), elem(i));
     check(frame_1024(252 - i), elem(252 - i));
     check(frame_big(), elem(255));
+    check(SUM(), want);
+    check(early_1024(i * 5), elem(i * 5));
+    check(early_1024(100 + i), elem(1) + 100 + i);
+    check(SUM(), want);
+    check(early_big(i * 5), elem(i * 5));
+    check(early_big(200 + i), elem(2) - 200 - i);
+    check(SUM(), want);
+    check(early_small(i), elem(i));
+    check(early_small(10 + i), elem(3) * (10 + i));
     check(SUM(), want);
     check(stack_args(i, 2, 3, 40 + i, 5, 6 + i),
           5 * 100 + (6 + i) * 10000 + i + 40 + i + elem(3));
