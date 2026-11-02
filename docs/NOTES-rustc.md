@@ -17,7 +17,7 @@
 ### ターゲット仕様（rx-none-elf）
 - llvm_target `rx-none-elf`、pointer_width 32、data_layout `e-m:o-p:32:32-i64:32-f64:32-n8:16:32-S32`（LLVM と一致必須）
 - cpu `rxv3`（既定）、features `+64bit-doubles`（e_flags を GCC -m64bit-doubles と揃える）
-- linker `rx-elf-gcc`（LLD は RX 非対応）、panic=abort、relocation-model=static、eh_frame_header なし
+- linker `rust-lld`（`Gnu(Cc::No, Lld::Yes)`。LLVM フォークの lld の RX 対応、NOTES-lld.md。`-C linker=rx-elf-ld` で GNU ld）、panic=abort、relocation-model=static、eh_frame_header なし
 - アトミック: `max_atomic_width = 32`、`atomic_cas = true` → `target_has_atomic` = 8/16/32/ptr（CAS・fetch_* あり）
   - LLVM 側: 32bit 以下の atomic load/store は通常の MOV（メモリオペランドに atomic 情報が残るので巻き上げられない）、
     fence は MEMBARRIER（コンパイラバリア）。RX はシングルコア前提。

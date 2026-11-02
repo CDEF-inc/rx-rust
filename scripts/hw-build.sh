@@ -22,8 +22,9 @@
 #
 # Each NAME.elf gets a NAME.sym with the symbols the runner needs. The
 # start-up code, harness and linker scripts are in test/hw. RX_LD picks the
-# linker (default GNU ld; e.g. RX_LD=build/llvm/bin/ld.lld), also for the
-# Rust applications (-C linker).
+# linker (default build/llvm's ld.lld, and rustc's rust-lld; e.g.
+# RX_LD=gnu/install/bin/rx-elf-ld), also for the Rust applications
+# (-C linker).
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 G=$root/gnu/install/bin
@@ -33,7 +34,7 @@ out=$root/build/hw
 groups=("$@"); [ ${#groups[@]} -gt 0 ] || groups=(insns rom codegen rust rt examples)
 GCCFLAGS="-mcpu=rx600 -m64bit-doubles"
 libgcc=$("$G/rx-elf-gcc" $GCCFLAGS -print-libgcc-file-name)
-LD=${RX_LD:-$G/rx-elf-ld}
+LD=${RX_LD:-$root/build/llvm/bin/ld.lld}
 # GNU ld's warnings about the RWX segment and the stack note (lld has
 # neither the warnings nor the options).
 case $LD in

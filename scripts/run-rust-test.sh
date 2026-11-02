@@ -6,7 +6,8 @@
 #   run-rust-test.sh [CRATE_DIR]   (default test/rust/core-smoke; the crate
 #                                   has main.c next to Cargo.toml)
 # PROFILE=dev|release (default release). RX_CPU picks the CPU model (see
-# cpu.sh; default RXv1 code on QEMU's rx62n).
+# cpu.sh; default RXv1 code on QEMU's rx62n). RX_LD is the linker (default
+# build/llvm's ld.lld).
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -38,7 +39,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 "$G/rx-elf-as" -o "$tmp/start.o" "$root/scripts/rx-start.s"
 "$G/rx-elf-gcc" $GCCFLAGS -O2 -c "$crate/main.c" -o "$tmp/main.o"
-"$G/rx-elf-ld" -T "$root/scripts/rx-qemu.ld" --gc-sections -o "$tmp/t.elf" \
+"${RX_LD:-$root/build/llvm/bin/ld.lld}" -T "$root/scripts/rx-qemu.ld" --gc-sections -o "$tmp/t.elf" \
   "$tmp/start.o" "$tmp/main.o" "$lib" "$libgcc" 2>/dev/null
 "$G/rx-elf-size" "$tmp/t.elf"
 bash "$root/scripts/qemu-run.sh" "$tmp/t.elf" "rust-$profile"

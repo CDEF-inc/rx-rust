@@ -1,8 +1,8 @@
 #!/bin/bash
 # Packs the built toolchain into one archive, for machines that do not build
 # it (CI): the stage1 rustc with the library sources for -Zbuild-std, the
-# stage0 cargo, the rx-elf binutils, ld.lld (the RX port) and qemu-system-rx
-# (CDEF-inc/qemu).
+# stage0 cargo, the rx-elf binutils, lld (the RX port: rustc's rust-lld and
+# bin/ld.lld) and qemu-system-rx (CDEF-inc/qemu).
 #
 #   dist-toolchain.sh [NAME]   -> build/dist/NAME.tar.xz
 #                                 (default rx-toolchain-x86_64-linux)
@@ -10,7 +10,7 @@
 # The archive holds NAME/ with
 #   bin/       rustc, cargo, rx-elf-* (binutils), ld.lld, qemu-system-rx
 #   lib/       librustc_driver, rustlib/x86_64-unknown-linux-gnu (the host
-#              std, for build scripts and proc macros) and
+#              std, for build scripts and proc macros; bin/rust-lld) and
 #              rustlib/src/rust/library (core etc. for -Zbuild-std)
 #   VERSIONS   the commits it was built from
 #
@@ -28,6 +28,7 @@ G=$root/gnu/install/bin
 name=${1:-rx-toolchain-x86_64-linux}
 QEMU=${QEMU:-$root/../qemu/build/qemu-system-rx}
 [ -x "$s1/bin/rustc" ] || { echo "no stage1 rustc; run scripts/build-rustc.sh" >&2; exit 2; }
+[ -x "$s1/lib/rustlib/$host/bin/rust-lld" ] || { echo "no rust-lld in the sysroot; run scripts/build-rustc.sh" >&2; exit 2; }
 [ -x "$G/rx-elf-ld" ] || { echo "no rx-elf binutils; run scripts/build-gnu.sh" >&2; exit 2; }
 [ -x "$QEMU" ] || { echo "no qemu-system-rx at $QEMU; set QEMU" >&2; exit 2; }
 

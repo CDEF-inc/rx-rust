@@ -60,7 +60,7 @@
 - `compiler/rustc_target/src/asm/rx.rs`: レジスタクラス `reg`（r1〜r15、型 i8/i16/i32/f32）。r0 / sp はエラー。
   clobber_abi("C") は r1〜r5, r14, r15。既定で `~{psw}` を clobber。LLVM 制約は `r`、ダミー出力型は i32。
 - ターゲットのリンカを `rx-elf-ld` 直呼び（`LinkerFlavor::Gnu(Cc::No, Lld::No)`）に変更。libc が無く、
-  実行時ルーチンは compiler_builtins が持つため。
+  実行時ルーチンは compiler_builtins が持つため。のちに `rust-lld`（`Lld::Yes`）が既定になった（NOTES-lld.md）。
 
 ## 検証（`scripts/run-rust-rom.sh [CRATE]`）
 `test/rust/qemu-demo`: Rust だけ（C も GNU as も使わない）。objcopy で 512 KB のコードフラッシュイメージにして

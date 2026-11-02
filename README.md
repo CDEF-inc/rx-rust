@@ -4,7 +4,7 @@ A Rust toolchain for Renesas RX microcontrollers: an LLVM backend for RX and
 an `rx-none-elf` target for rustc, compatible with the GCC (`rx-elf`) ABI.
 
 Status: experimental. Rust programs (`core`, `-Zbuild-std`) build, link with
-GNU ld or lld and run on QEMU (RXv1, RXv2, RXv3 and RXv3e cores of CDEF-inc/qemu)
+lld (the default) or GNU ld and run on QEMU (RXv1, RXv2, RXv3 and RXv3e cores of CDEF-inc/qemu)
 and on a real RX72M (RXv3 with the double-precision FPU, on an
 AP-RX72M-0A board): the instruction, codegen and Rust tests pass on both
 (see [`docs/NOTES-hw.md`](docs/NOTES-hw.md)).
@@ -12,7 +12,7 @@ AP-RX72M-0A board): the instruction, codegen and Rust tests pass on both
 | Component | Where | State |
 |---|---|---|
 | LLVM RX backend (MC layer, CodeGen) | [CDEF-inc/llvm-project](https://github.com/CDEF-inc/llvm-project/tree/rx/23.1) `rx/23.1` | RXv1 / RXv2 / RXv3 / RXv3e instructions, FPU, DSP, DFPU; object files match GNU as (and Renesas CC-RX where GNU as is wrong) |
-| lld RX target | same, `lld/ELF/Arch/RX.cpp` | links like GNU ld (same relocations, e_flags and layout); opt-in with `-C linker=ld.lld` (see [`docs/NOTES-lld.md`](docs/NOTES-lld.md)) |
+| lld RX target | same, `lld/ELF/Arch/RX.cpp` | links like GNU ld (same relocations, e_flags and layout); `rx-none-elf`'s default linker (`rust-lld`), GNU ld with `-C linker=rx-elf-ld` (see [`docs/NOTES-lld.md`](docs/NOTES-lld.md)) |
 | rustc `rx-none-elf` target, callconv, `asm!` | [CDEF-inc/rust](https://github.com/CDEF-inc/rust/tree/rx-none-elf) `rx-none-elf` | `core` builds; tier 3 |
 | Startup code, vector tables, linker script | [`crates/rx-rt`](crates/rx-rt) | boots from the reset vector and takes interrupts (peripheral, software, nested) on QEMU and the RX72M; `critical-section` implementation |
 | RX72M HAL (embedded-hal 1.0) | [`crates/rx72m-hal`](crates/rx72m-hal) | clocks (PLL 240 MHz), GPIO and pin functions, `DelayNs` (CMT2), SCI2 UART (`embedded-io`); checked on the AP-RX72M-0A, except UART receiving (not yet checked, see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
@@ -83,7 +83,7 @@ scripts/build-rustc.sh    # stage1 rustc using build/llvm
 For machines that do not build it (CI), `scripts/dist-toolchain.sh` packs
 the built toolchain into `build/dist/rx-toolchain-x86_64-linux.tar.xz`:
 the stage1 rustc with the library sources for `-Zbuild-std`, cargo, the
-rx-elf binutils, `ld.lld` and `qemu-system-rx`, with the commits they were built from
+rx-elf binutils, lld (rustc's `rust-lld`, and `ld.lld`) and `qemu-system-rx`, with the commits they were built from
 in `VERSIONS`. The
 [releases](https://github.com/CDEF-inc/rx-rust/releases) carry it. It runs
 on x86-64 Linux with glibc 2.39 or later (built on Ubuntu 24.04); QEMU
@@ -142,8 +142,9 @@ scripts/run-qemu-test.sh memex-insns rx62n rxv1 rxv2 rxv3 rxv3e
 scripts/run-qemu-test.sh cmt rx62n rxv3             # compare match timer (a peripheral)
 RX_CPU=rxv2 scripts/run-codegen-test.sh test/codegen/atomic.ll test/codegen/atomic_main.c
 scripts/check-lld.sh                         # lld and GNU ld link the codegen tests alike
-RX_LD=$PWD/build/llvm/bin/ld.lld scripts/run-codegen-test.sh test/codegen/i32.ll test/codegen/main.c
-RUST_EXTRA_FLAGS="-C linker=$PWD/build/llvm/bin/ld.lld" scripts/run-rust-rom.sh
+# the tests link with lld (rustc's rust-lld, build/llvm's ld.lld); with GNU ld:
+RX_LD=$PWD/gnu/install/bin/rx-elf-ld scripts/run-codegen-test.sh test/codegen/i32.ll test/codegen/main.c
+RX_CPU=rx62n RUST_EXTRA_FLAGS="-C linker=$PWD/gnu/install/bin/rx-elf-ld" scripts/run-rust-rom.sh
 ```
 
 ### On the board
@@ -161,8 +162,8 @@ scripts/hw-build.sh       # in WSL: build the tests into build/hw
 scripts/hw-run.sh         # in Git Bash on Windows: run them on the board
 ```
 
-`RX_LD=$PWD/build/llvm/bin/ld.lld scripts/hw-build.sh` links them with lld
-instead.
+They link with lld; `RX_LD=$PWD/gnu/install/bin/rx-elf-ld scripts/hw-build.sh`
+links them with GNU ld instead.
 
 ### Example: blinky
 
