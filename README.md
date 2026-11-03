@@ -33,7 +33,9 @@ What works:
 - atomics up to 32 bits, including compare-and-swap and `fetch_*`
   (`movli`/`movco` on RXv2+, interrupts masked on RXv1), inline assembly,
   interrupts (whose entries save FPSW, the DFPU registers the compiler uses
-  and, with `save-acc`, the accumulators, depending on the target features);
+  and, with `save-acc`, the accumulators, depending on the target features;
+  on RXv3 also entries that save in a register bank, `interrupt!(n, handler,
+  bank = b)`);
 - memory access with the RX addressing modes: post-increment and
   pre-decrement (`[Rn+]`, `[-Rn]`), register-indexed (`[Ri, Rb]`),
   immediate and memory-to-memory `mov`, and the string instructions
@@ -66,7 +68,7 @@ test/mc/        assembler tests, compared with GNU as
 test/codegen/   LLVM IR + C tests run on QEMU (Rust/LLVM <-> GCC calls)
 test/qemu/      instruction tests for the QEMU CPU models (also run on the board)
 test/hw/        start-up code, harness and linker scripts for the RX72M board
-test/rust/      Rust tests: core-smoke (with a C driver), qemu-demo, isr-save,
+test/rust/      Rust tests: core-smoke (with a C driver), qemu-demo, isr-save, isr-bank,
                 hw-irq (also on the board), hw-pac, hw-hal and hw-uart (board only)
 docs/           design notes and plan (in Japanese)
 ```
@@ -141,6 +143,7 @@ RX_CPU=rxv3 scripts/run-codegen-test.sh test/codegen/dfpu.ll test/codegen/dfpu_m
 scripts/run-rust-test.sh                     # test/rust/core-smoke
 scripts/run-rust-rom.sh                      # test/rust/qemu-demo, boots a ROM image
 scripts/run-rust-rom.sh test/rust/isr-save   # FPSW / ACC / A1 / DFPU saved by interrupt entries
+RX_CPU=rxv3 scripts/run-rust-rom.sh test/rust/isr-bank   # register bank interrupt entries (save / rstr)
 # CMT interrupts; hw-irq is built for rxv3 (the RX72M), so give the QEMU core
 RX_CPU=rxv3 RX_MEMORY_X=$PWD/test/rust/qemu-demo/memory.x scripts/run-rust-rom.sh test/rust/hw-irq
 scripts/run-qemu-test.sh fcmp-flags rx62n rxv2 rxv3 rxv3e
@@ -167,7 +170,7 @@ RX_CPU=rx62n RUST_EXTRA_FLAGS="-C linker=$PWD/gnu/install/bin/rx-elf-ld" scripts
 
 The instruction tests (RXv3 parts), the codegen tests (`llc -mcpu=rxv3`,
 -O0 and -O2), core-smoke (`target-cpu=rxv3`) and the rx-rt interrupt tests
-(isr-save, and hw-irq with CMT interrupts, booted from the code flash) also
+(isr-save, isr-bank, and hw-irq with CMT interrupts, booted from the code flash) also
 run on an AP-RX72M-0A board through an E2 Lite and the GDB server of
 Renesas e² studio, on Windows. The board needs JSW3 = SGL and JSW2 = SCI.
 [`docs/NOTES-hw.md`](docs/NOTES-hw.md) has the setup, the server's

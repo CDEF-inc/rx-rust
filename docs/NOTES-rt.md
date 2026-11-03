@@ -53,6 +53,47 @@
   QEMU では MVTC で FPSW の要因フラグ（CV など）を立てられないので、それは使っていない。
   rxv2 / rxv3 向けの `_rx_isr_common` は逆アセンブルで確認（DFPU と RXv2 の ACC 命令は QEMU で動かない）。
 - 使う側のクレートにも `#![feature(asm_experimental_arch)]` が必要。
+
+### レジスタバンク退避（RXv3、issue #106）
+- `rx_rt::interrupt!(28, handler, bank = 1)` は、RXv3 のレジスタ一括退避機能で退避する入口を作る:
+  ```
+  _rx_vector_28:  save #1            ; R1〜R15・USP・FPSW・ACC0・ACC1 → バンク 1
+                  mvfc usp, r1 / push.l r1   ; デバッガ用（下記）
+                  mov.l #handler, r5
+                  bsr.a _rx_isr_bank_call    ; FPSW = 0x100、dfpu なら DR0〜DR1・DPSW・DCMR を積んで DPSW = 0x100、jsr r5
+                  add #4, r0
+                  rstr #1
+  _rx_vector_28_rte: rte
+  ```
+  `save` は DFPU のレジスタを含まないので、そこだけ共通部 `_rx_isr_bank_call`（rx-rt、`cfg(target_feature = "rxv3")`）が
+  スタックに積む。アキュムレータは `save` が A0 / A1 とも 72 ビット退避するので `save-acc` は関係しない。
+  ハンドラは同じく `extern "C" fn()`（コンパイラの変更は無い）。
+- バンク番号は 0〜15 のリテラル（範囲外は const の assert でコンパイルエラー）、RXv3 未満では `compile_error!`。
+  チップにそのバンクがあること（RX72M で 1・2 を確かめた）。
+- 多重割り込みしうる割り込みどうしは同じバンクを使ってはいけない（内側の `save` が外側の退避内容を上書きする）。
+  割り込み優先レベル（IPL）をバンク番号にすれば、ハンドラが IPL を下げない限り安全（同じレベルは入れ子にならない）。
+  `interrupt!` のハンドラはどちらの形でも入口に戻ってくるので、自分でタスクを切り替えることはできない。RTOS は
+  切り替えを専用の割り込みで行う（VERTOS は最低優先度のソフトウェア割り込み SWINT、Cortex-M の PendSV と同じ）。
+  それはバンクの入口が `rstr` で全部戻したあとに走るので、切り替えを要求するだけのハンドラはバンクを使ってよい。
+  割り込みの出口そのものが別タスクへ `rte` する方式（`interrupt!` ではない、RTOS 自前の入口）は、割り込まれたタスクの
+  レジスタがバンクに残ってしまうので、その経路にはバンクを使えない。
+- CFI: PSW・PC は CPU が積んだスタック上にあるので、ハンドラから割り込まれた側へ巻き戻せる。R1〜R5・R14・R15 は
+  バンクにあってデバッガから読めないので `.cfi_undefined`（LLDB では unavailable）。R6〜R13 はハンドラ自身の CFI で
+  たどれる。R0 は従来どおり退避した USP から `PSW.U ? [CFA − 12] : CFA`。`rte` には、gdb の解析を避けるため
+  `_rx_vector_N_rte` を置く（`_rx_isr_common_rte` と同じ理由）。
+- 検証: `test/rust/isr-bank`（rxv3、`RX_CPU=rxv3 scripts/run-rust-rom.sh test/rust/isr-bank`）33 チェック。
+  - 割り込まれる側の R1〜R5・R7〜R15（`asm!` の固定レジスタで `int` をまたぐ）、FPSW、A0 / A1（ガードを含む）、
+    DR0 / DR1・DPSW・DCMR、USP が、それらを書き換えるハンドラの後も残る。
+  - ハンドラ開始時の FPSW / DPSW が 0x100。
+  - バンク 1 のハンドラの中でバンク 2 の割り込みを起こし、外側のハンドラのレジスタと状態が残る（両方を同じバンクに
+    すると 9 チェック失敗することを確かめた）。
+  - 従来の入口（`interrupt!(67, plain)`）と並べて使える。
+  - run-all-tests.sh が rxv3 / rxv3e の release / dev と rxv3 のリンカ緩和で実行し、`check-isr-cfi.py` がバンクの入口の
+    CFI（CFA、PSW・PC の位置、undefined、R0 の式）も確かめる。
+  - LLDB（QEMU）で内側のハンドラに止めると、bt が inner → `_rx_isr_bank_call` → `_rx_vector_66` → `across::<66>` →
+    outer → … → `_rx_vector_65` → main → `_rx_reset` とたどれ、割り込まれたフレームの R7 / R13 は正しい値、R1 / R2 は
+    unavailable。
+  - RX72M 実機（`scripts/hw-build.sh rt`、release / dev、リンカ緩和あり / なし）でも 33 チェック全通過。
 - `atomic_cas = true` なので `fetch_add` / `compare_exchange` 等が使える。RXv2 以上では movli/movco で割り込みと
   競合しても正しく動く。RXv1 では割り込みを止めて実行する（スーパーバイザモードが前提）。
 
