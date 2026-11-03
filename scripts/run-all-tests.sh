@@ -124,6 +124,12 @@ for cpu in "${cpus[@]}"; do
       bash "$S/run-rust-rom.sh" "$root/test/rust/float-smoke"
     run "$cpu rust isr-cfi $p" "$S/check-isr-cfi.py" \
       "$root/build/rust-rom/$cpu/rx-none-elf/$([ $p = dev ] && echo debug || echo $p)/isr-save"
+    # register bank interrupt entries (save / rstr, RXv3)
+    if [ "$cpu" = rxv3 ] || [ "$cpu" = rxv3e ]; then
+      run "$cpu rust isr-bank $p" env PROFILE=$p bash "$S/run-rust-rom.sh" "$root/test/rust/isr-bank"
+      run "$cpu rust isr-bank-cfi $p" "$S/check-isr-cfi.py" \
+        "$root/build/rust-rom/$cpu/rx-none-elf/$([ $p = dev ] && echo debug || echo $p)/isr-bank"
+    fi
     run "$cpu rust hw-irq $p" env PROFILE=$p RX_MEMORY_X="$root/test/rust/qemu-demo/memory.x" \
       bash "$S/run-rust-rom.sh" "$root/test/rust/hw-irq"
   done
@@ -184,6 +190,12 @@ for cpu in rx62n rxv3; do
   done
   run "$cpu relax rust isr-cfi" "$S/check-isr-cfi.py" \
     "$root/build/rust-rom/$cpu-$(echo "$RELAX" | md5sum | cut -c1-8)/rx-none-elf/release/isr-save"
+  if [ "$cpu" = rxv3 ]; then
+    run "$cpu relax rust isr-bank" env PROFILE=release RUST_EXTRA_FLAGS="$RELAX" \
+      bash "$S/run-rust-rom.sh" "$root/test/rust/isr-bank"
+    run "$cpu relax rust isr-bank-cfi" "$S/check-isr-cfi.py" \
+      "$root/build/rust-rom/$cpu-$(echo "$RELAX" | md5sum | cut -c1-8)/rx-none-elf/release/isr-bank"
+  fi
   run "$cpu relax rust hw-irq" env PROFILE=release RUST_EXTRA_FLAGS="$RELAX" \
     RX_MEMORY_X="$root/test/rust/qemu-demo/memory.x" bash "$S/run-rust-rom.sh" "$root/test/rust/hw-irq"
 done

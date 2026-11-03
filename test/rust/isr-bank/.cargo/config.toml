@@ -1,0 +1,10 @@
+[build]
+target = "rx-none-elf"
+
+[target.rx-none-elf]
+# RXv3 (register banks, FPU and DFPU): QEMU's -cpu rxv3, the RX72M.
+rustflags = ["-C", "link-arg=-Tlink.x", "-C", "target-cpu=rxv3"]
+
+[unstable]
+build-std = ["core"]
+build-std-features = ["compiler-builtins-mem"]

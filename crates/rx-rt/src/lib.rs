@@ -29,6 +29,11 @@
 //! exceptions masked, denormals flushed to zero), the values reset leaves and
 //! the reset handler sets again.
 //!
+//! On RXv3, `interrupt!(n, handler, bank = b)` saves the registers in a
+//! register bank instead (`save` / `rstr`): R1-R15, USP, FPSW and both
+//! accumulators in one instruction, and with the DFPU also DR0, DR1, DPSW and
+//! DCMR on the stack.
+//!
 //! With the `critical-section` Cargo feature, this crate also provides the
 //! `critical-section` implementation (PSW.I cleared and restored), which
 //! PACs (`Peripherals::take()`) and embedded-hal-bus use.
@@ -302,6 +307,27 @@ global_asm!(concat!(
     "\t.popsection",
 ));
 
+// Common part of the register bank entries (`interrupt!(n, handler, bank =
+// b)`, RXv3), called after `save` with the handler in R5: sets FPSW, and
+// with the DFPU saves DR0, DR1, DPSW and DCMR (`save` does not) and sets
+// DPSW, then calls the handler. The bank holds everything else, the
+// accumulators in full.
+#[cfg(target_feature = "rxv3")]
+global_asm!(concat!(
+    "\t.pushsection .text.rx_isr_bank_call,\"ax\"\n",
+    "\t.global _rx_isr_bank_call\n",
+    "_rx_isr_bank_call:\n",
+    "\t.cfi_sections .eh_frame, .debug_frame\n",
+    "\t.cfi_startproc\n",
+    fpu_init!(),
+    dfpu_save!(),
+    "\tjsr\tr5\n",
+    dfpu_restore!(),
+    "\trts\n",
+    "\t.cfi_endproc\n",
+    "\t.popsection",
+));
+
 unsafe extern "C" {
     static mut rx_data_start: u32;
     static rx_data_end: u32;
@@ -343,8 +369,69 @@ unsafe extern "C" fn start() -> ! {
 /// debugger can unwind from the handler into the interrupted code (the
 /// common entry also saves USP for that). The calling crate needs
 /// `#![feature(asm_experimental_arch)]`.
+///
+/// `interrupt!(n, handler, bank = b)` (RXv3 and RXv3e, `b` in 0..=15) saves
+/// the registers in register bank `b` instead: `save #b` takes R1-R15, USP,
+/// FPSW and both accumulators (in full, without `save-acc`), rx-rt's common
+/// part saves the DFPU registers on the stack, and `rstr #b` restores the
+/// bank before `rte`. The chip must have bank `b` (see its hardware manual;
+/// QEMU's RXv3 cores have 16). Interrupts that can nest must not share a bank: the interrupt
+/// priority level as the bank number is safe while handlers do not lower
+/// the IPL. A handler of either form returns to its entry, so it cannot
+/// switch tasks itself; an RTOS switches in an interrupt of its own (such as
+/// a lowest-priority software interrupt, like Cortex-M's PendSV), after the
+/// bank entries have restored everything, and handlers that only request a
+/// switch can use banks. An interrupt whose exit path itself returns to
+/// another task (not one from this macro) cannot use a bank: the
+/// interrupted task's registers would stay in it. The CFI marks R1-R5, R14 and R15 of the
+/// interrupted code undefined (they are in the bank); PSW, PC, R0 (from the
+/// saved USP) and R6-R13 unwind as in the first form.
 #[macro_export]
 macro_rules! interrupt {
+    ($n:literal, $handler:path, bank = $bank:literal) => {
+        const _: extern "C" fn() = $handler;
+        const _: () = assert!($bank < 16, "register banks are 0 to 15");
+        #[cfg(not(target_feature = "rxv3"))]
+        ::core::compile_error!("register bank interrupt entries need RXv3 or later");
+        ::core::arch::global_asm!(
+            concat!("\t.pushsection .text.rx_vector_", stringify!($n), ",\"ax\""),
+            concat!("\t.global _rx_vector_", stringify!($n)),
+            concat!("_rx_vector_", stringify!($n), ":"),
+            "\t.cfi_sections .eh_frame, .debug_frame",
+            "\t.cfi_startproc",
+            "\t.cfi_signal_frame",
+            "\t.cfi_def_cfa_offset 8",
+            "\t.cfi_offset 16, -4",
+            "\t.cfi_offset 17, -8",
+            concat!("\tsave\t#", stringify!($bank)),
+            "\t.cfi_undefined 1\n\t.cfi_undefined 2\n\t.cfi_undefined 3",
+            "\t.cfi_undefined 4\n\t.cfi_undefined 5",
+            "\t.cfi_undefined 14\n\t.cfi_undefined 15",
+            // USP for the debugger, as in `_rx_isr_common`: R0 of the
+            // interrupted code is PSW.U ? [CFA - 12] : CFA.
+            "\tmvfc\tusp, r1",
+            "\tpush.l\tr1",
+            "\t.cfi_adjust_cfa_offset 4",
+            "\t.cfi_escape 0x16, 0x00, 0x12, 0x12, 0x34, 0x1c, 0x06, 0x41, 0x25, 0x31, \
+             0x1a, 0x28, 0x03, 0x00, 0x2f, 0x04, 0x00, 0x08, 0x0c, 0x1c, 0x06",
+            "\tmov.l\t#{handler}, r5",
+            "\tbsr.a\t_rx_isr_bank_call",
+            "\tadd\t#4, r0",
+            "\t.cfi_adjust_cfa_offset -4",
+            "\t.cfi_restore 0",
+            concat!("\trstr\t#", stringify!($bank)),
+            "\t.cfi_restore 1\n\t.cfi_restore 2\n\t.cfi_restore 3",
+            "\t.cfi_restore 4\n\t.cfi_restore 5",
+            "\t.cfi_restore 14\n\t.cfi_restore 15",
+            // gdb's RX port analyses a function that reaches `rte` by
+            // itself (see `_rx_isr_common`): the `rte` gets a symbol.
+            concat!("_rx_vector_", stringify!($n), "_rte:"),
+            "\trte",
+            "\t.cfi_endproc",
+            "\t.popsection",
+            handler = sym $handler,
+        );
+    };
     ($n:literal, $handler:path) => {
         const _: extern "C" fn() = $handler;
         ::core::arch::global_asm!(

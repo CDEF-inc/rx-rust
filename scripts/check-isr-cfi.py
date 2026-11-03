@@ -16,6 +16,13 @@ For every vector entry from `interrupt!` (`_rx_vector_N`) and for
     USP);
   - `_rx_isr_common_rte` follows `_rx_isr_common` with the CFA at SP + 8.
 
+A register bank entry (`interrupt!(n, handler, bank = b)`: `save #b` ...
+`rstr #b`, then `_rx_vector_N_rte`) has the CFA at SP + 8 and, from the
+push of USP to the `add #4, r0`, SP + 12. At its call of
+`_rx_isr_bank_call` PSW and PC are in their slots, R1-R5, R14 and R15 are
+undefined (they are in the bank) and R0 has the USP expression for
+CFA - 12. `_rx_isr_bank_call` starts and ends with the CFA at SP + 4.
+
 It also checks that no DW_AT_producer starts with "clang" or "LLVM": e2
 studio's rx-elf-gdb drops the whole .debug_frame of such an ELF.
 """
@@ -32,6 +39,10 @@ LLVM = os.path.join(ROOT, "build/llvm/bin")
 # Slots relative to the CFA once the vector entry has pushed everything.
 SLOTS = {"PSW": -4, "PC": -8, "R5": -12, "R4": -16, "R3": -20, "R2": -24,
          "R1": -28, "R15": -32, "R14": -36}
+# The same for a register bank entry: the registers in the bank.
+BANK_SLOTS = {"PSW": -4, "PC": -8}
+BANKED = {"R1", "R2", "R3", "R4", "R5", "R14", "R15"}
+CALLS = ("bsr.a", "bsr.w")
 DCR = ["dpsw", "dcmr", "decnt", "depc"]
 
 
@@ -50,7 +61,8 @@ def symbols(elf):
 
 
 def cfi_rows(elf):
-    """Address -> (CFA offset, {register: CFA-relative slot}, R0 rule)."""
+    """Address -> (CFA offset, {register: CFA-relative slot}, R0 rule,
+    {undefined registers})."""
     rows = {}
     out = run(os.path.join(LLVM, "llvm-dwarfdump"), "--debug-frame", elf)
     for m in re.finditer(r"^\s+0x([0-9a-f]+): CFA=R0\+(\d+)(.*)$", out, re.M):
@@ -59,7 +71,9 @@ def cfi_rows(elf):
                  re.findall(r"\b(R\d+|PSW|PC)=\[CFA([+-]\d+)\]", rest)}
         r0 = re.search(r"\bR0=(DW_OP[^=]*?)(?:, R\d+=|, PSW=|, PC=|$)", rest)
         rows[int(m.group(1), 16)] = (int(m.group(2)), slots,
-                                     r0.group(1) if r0 else None)
+                                     r0.group(1) if r0 else None,
+                                     set(re.findall(r"\b(R\d+)=undefined",
+                                                    rest)))
     return rows
 
 
@@ -115,8 +129,11 @@ def sp_change(op, ops):
     return 0
 
 
-def check(name, insns, rows, start, cfa, errors):
-    saw_jsr = False
+def check(name, insns, rows, start, cfa, errors, call=None, slots=SLOTS,
+          usp=0x28, banked=()):
+    """Follows the CFA through INSNS; at CALL (an instruction) checks the
+    saved registers and returns the CFA after the last instruction."""
+    calls = 0
     for addr, op, ops in insns:
         row = row_at(rows, addr, start)
         if row is None:
@@ -125,19 +142,40 @@ def check(name, insns, rows, start, cfa, errors):
         if row[0] != cfa:
             errors.append("%s+0x%x (%s %s): CFA offset %d, want %d"
                           % (name, addr - start, op, ops, row[0], cfa))
-        if op == "jsr":
-            saw_jsr = True
-            for reg, slot in SLOTS.items():
+        if call is not None and op in call:
+            calls += 1
+            for reg, slot in slots.items():
                 if row[1].get(reg) != slot:
-                    errors.append("%s: at the jsr %s is at %s, want CFA%d"
-                                  % (name, reg, row[1].get(reg), slot))
-            if row[2] is None or "DW_OP_const1u 0x28" not in row[2]:
-                errors.append("%s: at the jsr R0 is %s, want the USP "
-                              "expression" % (name, row[2]))
+                    errors.append("%s: at the %s %s is at %s, want CFA%d"
+                                  % (name, op, reg, row[1].get(reg), slot))
+            if row[2] is None or "DW_OP_const1u 0x%x" % usp not in row[2]:
+                errors.append("%s: at the %s R0 is %s, want the USP "
+                              "expression" % (name, op, row[2]))
+            for reg in sorted(set(banked) - row[3]):
+                errors.append("%s: at the %s %s is not undefined"
+                              % (name, op, reg))
         cfa += sp_change(op, ops)
-    if name == "_rx_isr_common" and not saw_jsr:
-        errors.append("%s: no jsr" % name)
+    if call is not None and calls != 1:
+        errors.append("%s: %d calls of the handler, want 1" % (name, calls))
     return cfa
+
+
+def check_bank(elf, syms, rows, addr, errors):
+    """A register bank vector entry, up to its `rte`."""
+    name = next(s for s, a in syms.items()
+                if a == addr and re.fullmatch(r"_rx_vector_\d+", s))
+    rte = syms.get(name + "_rte")
+    if rte is None:
+        errors.append("%s: no %s_rte" % (name, name))
+        return
+    insns = disasm(elf, addr, rte + 2)
+    bank = insns[0][2]
+    if insns[-1][1] != "rte" or insns[-2][1:] != ("rstr", bank):
+        errors.append("%s: does not end with rstr %s; rte" % (name, bank))
+    cfa = check(name, insns, rows, addr, 8, errors, call=CALLS,
+                slots=BANK_SLOTS, usp=0xc, banked=BANKED)
+    if cfa != 8:
+        errors.append("%s: CFA offset %d at the rte, want 8" % (name, cfa))
 
 
 def main():
@@ -151,9 +189,13 @@ def main():
         if name not in syms:
             sys.exit("%s: no %s" % (elf, name))
     common, rte = syms["_rx_isr_common"], syms["_rx_isr_common_rte"]
-    checked = 0
+    checked = banks = 0
     for addr in vectors:
         insns = disasm(elf, addr, addr + 16)
+        if insns[0][1] == "save":
+            banks += 1
+            check_bank(elf, syms, rows, addr, errors)
+            continue
         # A vector may be set to another handler (`.set _rx_vector_N, ...`).
         if insns[:1] != [(addr, "pushm", "r1-r5")]:
             continue
@@ -166,10 +208,22 @@ def main():
             errors.append("vector@0x%x: CFA offset %d at the bra, want 36"
                           % (addr, cfa))
     insns = disasm(elf, common, rte + 2)
-    cfa = check("_rx_isr_common", insns, rows, common, 36, errors)
+    cfa = check("_rx_isr_common", insns, rows, common, 36, errors,
+                call=("jsr",))
     if cfa != 8:
         errors.append("_rx_isr_common: CFA offset %d at the rte, want 8"
                       % cfa)
+    if banks:
+        call = syms.get("_rx_isr_bank_call")
+        if call is None:
+            errors.append("no _rx_isr_bank_call")
+        else:
+            bins = disasm(elf, call, call + 64)
+            n = next(i for i, x in enumerate(bins) if x[1] == "rts") + 1
+            cfa = check("_rx_isr_bank_call", bins[:n], rows, call, 4, errors)
+            if cfa != 4:
+                errors.append("_rx_isr_bank_call: CFA offset %d at the rts, "
+                              "want 4" % cfa)
     out = run(os.path.join(LLVM, "llvm-dwarfdump"), "--debug-info", elf)
     producers = set(re.findall(r'DW_AT_producer\s+\("([^"]*)"\)', out))
     if not producers:
@@ -181,8 +235,8 @@ def main():
     for e in errors:
         print("  " + e)
     print("[isr-cfi] %s: %d vector entries + _rx_isr_common (%d "
-          "instructions), %s" % (os.path.basename(elf), checked,
-                                 len(insns),
+          "instructions), %d bank entries, %s"
+          % (os.path.basename(elf), checked, len(insns), banks,
                                  "ok" if not errors else "%d errors"
                                  % len(errors)))
     sys.exit(1 if errors else 0)

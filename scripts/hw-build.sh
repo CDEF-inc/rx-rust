@@ -12,7 +12,7 @@
 #   rust     test/rust/core-smoke (target-cpu=rxv3,  -> build/hw/rust
 #            release / dev), in RAM
 #   rt       rx-rt applications, test/rust/isr-save,    -> build/hw/rt
-#            hw-irq, hw-pac, hw-hal, hw-uart, alloc-smoke, float-smoke (also with
+#            isr-bank, hw-irq, hw-pac, hw-hal, hw-uart, alloc-smoke, float-smoke (also with
 #            +flush-denormals: float-smoke-fd) (target-cpu=rxv3, release / dev), in the code
 #            flash with test/hw/rx72m-memory.x, booted from the reset vector
 #   examples examples/* (blinky; release), in the code  -> build/hw/examples
@@ -138,9 +138,10 @@ for g in "${groups[@]}"; do
       d=$out/rt; mkdir -p "$d"
       # NAME or NAME:SUFFIX:RUSTFLAGS (float-smoke also with the FPU / DFPU;
       # some also with linker relaxation)
-      for spec in isr-save hw-irq hw-pac hw-hal hw-uart alloc-smoke float-smoke \
+      for spec in isr-save isr-bank hw-irq hw-pac hw-hal hw-uart alloc-smoke float-smoke \
                   "float-smoke:-fd:-C target-feature=+flush-denormals" \
                   "isr-save:-relax:-C target-feature=+relax" \
+                  "isr-bank:-relax:-C target-feature=+relax" \
                   "hw-irq:-relax:-C target-feature=+relax" \
                   "alloc-smoke:-relax:-C target-feature=+relax" \
                   "float-smoke:-fd-relax:-C target-feature=+flush-denormals,+relax"; do
