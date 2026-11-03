@@ -43,8 +43,7 @@ GNU ld と同じ計算（`elf32-rx.c` の `rx_elf_relocate_section`）:
   解決できない式に出る。オペランドの順は GNU ld と同じ（`OPsub` は
   次 − 先頭）。値は 32 ビットで折り返す（INT32_MIN / −1 は INT32_MIN、
   INT32_MIN % −1 は 0）。シフト量が 0〜31 の外なら、0 除算と同じくエラー。
-- `R_RX_RH_RELAX`: 無視する（lld は緩和をしない。GNU ld も `--relax`
-  なしでは何もしない）。
+- `R_RX_RH_RELAX`: リンカ緩和の印（下の「リンカ緩和」）。`--no-relax` なら無視する。
 
 対応しないもの（エラーにする）: `R_RX_RH_*`（RELAX 以外の緩和用）、
 GP 相対（`R_RX_GPRELB/W/L`）、セクション基準の演算子（`OPsctsize` /
@@ -90,8 +89,45 @@ GNU ld の RX エミュレーションは `--no-flag-mismatch-warnings` が既�
 - 実機（AP-RX72M-0A）: `RX_LD=build/llvm/bin/ld.lld scripts/hw-build.sh`
   の 57 本を `hw-run.sh` で実行し、すべて失敗 0（NOTES-hw.md の「結果」）。
 
+## リンカ緩和（2026-11-03、rx-rust #96 の B）
+
+`-C target-feature=+relax`（LLVM の `-mattr=+relax`）でコンパイルしたコードを、lld がリンク時に短くする。
+既定は無効。release の .text が約 3% 小さくなる（alloc-smoke 37,927 → 36,836 バイト、float-smoke
+10,274 → 9,970、qemu-demo 2,558 → 2,418、isr-save 1,289 → 1,189。rxv3）。
+
+- **LLVM（MC）が出すもの**（GNU as `-relax` と同じ形）:
+  - **緩和の印:** `bsr.a` / `bra.a`（シンボルへ）と `mov.l #sym, rd` の前に `R_RX_RH_RELAX`。
+    addend は GNU の `include/elf/rx.h` と同じで、`bsr.a` は 0x201（BRA、続く再配置 1 つ）、
+    `mov.l` は 0x21（li フィールドが 12 ビット目、1 つ）。
+  - **ラベルの差の扱い:** 緩和しうる命令をまたぐラベルの差は、アセンブル時に畳まず再配置にする。
+    - 分岐の変位は PC 相対の再配置。
+    - 行番号表は `DW_LNS_fixed_advance_pc` と `R_RX_SYM` / `OPsub` / `ABS16`（GNU as と同じ）。
+    - CFI は `DW_CFA_advance_loc1/2/4` と同じスタック再配置。
+    - データ中の差は `ABS8` / `ABS16` / `ABS32`。
+  - **シンボル:** 再配置はセクション + オフセットでなくシンボル（ローカルラベルも）を指す。
+    lld がバイトを消すとシンボルを動かすので、それに付いていく。
+  - **関数内の分岐（#96 の A）の長さ:** 緩和の前の距離で選ぶ。リンカはバイトを消すだけなので、距離は
+    縮むことはあっても伸びない。選んだ形はそのまま届く。
+  - **コード中の整列:** 最大の詰め物（整列 − 1 個の NOP）と、その先頭に `R_RX_RH_RELAX`
+    （`RX_RELAXA_ALIGN | 整列`）。これは RISC-V と同じやり方で、GNU as とは違う（GNU as は、計算した
+    詰め物の後ろに印を置く）。
+- **lld がすること**（`relaxOnce` / `finalizeRelax`、RISC-V と同じ枠組み）:
+  - `bsr.a` → `bsr.w`、`bra.a` → `bra.w` / `bra.b`（変位が届けば）。
+  - `mov.l #imm32` → `#simm24` / `#simm16` / `#simm8`（アドレスが収まれば。li フィールドを書き換え、
+    即値の上位バイトを消す）。
+  - 不要になった整列の NOP を消す。
+  - 消したバイトに合わせて、シンボルの値と大きさ、再配置の位置を詰める。届く距離が変わるので、
+    収束するまで繰り返す（4 回目からは、消すバイトを増やさない）。
+- **対応しないもの:**
+  - GNU as `-relax` の、整列の印（形が違う）と DSP / IMM6 以外の印。IMM6 は扱うが、確かめていない。
+  - `bra.a` 以外の条件分岐の伸び縮み。
+- **確かめたこと:**
+  - lit の `rx-relax.s`。
+  - QEMU（rx62n / rxv3）で codegen テストと Rust アプリ。
+  - 緩和したビルドでの LLDB のセッション（`check-lldb.sh`、31 項目。行番号・CFI・変数が正しい）と、
+    割り込み入口の CFI（`check-isr-cfi.py`）。
+  - 実機（NOTES-hw.md）。
+
 ## しないこと
 
-- 緩和（`--relax`）。GNU ld の RX 緩和は Red Hat の `RH_*` 再配置が前提で、
-  LLVM はそれを出さない。
 - GNU ld の `-Map` 互換の出力。lld の `-Map` は形式が違う。

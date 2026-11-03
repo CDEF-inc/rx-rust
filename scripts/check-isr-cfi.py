@@ -158,7 +158,9 @@ def main():
         if insns[:1] != [(addr, "pushm", "r1-r5")]:
             continue
         checked += 1
-        n = next(i for i, x in enumerate(insns) if x[1] == "bra.a") + 1
+        # bra.a to _rx_isr_common (bra.w / bra.b after linker relaxation)
+        n = next(i for i, x in enumerate(insns)
+                 if x[1] in ("bra.a", "bra.w", "bra.b")) + 1
         cfa = check("vector@0x%x" % addr, insns[:n], rows, addr, 8, errors)
         if cfa != 36:
             errors.append("vector@0x%x: CFA offset %d at the bra, want 36"

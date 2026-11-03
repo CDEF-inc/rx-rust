@@ -239,6 +239,14 @@ rustflags = ["-C", "link-arg=-Tlink.x", "-C", "target-cpu=rxv3",
 
 `docs/NOTES-codegen.md` ("IEEE の FPU / DFPU") has the details.
 
+### Code size
+
+`-C target-feature=+relax` turns on linker relaxation: lld shortens calls
+(`bsr.a` → `bsr.w`) and symbol addresses (`mov.l #sym` to a 16- or 8-bit
+immediate) once the addresses are known. That takes about 3 % off `.text`.
+The debug info and the CFI follow the shortened code. See
+`docs/NOTES-lld.md` ("リンカ緩和").
+
 ## License
 
 Licensed under either of

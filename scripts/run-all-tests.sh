@@ -157,6 +157,40 @@ for cpu in rx62n rxv3; do
     RX_MEMORY_X="$root/test/rust/qemu-demo/memory.x" bash "$S/run-rust-rom.sh" "$root/test/rust/hw-irq"
 done
 
+# With linker relaxation (-mattr=+relax / -C target-feature=+relax: lld
+# shortens calls and symbol addresses): the codegen tests, the Rust
+# applications (isr-save's CFI checked again) and a debug session.
+RELAX="-C target-feature=+relax"
+for cpu in rx62n rxv3; do
+  echo "== $cpu, with linker relaxation"
+  export RX_CPU=$cpu
+  unset QEMU_CPU
+  for t in "i32 main" "m3 m3_main" "struct struct_main" "demote demote_main" \
+           "atomic atomic_main" "mem mem_main" "mulh mulh_main" "frame frame_main" \
+           "fp fp_main" "va va_main" "jt jt_main"; do
+    set -- $t
+    run "$cpu relax codegen $1" env OPT=2 ATTRS=+relax bash "$S/run-codegen-test.sh" "$C/$1.ll" "$C/$2.c"
+  done
+  attrs=; [ "$cpu" = rx62n ] && attrs=+fpu
+  run "$cpu relax codegen fpu" env OPT=2 ATTRS=${attrs:+$attrs,}+relax \
+    bash "$S/run-codegen-test.sh" "$C/fpu.ll" "$C/fpu_main.c"
+  run "$cpu relax codegen fpu_ieee" env OPT=2 ATTRS=${attrs:+$attrs,}+flush-denormals,+relax \
+    bash "$S/run-codegen-test.sh" "$C/fpu_ieee.ll" "$C/fpu_ieee_main.c"
+  [ "$cpu" = rxv3 ] && run "$cpu relax codegen dfpu" env OPT=2 ATTRS=+relax \
+    bash "$S/run-codegen-test.sh" "$C/dfpu.ll" "$C/dfpu_main.c"
+  for c in qemu-demo isr-save alloc-smoke float-smoke; do
+    run "$cpu relax rust $c" env PROFILE=release RUST_EXTRA_FLAGS="$RELAX" \
+      bash "$S/run-rust-rom.sh" "$root/test/rust/$c"
+  done
+  run "$cpu relax rust isr-cfi" "$S/check-isr-cfi.py" \
+    "$root/build/rust-rom/$cpu-$(echo "$RELAX" | md5sum | cut -c1-8)/rx-none-elf/release/isr-save"
+  run "$cpu relax rust hw-irq" env PROFILE=release RUST_EXTRA_FLAGS="$RELAX" \
+    RX_MEMORY_X="$root/test/rust/qemu-demo/memory.x" bash "$S/run-rust-rom.sh" "$root/test/rust/hw-irq"
+done
+unset RX_CPU
+[ -x "$root/build/lldb/bin/lldb" ] &&
+  run "check-lldb relax" env RUST_EXTRA_FLAGS="$RELAX" bash "$S/check-lldb.sh"
+
 echo "== $pass passed, ${#fail[@]} failed"
 for f in "${fail[@]}"; do echo "   $f"; done
 [ ${#fail[@]} -eq 0 ]
