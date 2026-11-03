@@ -136,9 +136,14 @@ for g in "${groups[@]}"; do
       done ;;
     rt)
       d=$out/rt; mkdir -p "$d"
-      # NAME or NAME:SUFFIX:RUSTFLAGS (float-smoke also with the FPU / DFPU)
+      # NAME or NAME:SUFFIX:RUSTFLAGS (float-smoke also with the FPU / DFPU;
+      # some also with linker relaxation)
       for spec in isr-save hw-irq hw-pac hw-hal hw-uart alloc-smoke float-smoke \
-                  "float-smoke:-fd:-C target-feature=+flush-denormals"; do
+                  "float-smoke:-fd:-C target-feature=+flush-denormals" \
+                  "isr-save:-relax:-C target-feature=+relax" \
+                  "hw-irq:-relax:-C target-feature=+relax" \
+                  "alloc-smoke:-relax:-C target-feature=+relax" \
+                  "float-smoke:-fd-relax:-C target-feature=+flush-denormals,+relax"; do
         IFS=: read -r crate suffix extra <<< "$spec"
         tdir=$(target_dir "$root/build/hw/rt-target$suffix")
         for profile in release dev; do

@@ -9,7 +9,9 @@
 # that call a function cannot be run on RX (no JIT for it in the target):
 # LLDB has to say so, not crash (#79).
 #
-#   check-lldb.sh          PROFILE=dev|release (default dev)
+#   check-lldb.sh          PROFILE=dev|release (default dev); RUST_EXTRA_FLAGS
+#                          adds rustc flags (e.g. -C target-feature=+relax),
+#                          in a target directory of its own
 set -u
 root=$(cd "$(dirname "$0")/.." && pwd)
 host=x86_64-unknown-linux-gnu
@@ -22,7 +24,10 @@ if [ -z "${QEMU:-}" ]; then
   [ -x "$QEMU" ] || QEMU=qemu-system-rx
 fi
 crate=$root/test/rust/lldb-demo
-target_dir=$root/build/lldb-demo
+target_dir=$root/build/lldb-demo${RUST_EXTRA_FLAGS:+-$(echo "$RUST_EXTRA_FLAGS" | md5sum | cut -c1-8)}
+# RUSTFLAGS replaces the crate's rustflags, so give them too.
+export RUSTFLAGS=${RUST_EXTRA_FLAGS:+-C link-arg=-Tlink.x -C target-cpu=rxv1 $RUST_EXTRA_FLAGS}
+[ -n "$RUSTFLAGS" ] || unset RUSTFLAGS
 (cd "$crate" && RUSTC=$root/rust/build/$host/stage1/bin/rustc RUSTC_BOOTSTRAP=1 \
   "$root/rust/build/$host/stage0/bin/cargo" build -q --profile "$profile" \
   --target-dir "$target_dir") || exit 1
