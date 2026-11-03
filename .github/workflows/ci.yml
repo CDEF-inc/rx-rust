@@ -40,7 +40,7 @@ jobs:
       gnu-hit: ${{ steps.gnu.outputs.cache-hit }}
       qemu-hit: ${{ steps.qemu.outputs.cache-hit }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - id: k
         env:
           GH_TOKEN: ${{ github.token }}
@@ -56,16 +56,16 @@ jobs:
             echo "qemu=qemu-$v-$qemu-${{ hashFiles('scripts/build-qemu.sh') }}"
           } | tee -a "$GITHUB_OUTPUT"
       - id: rustc
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with: { path: build/ci/rustc.tar.zst, key: "${{ steps.k.outputs.rustc }}", lookup-only: true }
       - id: lldb
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with: { path: build/ci/lldb.tar.zst, key: "${{ steps.k.outputs.lldb }}", lookup-only: true }
       - id: gnu
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with: { path: build/ci/gnu.tar.zst, key: "${{ steps.k.outputs.gnu }}", lookup-only: true }
       - id: qemu
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with: { path: build/ci/qemu.tar.zst, key: "${{ steps.k.outputs.qemu }}", lookup-only: true }
 
   # One job per part that is not cached yet.
@@ -88,7 +88,7 @@ jobs:
           esac
           [ "$hit" = true ] && echo "cached" || echo "build=1" >> "$GITHUB_OUTPUT"
       - if: steps.need.outputs.build
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - if: steps.need.outputs.build && (matrix.part == 'rustc' || matrix.part == 'lldb')
         name: Free disk space
         run: |
@@ -97,7 +97,7 @@ jobs:
       - if: steps.need.outputs.build
         run: bash scripts/ci.sh deps ${{ matrix.part }}
       - if: steps.need.outputs.build && (matrix.part == 'rustc' || matrix.part == 'lldb')
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .ccache
           key: ccache-${{ matrix.part }}-${{ github.run_id }}
@@ -105,17 +105,17 @@ jobs:
       - if: steps.need.outputs.build
         run: bash scripts/ci.sh build ${{ matrix.part }}
       - if: steps.need.outputs.build
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: build/ci/${{ matrix.part }}.tar.zst
           key: ${{ needs.keys.outputs[matrix.part] }}
       - if: always() && steps.need.outputs.build && (matrix.part == 'rustc' || matrix.part == 'lldb')
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .ccache
           key: ccache-${{ matrix.part }}-${{ github.run_id }}
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-logs-${{ matrix.part }}
           path: |
@@ -134,21 +134,21 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: bash scripts/ci.sh deps test
       - run: bash scripts/ci.sh sources
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         with: { path: build/ci/rustc.tar.zst, key: "${{ needs.keys.outputs.rustc }}", fail-on-cache-miss: true }
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         with: { path: build/ci/lldb.tar.zst, key: "${{ needs.keys.outputs.lldb }}", fail-on-cache-miss: true }
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         with: { path: build/ci/gnu.tar.zst, key: "${{ needs.keys.outputs.gnu }}", fail-on-cache-miss: true }
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         with: { path: build/ci/qemu.tar.zst, key: "${{ needs.keys.outputs.qemu }}", fail-on-cache-miss: true }
       - run: bash scripts/ci.sh unpack rustc lldb gnu qemu
       - run: bash scripts/run-all-tests.sh -j 8 --shard ${{ matrix.shard }}/4
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-logs-${{ matrix.shard }}
           path: build/test-logs
