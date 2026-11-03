@@ -9,7 +9,8 @@
 #
 # QEMU is the emulator to run (default: ../qemu/build/qemu-system-rx, the
 # CDEF-inc/qemu build next to this repository, else qemu-system-rx on
-# PATH), QEMU_CPU the -cpu model (default: the board's, rx62n).
+# PATH), QEMU_CPU the -cpu model (default: the board's, rx62n), QEMU_FLAGS
+# more QEMU options (e.g. -icount, see run-all-tests.sh).
 set -u
 elf=$1
 label=$2
@@ -32,7 +33,7 @@ head -c 16 /dev/zero > "$tmp/bios.bin"
   echo "info registers"
   echo quit
 } | timeout 60 "$QEMU" -M gdbsim-r5f562n8 \
-    ${QEMU_CPU:+-cpu "$QEMU_CPU"} -bios "$tmp/bios.bin" \
+    ${QEMU_CPU:+-cpu "$QEMU_CPU"} ${QEMU_FLAGS:-} -bios "$tmp/bios.bin" \
     -display none -serial none -device loader,file="$elf",cpu-num=0 \
     -monitor stdio 2>&1 | tr -d '\r' > "$tmp/monitor.log" || true
 

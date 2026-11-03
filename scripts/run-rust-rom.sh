@@ -11,7 +11,7 @@
 # target-feature flags of the crate's .cargo/config.toml, which are for
 # QEMU's default rx62n). RUST_EXTRA_FLAGS adds rustc flags (with RX_CPU),
 # e.g. "-C target-feature=+flush-denormals", in a separate target
-# directory. QEMU as in qemu-run.sh.
+# directory. QEMU and QEMU_FLAGS as in qemu-run.sh.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -62,7 +62,7 @@ done
   for s in "${!A[@]}"; do echo "xp /1wd 0x${A[$s]}"; done
   echo "info registers"
   echo quit
-} | timeout 60 "$QEMU" -M gdbsim-r5f562n8 ${QEMU_CPU:+-cpu "$QEMU_CPU"} \
+} | timeout 60 "$QEMU" -M gdbsim-r5f562n8 ${QEMU_CPU:+-cpu "$QEMU_CPU"} ${QEMU_FLAGS:-} \
     -bios "$tmp/rom.bin" \
     -display none -serial file:"$tmp/sci0.txt" -monitor stdio 2>&1 \
   | tr -d '\r' > "$tmp/monitor.log" || true

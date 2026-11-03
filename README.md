@@ -127,8 +127,15 @@ The single tests take `RX_CPU=<model>` to build for and run on that core
 (see [`scripts/cpu.sh`](scripts/cpu.sh)); without it they build RXv1 code
 and run on `rx62n`.
 
+The tests run in parallel, one per CPU by default (`-j N`; about 80 seconds
+on 28 threads, against 33 minutes one at a time); tests that share a cargo
+target directory, or check what another one built, run in order.
+`--shard K/N` runs one of N parts, for CI. QEMU runs with `-icount` there
+(`QEMU_FLAGS`), so that the timer tests do not depend on the machine's load.
+
 ```sh
 scripts/run-all-tests.sh                     # everything, on every CPU model
+scripts/run-all-tests.sh -j 8 --shard 1/4    # the first quarter, 8 at a time
 RX_CPU=rxv3 scripts/run-rust-rom.sh test/rust/isr-save
 scripts/mc-diff.sh lines test/mc/basic.s     # also scc, system, fpu, dsp, v2, dfpu, v3, v3e, mov, memex
 scripts/mc-diff.sh file test/mc/branch.s     # also symbol, string, sizeless
