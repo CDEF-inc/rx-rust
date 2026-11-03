@@ -2,7 +2,9 @@
 target = "rx-none-elf"
 
 [target.rx-none-elf]
-# QEMU models an RX62N, which is RXv1.
+# QEMU models an RX62N, which is RXv1. f32 / f64 are soft-float; add
+# "-C", "target-feature=+fpu,+flush-denormals" to use the RX62N's FPU for f32
+# (README, "Floating point").
 rustflags = ["-C", "link-arg=-Tlink.x", "-C", "target-cpu=rxv1"]
 
 [unstable]

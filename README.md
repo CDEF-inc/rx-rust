@@ -23,12 +23,13 @@ AP-RX72M-0A board): the instruction, codegen and Rust tests pass on both
 
 What works:
 
-- i8/i16/i32/i64 integer code, `f32`/`f64` (soft-float, GCC `-m64bit-doubles`
-  compatible; with the `fpu` feature, on by default for rxv2+, fast-math
-  `f32` operations in functions that allow flushing denormals, and
-  int-to-float conversions, use the FPU, and with `dfpu` (rxv3) the same
-  holds for `f64` and the DFPU), structs by value and `sret`, calls in both
-  directions between Rust/LLVM and GCC-compiled C;
+- i8/i16/i32/i64 integer code, `f32`/`f64` (soft-float by default, GCC
+  `-m64bit-doubles` compatible; with `-C target-feature=+flush-denormals`
+  the FPU, and on rxv3 the DFPU for `f64`: see
+  [Floating point](#floating-point)), structs by value and `sret`, calls in
+  both directions between Rust/LLVM and GCC-compiled C;
+- `alloc` with a `#[global_allocator]` of the application's
+  (`test/rust/alloc-smoke`);
 - atomics up to 32 bits, including compare-and-swap and `fetch_*`
   (`movli`/`movco` on RXv2+, interrupts masked on RXv1), inline assembly,
   interrupts (whose entries save FPSW, the DFPU registers the compiler uses
@@ -39,10 +40,18 @@ What works:
   (`smovf`, `sstr`) for `memcpy` / `memset`;
 - the assembler for the RXv1 and system-control instructions, the
   single-precision FPU, the DSP (accumulator) instructions, the RXv2 and RXv3
-  additions and the RXv3 double-precision FPU.
+  additions and the RXv3 double-precision FPU;
+- linking with lld (the default) or GNU ld, and a prebuilt toolchain without
+  GNU binutils (lld and the LLVM binary tools);
+- debugging with LLDB, on QEMU and on the RX72M: breakpoints, backtraces,
+  variables, stepping (`scripts/check-lldb.sh`); e² studio's GDB also reads
+  the debug info.
 
 Not yet:
-`alloc`/`std`, debug info checks, most peripheral drivers (the HAL has clocks, GPIO, delay and a UART).
+`std`, unwinding (panics abort), most peripheral drivers (the HAL has
+clocks, GPIO, delay and a UART; #54), and parts of LLDB (watchpoints and the
+DFPU registers on the board, calling functions in expressions, Rust type
+names: #79-#87).
 
 ## Layout
 
@@ -209,6 +218,26 @@ depends on `rx-rt`, provides `memory.x`, and builds with
 `-Zbuild-std=core` and `-C link-arg=-Tlink.x`. The target and its ABI are
 described in
 [`src/doc/rustc/src/platform-support/rx-none-elf.md`](https://github.com/CDEF-inc/rust/blob/rx-none-elf/src/doc/rustc/src/platform-support/rx-none-elf.md).
+
+### Floating point
+
+By default `f32` and `f64` use soft-float routines (compiler-builtins), even
+on cores with an FPU. To use the FPU (rxv2, rxv3) and, for `f64`, the DFPU
+(rxv3, rxv3e), add `+flush-denormals` to the target features:
+
+```toml
+# .cargo/config.toml
+[target.rx-none-elf]
+rustflags = ["-C", "link-arg=-Tlink.x", "-C", "target-cpu=rxv3",
+             "-C", "target-feature=+flush-denormals"]
+```
+
+- **Speed:** arithmetic, compares and `as` conversions then compile to FPU / DFPU instructions, about 28 times faster on an RX72M (`test/rust/float-smoke`'s benchmark).
+- **Results:** IEEE for NaNs, infinities, signed zeros and rounding.
+- **What changes:** denormal inputs and results become ±0 (FPSW.DN / DPSW.DDN, which rx-rt sets at reset).
+- **Interrupts:** rx-rt's interrupt entries save FPSW and, with the DFPU, DR0-DR1, DPSW and DCMR.
+
+`docs/NOTES-codegen.md` ("IEEE の FPU / DFPU") has the details.
 
 ## License
 
