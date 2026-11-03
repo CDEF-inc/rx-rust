@@ -54,6 +54,15 @@ run "check-fp" bash "$S/check-fp.sh"
 run "check-lld" bash "$S/check-lld.sh"
 run "lld lit" "$root/build/llvm/bin/llvm-lit" -q \
   "$root"/rust/src/llvm-project/lld/test/ELF/rx-*
+# LLDB (build/lldb, from scripts/build-lldb.sh; skipped without it): a debug
+# session on QEMU, and the RX lit test.
+if [ -x "$root/build/lldb/bin/lldb" ]; then
+  run "check-lldb" bash "$S/check-lldb.sh"
+  run "lldb lit" "$root/build/lldb/bin/llvm-lit" -q \
+    "$root"/rust/src/llvm-project/lldb/test/Shell/Disassemble/TestDisassembleRX.test
+else
+  echo "(no build/lldb: LLDB not tested)"
+fi
 
 echo "== QEMU instruction tests"
 run "qemu cpu-features" "$S/run-qemu-test.sh" cpu-features rx62n rxv1 rxv2 rxv3 rxv3e

@@ -210,17 +210,24 @@ macro_rules! acc_restore {
 // with interrupts disabled. Both stacks start at the top of RAM: the
 // application stays on ISP unless it switches PSW.U itself. FPSW and DPSW
 // are set to 0x100 (their reset value, in case a boot loader changed them).
+// The CFI marks the return address (PC, column 17) undefined, so that a
+// debugger's backtrace ends here instead of unwinding into the stack's
+// initial contents.
 global_asm!(
     concat!(
         "\t.pushsection .text.rx_reset,\"ax\"\n",
         "\t.global _rx_reset\n",
         "_rx_reset:\n",
+        "\t.cfi_sections .eh_frame, .debug_frame\n",
+        "\t.cfi_startproc\n",
+        "\t.cfi_undefined 17\n",
         "\tmov.l\t#_rx_stack_top, r0\n",
         "\tmvtc\t#_rx_stack_top, usp\n",
         "\tmvtc\t#_rx_vectors, intb\n",
         fpu_init!(),
         dfpu_init!(),
         "\tbsr.a\t{start}\n",
+        "\t.cfi_endproc\n",
         "\t.global _rx_default_handler\n",
         "_rx_default_handler:\n",
         "\tbra.b\t_rx_default_handler\n",

@@ -1,0 +1,10 @@
+[build]
+target = "rx-none-elf"
+
+[target.rx-none-elf]
+# QEMU models an RX62N, which is RXv1.
+rustflags = ["-C", "link-arg=-Tlink.x", "-C", "target-cpu=rxv1"]
+
+[unstable]
+build-std = ["core"]
+build-std-features = ["compiler-builtins-mem"]

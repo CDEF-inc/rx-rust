@@ -3,7 +3,8 @@
 # it (CI): the stage1 rustc with the library sources for -Zbuild-std, the
 # stage0 cargo, lld (the RX port: rustc's rust-lld, and bin/ld.lld), the
 # LLVM binary tools (objcopy, objdump, nm, ...; also as rx-elf-*) and
-# qemu-system-rx (CDEF-inc/qemu). No GNU binutils: Rust programs do not
+# qemu-system-rx (CDEF-inc/qemu), and LLDB with RX support if
+# scripts/build-lldb.sh built it. No GNU binutils: Rust programs do not
 # need them (C code built with rx-elf-gcc brings its own).
 #
 #   dist-toolchain.sh [NAME]   -> build/dist/NAME.tar.xz
@@ -12,8 +13,8 @@
 # The archive holds NAME/ with
 #   bin/       rustc, cargo, ld.lld, llvm-{objcopy,objdump,nm,size,readelf,
 #              readobj,ar,strip,strings,addr2line,symbolizer} and the same
-#              as rx-elf-* (symbolic links), qemu-system-rx
-#   lib/       librustc_driver, rustlib/x86_64-unknown-linux-gnu (the host
+#              as rx-elf-* (symbolic links), qemu-system-rx, lldb
+#   lib/       librustc_driver, liblldb, rustlib/x86_64-unknown-linux-gnu (the host
 #              std, for build scripts and proc macros; bin/rust-lld) and
 #              rustlib/src/rust/library (core etc. for -Zbuild-std)
 #   VERSIONS   the commits it was built from
@@ -61,6 +62,17 @@ ln -s llvm-symbolizer "$d/bin/llvm-addr2line"
 for t in objcopy objdump nm size readelf ar strip strings addr2line; do
   ln -s "llvm-$t" "$d/bin/rx-elf-$t"
 done
+# LLDB (build/lldb): lldb finds liblldb through its RUNPATH, $ORIGIN/../lib.
+lldb=$root/build/lldb
+if [ -x "$lldb/bin/lldb" ]; then
+  cp "$lldb/bin/lldb" "$d/bin/"
+  so=$(readlink "$lldb/lib/liblldb.so")              # liblldb.so.23.1
+  strip -o "$d/lib/$(readlink -f "$lldb/lib/liblldb.so" | xargs basename)" \
+    "$(readlink -f "$lldb/lib/liblldb.so")"
+  ln -s "$(readlink -f "$lldb/lib/liblldb.so" | xargs basename)" "$d/lib/$so"
+else
+  echo "no build/lldb/bin/lldb (scripts/build-lldb.sh): the archive has no LLDB" >&2
+fi
 
 {
   echo "rx-rust        $(git -C "$root" rev-parse HEAD)"
@@ -70,6 +82,7 @@ done
   echo "rustc          $("$s1/bin/rustc" -V)"
   echo "llvm tools     $("$L/llvm-objcopy" --version | grep -i 'llvm version' | head -1 | sed 's/^ *//')"
   echo "qemu-system-rx $("$QEMU" --version | head -1)"
+  [ -x "$d/bin/lldb" ] && echo "lldb           $("$lldb/bin/lldb" --version | head -1)"
 } > "$d/VERSIONS"
 cat "$d/VERSIONS"
 
