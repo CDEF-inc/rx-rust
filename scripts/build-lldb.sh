@@ -25,5 +25,7 @@ if [ ! -f "$out/build.ninja" ]; then
     -DLLVM_ENABLE_ZSTD=OFF \
     > "$out/cmake.log" 2>&1 || { tail -30 "$out/cmake.log"; exit 1; }
 fi
-ninja -C "$out" lldb > "$out/ninja.log" 2>&1 || { grep -E -B2 -A8 'error|FAILED' "$out/ninja.log" | head -80; exit 1; }
+# clang, lldb-test and the LLVM test tools are for the lit tests that
+# run-all-tests.sh runs.
+ninja -C "$out" lldb clang lldb-test FileCheck count not yaml2obj > "$out/ninja.log" 2>&1 || { grep -E -B2 -A8 'error|FAILED' "$out/ninja.log" | head -80; exit 1; }
 "$out/bin/lldb" --version

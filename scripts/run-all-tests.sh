@@ -59,7 +59,9 @@ run "lld lit" "$root/build/llvm/bin/llvm-lit" -q \
 if [ -x "$root/build/lldb/bin/lldb" ]; then
   run "check-lldb" bash "$S/check-lldb.sh"
   run "lldb lit" "$root/build/lldb/bin/llvm-lit" -q \
-    "$root"/rust/src/llvm-project/lldb/test/Shell/Disassemble/TestDisassembleRX.test
+    "$root"/rust/src/llvm-project/lldb/test/Shell/Disassemble/TestDisassembleRX.test \
+    "$root"/rust/src/llvm-project/clang/test/Preprocessor/init-rx.c \
+    "$root"/rust/src/llvm-project/clang/test/CodeGen/rx-mangle.c
 else
   echo "(no build/lldb: LLDB not tested)"
 fi

@@ -3,8 +3,10 @@
 # scripts/build-lldb.sh) through QEMU's gdbstub, and checks what LLDB shows:
 # a breakpoint by Rust function name, the backtrace through the Rust frames
 # (from the compiler's .debug_frame), arguments and locals (a struct among
-# them), `finish` with the return value, registers, disassembly, stepping,
-# a watchpoint and a global variable.
+# them), expressions, `finish` with the return value, registers,
+# disassembly, stepping, a watchpoint and a global variable. Expressions
+# that call a function cannot be run on RX (no JIT for it in the target):
+# LLDB has to say so, not crash (#79).
 #
 #   check-lldb.sh          PROFILE=dev|release (default dev)
 set -u
@@ -37,11 +39,13 @@ sleep 1
 "$LLDB" -b -x -o "settings set use-color false" \
   -o "target create $elf" -o "gdb-remote 127.0.0.1:$port" \
   -o "breakpoint set -n scale" -o "continue" \
-  -o "bt" -o "frame variable" -o "register read pc r0 psw" \
+  -o "bt" -o "frame variable" -o "expr k + 1" -o "expr p.x * 2" \
+  -o "register read pc r0 psw" \
   -o "disassemble -c 3 --pc" -o "finish" -o "frame variable" \
   -o "next" -o "frame variable" -o "up" -o "frame variable" \
   -o "watchpoint set variable finished" -o "continue" \
-  -o "target variable result finished" -o "kill" > "$tmp/out" 2>&1
+  -o "target variable result finished" -o "expr lldb_demo::outer(1, 2)" \
+  -o "kill" > "$tmp/out" 2>&1
 cat "$tmp/out" > "$root/build/check-lldb.log"
 
 status=0
@@ -65,10 +69,18 @@ fi
 expect "struct argument"             '\(lldb_demo::Point\) p = \(x = 5, y = -2\)'
 expect "registers"                   'pc = 0xfff8[0-9a-f]+  lldb-demo`lldb_demo::scale'
 expect "disassembly"                 '^-> +0xfff8[0-9a-f]+ <\+[0-9]+>: '
-expect "finish: return value"        'Return value: \(int\) \$0 = 9'
+expect "finish: return value"        'Return value: \(int\) \$[0-9]+ = 9'
 expect "next: the local"             '\(int\) s = 9'
 expect "up: outer's arguments"       '\(unsigned int\) a = 4'
 expect "watchpoint"                  'stop reason = watchpoint 1'
 expect "global variable"             '\(unsigned int\) result = 28'
+expect "expression"                  '\(int\) \$[0-9]+ = 4'
+expect "expression on a struct field" '\(int\) \$[0-9]+ = 10'
+expect "a call: a clean error"       "error: Can't evaluate the expression"
+if grep -q -E 'Assertion|Stack dump|PLEASE submit' "$tmp/out"; then
+  echo "FAIL  LLDB crashed"; status=1
+else
+  echo "ok    LLDB did not crash"
+fi
 [ $status = 0 ] || echo "   (LLDB output in build/check-lldb.log)"
 exit $status
