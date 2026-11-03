@@ -3,7 +3,8 @@
 # scripts/build-lldb.sh) through QEMU's gdbstub, and checks what LLDB shows:
 # a breakpoint by Rust function name, the backtrace through the Rust frames
 # (from the compiler's .debug_frame), arguments and locals (a struct among
-# them), expressions, `finish` with the return value, registers,
+# them), expressions, `finish` with the return value (also of the
+# aggregates in lldb-demo's rets.rs), `thread return`, registers,
 # disassembly, stepping, a watchpoint and a global variable. Expressions
 # that call a function cannot be run on RX (no JIT for it in the target):
 # LLDB has to say so, not crash (#79).
@@ -44,7 +45,19 @@ sleep 1
   -o "disassemble -c 3 --pc" -o "finish" -o "frame variable" \
   -o "next" -o "frame variable" -o "up" -o "frame variable" \
   -o "watchpoint set variable finished" -o "continue" \
-  -o "target variable result finished" -o "expr lldb_demo::outer(1, 2)" \
+  -o "target variable result finished" \
+  -o "breakpoint set -n ret_s2" -o "breakpoint set -n ret_s3" \
+  -o "breakpoint set -n ret_pair16" -o "breakpoint set -n ret_reordered" \
+  -o "breakpoint set -n ret_pair_u8_u16" -o "breakpoint set -n ret_s8" \
+  -o "breakpoint set -n ret_s12" -o "breakpoint set -n ret_s20" \
+  -o "breakpoint set -n ret_option" -o "breakpoint set -n ret_u64" \
+  -o "breakpoint set -n ret_f64" \
+  -o "continue" -o "finish" -o "continue" -o "finish" -o "continue" -o "finish" \
+  -o "continue" -o "finish" -o "continue" -o "finish" \
+  -o "continue" -o "finish" -o "continue" -o "finish" \
+  -o "continue" -o "thread return 7" -o "register read r1" \
+  -o "continue" -o "finish" -o "continue" -o "finish" -o "continue" -o "finish" \
+  -o "expr lldb_demo::outer(1, 2)" \
   -o "kill" > "$tmp/out" 2>&1
 cat "$tmp/out" > "$root/build/check-lldb.log"
 
@@ -74,6 +87,22 @@ expect "next: the local"             '\(int\) s = 9'
 expect "up: outer's arguments"       '\(unsigned int\) a = 4'
 expect "watchpoint"                  'stop reason = watchpoint 1'
 expect "global variable"             '\(unsigned int\) result = 28'
+# Rust's ABI: pairs of scalars in R1 / R2, small aggregates in R1:R2.
+expect "return: 2-byte struct"       "\\(lldb_demo::rets::S2\\) \\\$[0-9]+ = \\(a = 'A', b = 'B'\\)"
+expect "return: 3-byte struct"       "\\(lldb_demo::rets::S3\\) \\\$[0-9]+ = \\(a = 'a', b = 'b', c = 'c'\\)"
+expect "return: (u16, u16)"          '\(\(u16, u16\)\) \$[0-9]+ = \(__0 = 16, __1 = 4660\)'
+expect "return: reordered fields"    "\\(lldb_demo::rets::Reordered\\) \\\$[0-9]+ = \\(a = 'r', b = 305419896\\)"
+expect "return: (u8, u16)"           "\\(\\(u8, u16\\)\\) \\\$[0-9]+ = \\(__0 = 'p', __1 = 17185\\)"
+expect "return: 8-byte struct"       '\(lldb_demo::rets::S8\) \$[0-9]+ = \(a = 8, b = -1\)'
+expect "return: Option<u32>"         'value = \(__0 = 42\)'
+expect "return: u64"                 '\(unsigned long long\) \$[0-9]+ = 8589934597'
+expect "return: f64"                 '\(double\) \$[0-9]+ = 3\.5'
+if grep -q 'Return value: (lldb_demo::rets::S12)' "$tmp/out"; then
+  echo "FAIL  return: a 12-byte struct (in memory) has no value to show"; status=1
+else
+  echo "ok    return: none for a 12-byte struct (in memory)"
+fi
+expect "thread return"               'r1 = 0x00000007'
 expect "expression"                  '\(int\) \$[0-9]+ = 4'
 expect "expression on a struct field" '\(int\) \$[0-9]+ = 10'
 expect "a call: a clean error"       "error: Can't evaluate the expression"
