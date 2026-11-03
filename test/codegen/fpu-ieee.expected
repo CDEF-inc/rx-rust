@@ -76,11 +76,11 @@ _f_uno
 
 _f_sel
   fcmp r1, r2
-  bn.b .L
+  bn .L
 
 _f_br
   fcmp r2, r1
-  bn.b .L
+  bn .L
 
 _f_toi
   ftoi r1, r1
@@ -91,18 +91,18 @@ _f_tou
 _f_sat
   ftoi r1, r3
   fcmp r4, r1
-  blt.b .L
+  blt .L
   fcmp r1, r4
-  bn.b .L
+  bn .L
   fcmp r1, r1
-  bo.b .L
+  bo .L
 
 _f_usat
   bsr.a ___fixunssfsi
   fcmp r2, r6
-  blt.b .L
+  blt .L
   fcmp r6, r3
-  bn.b .L
+  bn .L
 
 _d_fadd
   bsr.a ___adddf3
@@ -177,12 +177,12 @@ _d_uno
 
 _d_sel
   bsr.a ___gtdf2
-  bgt.b .L
-  bgt.b .L
+  bgt .L
+  bgt .L
 
 _d_br
   bsr.a ___ltdf2
-  blt.b .L
+  blt .L
 
 _d_toi
   bsr.a ___fixdfsi
@@ -194,17 +194,17 @@ _d_sat
   bsr.a ___gtdf2
   bsr.a ___gedf2
   bsr.a ___fixdfsi
-  blt.b .L
-  bgt.b .L
+  blt .L
+  bgt .L
   bsr.a ___unorddf2
-  bne.b .L
+  bne .L
 
 _d_usat
   bsr.a ___gtdf2
   bsr.a ___gedf2
   bsr.a ___fixunsdfsi
-  blt.b .L
-  bgt.b .L
+  blt .L
+  bgt .L
 
 _f_ext
   bsr.a ___extendsfdf2
@@ -293,11 +293,11 @@ _f_uno
 
 _f_sel
   fcmp r1, r2
-  bn.b .L
+  bn .L
 
 _f_br
   fcmp r2, r1
-  bn.b .L
+  bn .L
 
 _f_toi
   ftoi r1, r1
@@ -308,18 +308,18 @@ _f_tou
 _f_sat
   ftoi r1, r3
   fcmp r4, r1
-  blt.b .L
+  blt .L
   fcmp r1, r4
-  bn.b .L
+  bn .L
   fcmp r1, r1
-  bo.b .L
+  bo .L
 
 _f_usat
   ftou r1, r2
   fcmp r3, r1
-  blt.b .L
+  blt .L
   fcmp r1, r4
-  bn.b .L
+  bn .L
 
 _d_fadd
   dmov.l r1, drl0
@@ -484,9 +484,9 @@ _d_sel
   dcmplt dr0, dr1
   mvfdr
   sceq.l r5
-  beq.b .L
-  beq.b .L
-  bne.b .L
+  beq .L
+  beq .L
+  bne .L
 
 _d_br
   dmov.l r3, drl0
@@ -496,7 +496,7 @@ _d_br
   dcmplt dr0, dr1
   mvfdr
   sceq.l r1
-  bne.b .L
+  bne .L
 
 _d_toi
   dmov.l r1, drl0
@@ -520,17 +520,17 @@ _d_sat
   scne.l r4
   dtoi dr0, dr1
   dmov.l drl1, r3
-  bne.b .L
+  bne .L
   dmov.l r4, drl1
   dmov.l r3, drh1
   dcmplt dr0, dr1
   mvfdr
   sceq.l r4
-  bne.b .L
+  bne .L
   dcmpun dr0, dr0
   mvfdr
   sceq.l r2
-  bne.b .L
+  bne .L
 
 _d_usat
   dmov.l r1, drl0
@@ -542,13 +542,13 @@ _d_usat
   scne.l r3
   dtou dr0, dr1
   dmov.l drl1, r1
-  bne.b .L
+  bne .L
   dmov.l r3, drl1
   dmov.l r1, drh1
   dcmplt dr0, dr1
   mvfdr
   sceq.l r3
-  bne.b .L
+  bne .L
 
 _f_ext
   ftod r1, dr0
