@@ -15,16 +15,20 @@
 #              readobj,ar,strip,strings,addr2line,symbolizer} and the same
 #              as rx-elf-* (symbolic links), qemu-system-rx, lldb
 #   lib/       librustc_driver, liblldb, rustlib/x86_64-unknown-linux-gnu (the host
-#              std, for build scripts and proc macros; bin/rust-lld) and
-#              rustlib/src/rust/library (core etc. for -Zbuild-std)
-#   VERSIONS   the commits it was built from
+#              std, for build scripts and proc macros; bin/rust-lld),
+#              rustlib/src/rust/library (core etc. for -Zbuild-std) and the
+#              shared libraries qemu-system-rx needs beyond glibc (glib,
+#              pixman, ...; its RUNPATH points here)
+#   VERSIONS   the commits it was built from, and the glibc it needs
 #
 # To use it: RUSTC=NAME/bin/rustc RUSTC_BOOTSTRAP=1 PATH=NAME/bin:$PATH
-# NAME/bin/cargo build ... (with -Zbuild-std=core). The binaries are built on
-# Ubuntu 24.04 (glibc 2.39); qemu-system-rx needs QEMU's shared libraries
-# (glib, pixman, ...: apt-get install qemu-system-misc brings them).
+# NAME/bin/cargo build ... (with -Zbuild-std=core). The binaries need the
+# glibc of the machine that built them or later: the CI builds the release
+# archives on Ubuntu 22.04 (glibc 2.35), so they run on Ubuntu 22.04 and
+# Debian 12 and later. scripts/check-dist.sh tests an archive.
 #
 # QEMU picks the qemu-system-rx to pack (default ../qemu/build/qemu-system-rx).
+# Needs patchelf.
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 host=x86_64-unknown-linux-gnu
@@ -38,6 +42,7 @@ for t in lld llvm-objcopy llvm-objdump llvm-nm llvm-size llvm-readobj llvm-ar ll
   [ -x "$L/$t" ] || { echo "no $L/$t; run scripts/build-llvm.sh" >&2; exit 2; }
 done
 [ -x "$QEMU" ] || { echo "no qemu-system-rx at $QEMU; set QEMU" >&2; exit 2; }
+command -v patchelf > /dev/null || { echo "needs patchelf (apt-get install patchelf)" >&2; exit 2; }
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -48,6 +53,19 @@ cp "$s1"/lib/librustc_driver-*.so "$d/lib/"
 cp -r "$s1/lib/rustlib/$host" "$d/lib/rustlib/"
 tar -C "$root/rust" -cf - --exclude=.git library | tar -C "$d/lib/rustlib/src/rust" -xf -
 cp "$QEMU" "$d/bin/"
+# QEMU's libraries (glib, pixman, ...) go into lib/ with it: only glibc,
+# libstdc++, libgcc_s and zlib, which every Linux system has, stay the
+# system's. RUNPATH $ORIGIN (DT_RUNPATH is not inherited) lets the copied
+# libraries find each other.
+for so in $(ldd "$QEMU" | awk '$2 == "=>" && $3 ~ /^\// {print $3}'); do
+  case $(basename "$so") in
+  libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*|libutil.so.*|\
+  libresolv.so.*|ld-linux*|libgcc_s.so.*|libstdc++.so.*|libz.so.*) continue ;;
+  esac
+  cp -L "$so" "$d/lib/"
+  patchelf --set-rpath '$ORIGIN' "$d/lib/$(basename "$so")"
+done
+patchelf --set-rpath '$ORIGIN/../lib' "$d/bin/qemu-system-rx"
 # One lld: rustc's rust-lld (in the sysroot, from build-rustc.sh), and
 # ld.lld for linking by hand. lld picks its flavour from its name.
 ln -s "../lib/rustlib/$host/bin/rust-lld" "$d/bin/ld.lld"
@@ -78,11 +96,16 @@ fi
   echo "rx-rust        $(git -C "$root" rev-parse HEAD)"
   echo "rust           $(git -C "$root/rust" rev-parse HEAD)"
   echo "llvm-project   $(git -C "$root/rust/src/llvm-project" rev-parse HEAD)"
-  echo "qemu           $(git -C "$(dirname "$QEMU")/.." rev-parse HEAD 2>/dev/null || echo unknown)"
+  # Without its checkout (CI): the commit the CI builds.
+  echo "qemu           $(git -C "$(dirname "$QEMU")/.." rev-parse HEAD 2>/dev/null ||
+    echo "$(grep -v '^#' "$root/scripts/qemu.commit") (scripts/qemu.commit)")"
   echo "rustc          $("$s1/bin/rustc" -V)"
   echo "llvm tools     $("$L/llvm-objcopy" --version | grep -i 'llvm version' | head -1 | sed 's/^ *//')"
   echo "qemu-system-rx $("$QEMU" --version | head -1)"
   [ -x "$d/bin/lldb" ] && echo "lldb           $("$lldb/bin/lldb" --version | head -1)"
+  # The newest glibc symbol version any binary refers to.
+  echo "needs glibc    $(find "$d" -type f \( -perm -u+x -o -name '*.so*' \) -exec objdump -T {} + 2>/dev/null |
+    grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1) or later"
 } > "$d/VERSIONS"
 cat "$d/VERSIONS"
 

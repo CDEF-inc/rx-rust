@@ -102,10 +102,13 @@ the stage1 rustc with the library sources for `-Zbuild-std`, cargo, lld
 from in `VERSIONS`. It has no GNU binutils: Rust programs do not need them.
 The tests in this repository still use GNU as, ld and GCC, to compare with
 them and to call GCC-compiled C. The
-[releases](https://github.com/CDEF-inc/rx-rust/releases) carry it. It runs
-on x86-64 Linux with glibc 2.39 or later (built on Ubuntu 24.04); QEMU
-needs its usual shared libraries (`apt-get install qemu-system-misc`
-brings them) and build scripts need a host C compiler.
+[releases](https://github.com/CDEF-inc/rx-rust/releases) carry it: the CI
+packs it on Ubuntu 22.04 (the `rx-toolchain-x86_64-linux` artifact of a run
+on `main`), so it runs on x86-64 Linux with glibc 2.35 or later (Ubuntu
+22.04, Debian 12 and later; `VERSIONS` says which). `qemu-system-rx`
+brings its shared libraries (glib, pixman, ...) in `lib/`; build scripts
+need a host C compiler. [`scripts/check-dist.sh`](scripts/check-dist.sh)
+tests an archive on a machine (the CI does on Ubuntu 22.04 and Debian 12).
 
 ```sh
 tar -xJf rx-toolchain-x86_64-linux.tar.xz

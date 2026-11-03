@@ -8,7 +8,10 @@
 # the tests. A new rust / llvm-project commit rebuilds rustc (about 3 hours
 # on a GitHub runner; ccache keeps the LLVM objects) and, for LLVM, lldb.
 #
-# Everything runs on ubuntu-22.04 (glibc 2.35). Board tests stay manual.
+# Everything runs on ubuntu-22.04 (glibc 2.35), so the dist archive the dist
+# job packs (scripts/dist-toolchain.sh, the release archive) runs on Ubuntu
+# 22.04, Debian 12 and later; dist-check tests it there in containers.
+# Board tests stay manual.
 name: CI
 
 on:
@@ -152,3 +155,48 @@ jobs:
         with:
           name: test-logs-${{ matrix.shard }}
           path: build/test-logs
+
+  # The prebuilt toolchain (the release archive), as an artifact.
+  dist:
+    needs: [keys, build]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: bash scripts/ci.sh deps test dist
+      - run: bash scripts/ci.sh sources
+      - uses: actions/cache/restore@v6
+        with: { path: build/ci/rustc.tar.zst, key: "${{ needs.keys.outputs.rustc }}", fail-on-cache-miss: true }
+      - uses: actions/cache/restore@v6
+        with: { path: build/ci/lldb.tar.zst, key: "${{ needs.keys.outputs.lldb }}", fail-on-cache-miss: true }
+      - uses: actions/cache/restore@v6
+        with: { path: build/ci/qemu.tar.zst, key: "${{ needs.keys.outputs.qemu }}", fail-on-cache-miss: true }
+      - run: bash scripts/ci.sh unpack rustc lldb qemu
+      - run: bash scripts/dist-toolchain.sh
+      # The archive must not need a newer glibc than the runner's.
+      - run: |
+          tar -xJOf build/dist/rx-toolchain-x86_64-linux.tar.xz rx-toolchain-x86_64-linux/VERSIONS |
+            grep -x 'needs glibc    2\.3[0-5] or later'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rx-toolchain-x86_64-linux
+          path: build/dist/rx-toolchain-x86_64-linux.tar.xz
+          compression-level: 0
+
+  # The archive on other distributions, with only a C compiler for build
+  # scripts besides it.
+  dist-check:
+    needs: dist
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:22.04", "debian:12"]
+    runs-on: ubuntu-22.04
+    container: ${{ matrix.image }}
+    steps:
+      - run: apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-certificates xz-utils gcc libc6-dev > /dev/null
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: rx-toolchain-x86_64-linux
+          path: dist
+      - run: bash scripts/check-dist.sh dist/rx-toolchain-x86_64-linux.tar.xz

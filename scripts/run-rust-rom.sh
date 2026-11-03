@@ -11,7 +11,9 @@
 # target-feature flags of the crate's .cargo/config.toml, which are for
 # QEMU's default rx62n). RUST_EXTRA_FLAGS adds rustc flags (with RX_CPU),
 # e.g. "-C target-feature=+flush-denormals", in a separate target
-# directory. QEMU and QEMU_FLAGS as in qemu-run.sh.
+# directory. QEMU and QEMU_FLAGS as in qemu-run.sh. TOOLCHAIN=DIR uses an
+# unpacked dist-toolchain.sh archive instead of the builds in this tree:
+# its rustc, cargo, rx-elf-* tools and qemu-system-rx (check-dist.sh).
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -21,13 +23,18 @@ profile=${PROFILE:-release}
 G=$root/gnu/install/bin
 host=x86_64-unknown-linux-gnu
 cargo=$root/rust/build/$host/stage0/bin/cargo
-target_dir=$root/build/rust-rom/${RX_CPU:-default}${RUST_EXTRA_FLAGS:+-$(echo "$RUST_EXTRA_FLAGS" | md5sum | cut -c1-8)}
+rustc=$root/rust/build/$host/stage1/bin/rustc
+target_dir=$root/build/rust-rom/${TOOLCHAIN:+dist-}${RX_CPU:-default}${RUST_EXTRA_FLAGS:+-$(echo "$RUST_EXTRA_FLAGS" | md5sum | cut -c1-8)}
+if [ -n "${TOOLCHAIN:-}" ]; then
+  G=$TOOLCHAIN/bin cargo=$TOOLCHAIN/bin/cargo rustc=$TOOLCHAIN/bin/rustc
+  : "${QEMU:=$TOOLCHAIN/bin/qemu-system-rx}"
+fi
 if [ -z "${QEMU:-}" ]; then
   QEMU=$root/../qemu/build/qemu-system-rx
   [ -x "$QEMU" ] || QEMU=qemu-system-rx
 fi
 
-export RUSTC=$root/rust/build/$host/stage1/bin/rustc
+export RUSTC=$rustc
 export RUSTC_BOOTSTRAP=1
 export PATH=$G:$PATH
 if [ -n "${RUST_EXTRA_FLAGS:-}" ] && [ -z "${RUST_CPU_FLAGS:-}" ]; then
