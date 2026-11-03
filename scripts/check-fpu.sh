@@ -56,7 +56,8 @@ for cpu in rxv1 rxv2 rxv3; do
 done
 
 # fpu_ieee.ll with +flush-denormals: FPU / DFPU instructions, conditions
-# and calls.
+# and calls. Branches are written without a size (the assembler sizes
+# them), and only their conditions are compared.
 : > "$tmp/got-ieee"
 for cpu in rxv1 rxv3; do
   case $cpu in
@@ -80,8 +81,9 @@ for cpu in rxv1 rxv3; do
   echo "== $cpu" >> "$tmp/got-ieee"
   awk '/^_[A-Za-z0-9_]+:/ { sub(":", "", $1); print ""; print $1; next }
        /^\t(f[a-z]+|d[a-z.]+|itof|utof|itod|utod|ftod|mvfdr|bsr\.a)\t/ ||
-       /^\tmvfdr$/ || /^\tsc[a-z]+\.l\t/ || /^\tb(n|pz|o|no|lt|ge|gt|le|eq|ne)\.[bw]\t/ {
-         sub(/^\t/, "  "); gsub(/\t/, " "); sub(/ \.LBB[0-9_]+$/, " .L"); print }' \
+       /^\tmvfdr$/ || /^\tsc[a-z]+\.l\t/ || /^\tb(n|pz|o|no|lt|ge|gt|le|eq|ne)(\.[bw])?\t/ {
+         sub(/^\t/, "  "); gsub(/\t/, " "); sub(/ \.LBB[0-9_]+$/, " .L")
+         sub(/\.[bw] \.L$/, " .L"); print }' \
     "$tmp/f.s" >> "$tmp/got-ieee"
   echo >> "$tmp/got-ieee"
 done

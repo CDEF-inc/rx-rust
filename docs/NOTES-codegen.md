@@ -27,8 +27,12 @@
 ### 比較と分岐
 - `cmp src, src2` は src2 - src のフラグ。`(RXcmp a, b)` → `cmp b, a`。
 - 条件コード: eq ne geu ltu gtu leu pz n ge lt gt le o no（0〜13、逆条件は bit0 反転）
-- BCC 擬似 → `b<cc>.b`（±128）。届かなければ BranchRelaxation が「逆条件 b<cc>.b + bra.a」に組み替える。
-  無条件分岐は常に `bra.a`（24bit）。
+- BCC 擬似と無条件分岐（`bra.a`）は、MC に渡すときサイズなしの分岐（BR_SIZELESS、NOTES-mc.md）にする
+  （2026-11-03、rx-rust #96）。アセンブラが距離で bra.s / .b / .w / .a、b<cc>.s / .b / .w、逆条件 + bra.w / bra.a
+  を選ぶ（GNU as と同じ形。`.s` には `bra label` / `b<cc> label` と書く）。BranchRelaxation は 24 ビットを
+  超えないことだけを見る（BCC の Size は最長の 6）。以前は無条件分岐が常に bra.a、条件分岐は BranchRelaxation が
+  最長の命令長で見積もって `b<!cc>.b` + `bra.a` に広げていた。実機用の release ELF 10 本の .text が
+  93,797 → 90,066 バイト（−4.0%）。
 - SETCC → `sc<cc>.l`、SELECT_CC → 分岐の菱形（custom inserter）。
 - switch はジャンプテーブル（下記「ジャンプテーブル」）か比較の木。indirectbr は `jmp Rs`。
 

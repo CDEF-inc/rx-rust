@@ -75,7 +75,9 @@ bash scripts/mc-diff.sh lines test/mc/fpu.s   # dsp.s, v2.s, dfpu.s, v3.s も同
   gas と同じ形にする: bra は .s → .b → .w → .a、bsr は .w → .a、beq / bne は .s → .b → .w → `b<!cond>.s` + bra.a、
   その他の条件は .b → `b<!cond>.b` + bra.w → `b<!cond>.b` + bra.a。距離は列の先頭から測る（gas と同じ）。
   解決できない分岐先（未定義・global・別セクション）は gas と同じく bra.a / bsr.a / beq.w・bne.w / b<cond>.b。
-  codegen はサイズ付き分岐を出し、BranchRelaxation パスで伸ばす。
+  codegen のブロックへの分岐も BR_SIZELESS にする（rx-rust #96、NOTES-codegen.md）。
+  距離は、フラグメントの可変部分（緩和する命令列）の先頭から測る。MCFixup のオフセットはフラグメントの固定部分も
+  含むので、`F.getFixedSize()` を引く（引かずにいたため、直後のラベルへの bra が .s を選んで範囲外になっていた）。
 - **未定義シンボルの差の即値**（`#(_e - _s)`、`.long _e - _s`）: gas と同じく 32bit の欄に
   R_RX_SYM A+C、R_RX_SYM B、R_RX_OPsub、R_RX_ABS32 のスタック計算リロケーションを出す。
 - **定数の分岐先**: gas は `bra.b 8` の 8 を絶対番地として扱うが、LLVM は変位として扱う（実用上は使わない）。
