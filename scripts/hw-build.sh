@@ -42,6 +42,25 @@ case $LD in
   *) nowarn="--no-warn-rwx-segments --no-warn-execstack" ;;
 esac
 linker_flag=${RX_LD:+-C linker=$(realpath "$RX_LD")}
+host=x86_64-unknown-linux-gnu
+s1=$root/rust/build/$host/stage1
+
+# cargo rebuilds only when `rustc -vV` changes, and the stage1 rustc says
+# 1.101.0-dev whatever it was built from (#88). So the Rust target
+# directories are keyed on the compiler itself (librustc_driver, which has
+# the LLVM backend, and rust-lld), and those of older compilers are removed.
+rustc_id=$(stat -c '%n %s %Y' "$s1"/lib/librustc_driver-*.so \
+             "$s1/lib/rustlib/$host/bin/rust-lld" 2>/dev/null | md5sum | cut -c1-8)
+# target_dir BASE: BASE@<compiler>, removing BASE@<other compilers> (and
+# BASE itself, from before the key)
+target_dir() {
+  local old
+  rm -rf "$1"
+  for old in "$1"@*; do
+    [ -e "$old" ] && [ "$old" != "$1@$rustc_id" ] && rm -rf "$old"
+  done
+  echo "$1@$rustc_id"
+}
 # The RX72M has the RXv2 and RXv3 instructions, the FPU and the DFPU.
 defs=(--defsym V2=1 --defsym V3=1 --defsym V3E=0 --defsym FPU=1 --defsym DFPU=1)
 
@@ -98,9 +117,8 @@ for g in "${groups[@]}"; do
       done ;;
     rust)
       d=$out/rust; mkdir -p "$d"
-      host=x86_64-unknown-linux-gnu
       crate=$root/test/rust/core-smoke
-      target_dir=$root/build/hw/rust-target
+      tdir=$(target_dir "$root/build/hw/rust-target")
       "$MC" -triple=rx -mcpu=rxv3e -filetype=obj "$T/start-ram.s" -o "$d/start.o"
       "$G/rx-elf-gcc" $GCCFLAGS -O2 -c "$crate/main.c" -o "$d/main.o"
       for profile in release dev; do
@@ -109,8 +127,8 @@ for g in "${groups[@]}"; do
          RUSTFLAGS="-C target-cpu=rxv3" PATH=$G:$PATH \
          "$root/rust/build/$host/stage0/bin/cargo" build -q --profile "$profile" \
            --target rx-none-elf -Zbuild-std=core \
-           -Zbuild-std-features=compiler-builtins-mem --target-dir "$target_dir")
-        lib=$(ls "$target_dir/rx-none-elf/$([ "$profile" = dev ] && echo debug || echo "$profile")"/lib*.a | head -1)
+           -Zbuild-std-features=compiler-builtins-mem --target-dir "$tdir")
+        lib=$(ls "$tdir/rx-none-elf/$([ "$profile" = dev ] && echo debug || echo "$profile")"/lib*.a | head -1)
         "$LD" $nowarn --gc-sections -T "$T/rx72m-ram.ld" \
           -o "$d/core-smoke-$profile.elf" "$d/start.o" "$d/main.o" "$lib" "$libgcc"
         sym "$d/core-smoke-$profile.elf"
@@ -118,11 +136,11 @@ for g in "${groups[@]}"; do
       done ;;
     rt)
       d=$out/rt; mkdir -p "$d"
-      host=x86_64-unknown-linux-gnu
       # NAME or NAME:SUFFIX:RUSTFLAGS (float-smoke also with the FPU / DFPU)
       for spec in isr-save hw-irq hw-pac hw-hal hw-uart alloc-smoke float-smoke \
                   "float-smoke:-fd:-C target-feature=+flush-denormals"; do
         IFS=: read -r crate suffix extra <<< "$spec"
+        tdir=$(target_dir "$root/build/hw/rt-target$suffix")
         for profile in release dev; do
           # RUSTFLAGS replaces the crate's rustflags (isr-save's are for QEMU's
           # rx62n), so it gives the linker script too.
@@ -131,8 +149,8 @@ for g in "${groups[@]}"; do
            RUSTFLAGS="-C link-arg=-Tlink.x -C target-cpu=rxv3 $extra $linker_flag" \
            RX_MEMORY_X=$T/rx72m-memory.x PATH=$G:$PATH \
            "$root/rust/build/$host/stage0/bin/cargo" build -q --profile "$profile" \
-             --target-dir "$root/build/hw/rt-target$suffix")
-          cp "$root/build/hw/rt-target$suffix/rx-none-elf/$([ "$profile" = dev ] && echo debug || echo "$profile")/$crate" \
+             --target-dir "$tdir")
+          cp "$tdir/rx-none-elf/$([ "$profile" = dev ] && echo debug || echo "$profile")/$crate" \
             "$d/$crate$suffix-$profile.elf"
           sym "$d/$crate$suffix-$profile.elf"
           echo "built $d/$crate$suffix-$profile.elf"
@@ -140,7 +158,7 @@ for g in "${groups[@]}"; do
       done ;;
     examples)
       d=$out/examples; mkdir -p "$d"
-      host=x86_64-unknown-linux-gnu
+      tdir=$(target_dir "$root/build/examples")
       for crate in blinky; do
         # The crate's .cargo/config.toml has the target, its rustflags and
         # build-std.
@@ -148,8 +166,8 @@ for g in "${groups[@]}"; do
          RUSTC=$root/rust/build/$host/stage1/bin/rustc RUSTC_BOOTSTRAP=1 \
          PATH=$G:$PATH \
          "$root/rust/build/$host/stage0/bin/cargo" build -q --release \
-           --target-dir "$root/build/examples")
-        cp "$root/build/examples/rx-none-elf/release/$crate" "$d/$crate.elf"
+           --target-dir "$tdir")
+        cp "$tdir/rx-none-elf/release/$crate" "$d/$crate.elf"
         sym "$d/$crate.elf"
         echo "built $d/$crate.elf"
       done ;;
