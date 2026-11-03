@@ -1,0 +1,21 @@
+[package]
+name = "lldb-demo"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rx-rt = { path = "../../../crates/rx-rt" }
+
+[[bin]]
+name = "lldb-demo"
+test = false
+bench = false
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.release]
+opt-level = "s"
+debug = true

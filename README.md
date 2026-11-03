@@ -13,6 +13,7 @@ AP-RX72M-0A board): the instruction, codegen and Rust tests pass on both
 |---|---|---|
 | LLVM RX backend (MC layer, CodeGen) | [CDEF-inc/llvm-project](https://github.com/CDEF-inc/llvm-project/tree/rx/23.1) `rx/23.1` | RXv1 / RXv2 / RXv3 / RXv3e instructions, FPU, DSP, DFPU; object files match GNU as (and Renesas CC-RX where GNU as is wrong) |
 | lld RX target | same, `lld/ELF/Arch/RX.cpp` | links like GNU ld (same relocations, e_flags and layout); `rx-none-elf`'s default linker (`rust-lld`), GNU ld with `-C linker=rx-elf-ld` (see [`docs/NOTES-lld.md`](docs/NOTES-lld.md)) |
+| LLDB RX support | same, `lldb/source/Plugins/ABI/RX` (and a clang `RXTargetInfo` for its type system) | breakpoints, backtraces (from the compiler's CFI), variables, stepping on QEMU's gdbstub and, through a bridge to e2-server-gdb, on the RX72M; see [`docs/NOTES-lldb.md`](docs/NOTES-lldb.md) |
 | rustc `rx-none-elf` target, callconv, `asm!` | [CDEF-inc/rust](https://github.com/CDEF-inc/rust/tree/rx-none-elf) `rx-none-elf` | `core` builds; tier 3 |
 | Startup code, vector tables, linker script | [`crates/rx-rt`](crates/rx-rt) | boots from the reset vector and takes interrupts (peripheral, software, nested) on QEMU and the RX72M; `critical-section` implementation |
 | RX72M HAL (embedded-hal 1.0) | [`crates/rx72m-hal`](crates/rx72m-hal) | clocks (PLL 240 MHz), GPIO and pin functions, `DelayNs` (CMT2), SCI2 UART (`embedded-io`); checked on the AP-RX72M-0A, except UART receiving (not yet checked, see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
@@ -76,6 +77,7 @@ scripts/build-gnu.sh      # binutils 2.43 + GCC 14.2 for rx-elf into gnu/install
 scripts/build-llvm.sh     # configure LLVM (X86 + RX) and lld in build/llvm, build llc/llvm-mc/ld.lld
 scripts/build-llvm-libs.sh
 scripts/build-rustc.sh    # stage1 rustc using build/llvm
+scripts/build-lldb.sh     # optional: clang + LLDB in build/lldb
 ```
 
 ### Prebuilt toolchain
@@ -146,6 +148,7 @@ scripts/run-qemu-test.sh memex-insns rx62n rxv1 rxv2 rxv3 rxv3e
 scripts/run-qemu-test.sh cmt rx62n rxv3             # compare match timer (a peripheral)
 RX_CPU=rxv2 scripts/run-codegen-test.sh test/codegen/atomic.ll test/codegen/atomic_main.c
 scripts/check-lld.sh                         # lld and GNU ld link the codegen tests alike
+scripts/check-lldb.sh                        # LLDB on test/rust/lldb-demo, through QEMU's gdbstub
 # the tests link with lld (rustc's rust-lld, build/llvm's ld.lld); with GNU ld:
 RX_LD=$PWD/gnu/install/bin/rx-elf-ld scripts/run-codegen-test.sh test/codegen/i32.ll test/codegen/main.c
 RX_CPU=rx62n RUST_EXTRA_FLAGS="-C linker=$PWD/gnu/install/bin/rx-elf-ld" scripts/run-rust-rom.sh
@@ -168,6 +171,22 @@ scripts/hw-run.sh         # in Git Bash on Windows: run them on the board
 
 They link with lld; `RX_LD=$PWD/gnu/install/bin/rx-elf-ld scripts/hw-build.sh`
 links them with GNU ld instead.
+
+### Debugging with LLDB
+
+LLDB (`scripts/build-lldb.sh`) debugs RX programs on QEMU's gdbstub
+(`qemu-system-rx ... -S -gdb tcp:127.0.0.1:1234`, then `gdb-remote 1234`)
+and on the board, where `scripts/hw-lldb.sh` starts e2-server-gdb and a
+bridge that hides the server's quirks (non-stop mode only, its launch
+sequence, big-endian `p`) from LLDB:
+
+```sh
+lldb ELF -o 'process connect --plugin gdb-remote listen://127.0.0.1:61235'  # in WSL
+scripts/hw-lldb.sh ELF                                                     # in Git Bash
+```
+
+Watchpoints do not work on the board, and LLDB does not show the DFPU
+registers there (see [`docs/NOTES-lldb.md`](docs/NOTES-lldb.md)).
 
 ### Example: blinky
 
