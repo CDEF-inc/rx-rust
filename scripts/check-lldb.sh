@@ -47,11 +47,13 @@ sleep 1
   -o "watchpoint set variable finished" -o "continue" \
   -o "target variable result finished" \
   -o "breakpoint set -n ret_s2" -o "breakpoint set -n ret_s3" \
-  -o "breakpoint set -n ret_pair16" -o "breakpoint set -n ret_s8" \
+  -o "breakpoint set -n ret_pair16" -o "breakpoint set -n ret_reordered" \
+  -o "breakpoint set -n ret_pair_u8_u16" -o "breakpoint set -n ret_s8" \
   -o "breakpoint set -n ret_s12" -o "breakpoint set -n ret_s20" \
   -o "breakpoint set -n ret_option" -o "breakpoint set -n ret_u64" \
   -o "breakpoint set -n ret_f64" \
   -o "continue" -o "finish" -o "continue" -o "finish" -o "continue" -o "finish" \
+  -o "continue" -o "finish" -o "continue" -o "finish" \
   -o "continue" -o "finish" -o "continue" -o "finish" \
   -o "continue" -o "thread return 7" -o "register read r1" \
   -o "continue" -o "finish" -o "continue" -o "finish" -o "continue" -o "finish" \
@@ -89,6 +91,8 @@ expect "global variable"             '\(unsigned int\) result = 28'
 expect "return: 2-byte struct"       "\\(lldb_demo::rets::S2\\) \\\$[0-9]+ = \\(a = 'A', b = 'B'\\)"
 expect "return: 3-byte struct"       "\\(lldb_demo::rets::S3\\) \\\$[0-9]+ = \\(a = 'a', b = 'b', c = 'c'\\)"
 expect "return: (u16, u16)"          '\(\(u16, u16\)\) \$[0-9]+ = \(__0 = 16, __1 = 4660\)'
+expect "return: reordered fields"    "\\(lldb_demo::rets::Reordered\\) \\\$[0-9]+ = \\(a = 'r', b = 305419896\\)"
+expect "return: (u8, u16)"           "\\(\\(u8, u16\\)\\) \\\$[0-9]+ = \\(__0 = 'p', __1 = 17185\\)"
 expect "return: 8-byte struct"       '\(lldb_demo::rets::S8\) \$[0-9]+ = \(a = 8, b = -1\)'
 expect "return: Option<u32>"         'value = \(__0 = 42\)'
 expect "return: u64"                 '\(unsigned long long\) \$[0-9]+ = 8589934597'

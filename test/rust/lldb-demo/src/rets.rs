@@ -18,6 +18,13 @@ pub struct S3 {
     pub c: u8,
 }
 
+// rustc puts b first (a at offset 4), and returns the pair as (b, a).
+#[derive(Clone, Copy)]
+pub struct Reordered {
+    pub a: u8,
+    pub b: u32,
+}
+
 #[derive(Clone, Copy)]
 pub struct S8 {
     pub a: u32,
@@ -57,6 +64,17 @@ pub fn ret_s3(x: u8) -> S3 {
 #[inline(never)]
 pub fn ret_pair16(x: u16) -> (u16, u16) {
     (x, 0x1234)
+}
+
+#[inline(never)]
+pub fn ret_reordered(x: u8) -> Reordered {
+    Reordered { a: x, b: 0x1234_5678 }
+}
+
+// (u8, u16): the u16 at offset 0, the u8 at 2, returned in two registers.
+#[inline(never)]
+pub fn ret_pair_u8_u16(x: u8) -> (u8, u16) {
+    (x, 0x4321)
 }
 
 #[inline(never)]
@@ -100,6 +118,8 @@ pub fn run() {
     black_box(ret_s2(black_box(b'A')));
     black_box(ret_s3(black_box(b'a')));
     black_box(ret_pair16(black_box(16)));
+    black_box(ret_reordered(black_box(b'r')));
+    black_box(ret_pair_u8_u16(black_box(b'p')));
     black_box(ret_s8(black_box(8)));
     black_box(ret_s12(black_box(12)));
     black_box(ret_s16(black_box(16)));
