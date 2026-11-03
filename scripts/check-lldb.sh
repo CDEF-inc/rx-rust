@@ -121,5 +121,8 @@ if grep -q -E 'Assertion|Stack dump|PLEASE submit' "$tmp/out"; then
 else
   echo "ok    LLDB did not crash"
 fi
-[ $status = 0 ] || echo "   (LLDB output in ${log#$root/})"
+if [ $status != 0 ]; then
+  echo "   (LLDB output in ${log#$root/}:)"
+  cat "$log"
+fi
 exit $status
