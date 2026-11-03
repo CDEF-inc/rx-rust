@@ -76,8 +76,9 @@ WSL（NAT モード）からは Windows の localhost に届かないが、Windo
 サーバーを起動することもできない。Windows の LLDB なら `hw-lldb.sh --listen ELF` と `gdb-remote 61235`。
 
 実機用の lldb-demo:
-`RUSTFLAGS="-C link-arg=-Tlink.x -C target-cpu=rxv3" RX_MEMORY_X=test/hw/rx72m-memory.x cargo build`
-（test/rust/lldb-demo で。コードフラッシュに置き、リセットベクタから起動する）。
+`RUSTFLAGS="-C link-arg=-Tlink.x -C target-cpu=rxv3" RX_MEMORY_X=$PWD/../../hw/rx72m-memory.x cargo build`
+（test/rust/lldb-demo で。build.rs は RX_MEMORY_X をそのまま開くので、ディレクトリによらない
+パスにする。コードフラッシュに置き、リセットベクタから起動する）。
 
 ### ブリッジがすること
 
