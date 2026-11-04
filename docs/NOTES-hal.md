@@ -84,20 +84,26 @@ CMT、ICU を操作し、CMT0 の割り込みと critical_section::with を確�
 - 受信エラーなし（RXD のプルアップ）。CN8 の 1・2 番（RXD・TXD）をつなぐと送った 6 バイトが戻ることを確かめる
   （つないでいないので `loopback=0`、受信と RXI2 = ベクタ 62 はまだ実機で確かめていない）。
 
-### UART の未確認事項（2026-10-28 時点）
+### UART の受信と相手機器との通信（2026-11-04）
 
-実機で確かめたのは送信側だけで、次は**未確認**（CN8 の 1・2 番をつないでいないため受信できない）。
+CN8 に USB シリアル変換（FTDI、3.3 V、Windows では COM8）をつなぎ、examples/serial-echo（下記）と
+`scripts/hw/serial-echo.ps1` で確かめた。デバッガ（E2 Lite）をつないで走らせている間に次がすべて通る。
 
-- 受信そのもの: RXD2（P12、PSEL 0Ah）からの受信、RXI2 がベクタ 62（IR062）であること、`Read::read` /
-  `ReadReady::read_ready` の動き。
-- 受信エラーの扱い: ORER / FER / PER を検出して消し、エラーを返すこと。2 バイト目以降のエラーを保持して次の
-  `read` で返すこと（rx-rust#38 のレビュー対応で入れた処理）。
-- 他の機器との通信（USB シリアル変換などをつないで、実際に文字列が届くか）。送信は TXD 端子のレベルと TEND で
-  確かめただけで、相手側で受け取ったことは見ていない。
+- 送信: 起動時の 1 行が PC にそのまま届く。
+- 受信: RXD2（P12、PSEL 0Ah）からの受信、RXI2 = IR062（ベクタ 62）、`Read::read` / `ReadReady::read_ready`。
+  1 秒に 1 バイト（00h、FFh、55h、AAh など 14 個）はすべて届き、送り返した 1 行もそのまま戻る。
+- 4096 バイト（00h〜FFh を 16 回）を続けて送ると、すべて順に戻る（360 ms、115200 bps で送るのにかかる時間と
+  同じ。オーバーランなし）。
+- ブレーク（20 ms）が `Error::Framing`（FER）になり、その後もエコーが続く。
 
-確かめ方: CN8 の 1 番（RXD）と 2 番（TXD）をつないで `scripts/hw-build.sh rt` と `scripts/hw-run.sh
-build/hw/rt/hw-uart-release.elf` を実行する。`loopback=1` になり、送った 6 バイトが戻ることを確かめる
-（受信エラーの扱いは、このテストではまだ確かめない）。
+まだ確かめていないこと:
+
+- **デバッガを切り離したあと**。`hw-run.sh` が切り離す（`D;1`）と、シリアルに何も出なくなる（ずっと行を
+  出し続ける診断用のプログラムでも出ない）。E2 Lite をつないだまま SW1 でリセットしても同じだった。
+  examples/blinky は切り離したあとも点滅し続けた（2026-10-28）ので原因は分かっていない。E2 Lite を外して
+  電源を入れ直したときの動きはまだ見ていない。
+- 2 バイト目以降のエラーを保持して次の `read` で返す処理（rx-rust#38）、オーバーランとパリティエラー。
+- CN8 の 1・2 番を直結する hw-uart の折り返し（`loopback=1`）。
 
 ## 例: examples/blinky（2026-10-28）
 
@@ -111,8 +117,20 @@ LD1 / LD2 を 2 Hz で交互に点滅させる。点滅の処理 `blink` は emb
 - ボードで確かめたこと: 30 秒で `BLINKS` = 121（250 ms ごと）、PJ の PODR が 01h / 02h と交互になり、LD1 / LD2 が
   交互に点滅するのを目でも確かめた。切り離したあとも点滅し続ける。
 
+## 例: examples/serial-echo（2026-11-04）
+
+CN8（SCI2、115200 bps 8N1）に届いたバイトをそのまま送り返す。エコーの処理 `echo` は `embedded-io` の
+`Read` / `Write` だけで書いた汎用の関数で、`main` が rx72m-hal の `Serial`（クロックは PLL 240 MHz）を渡す。
+受信エラーは `! framing error` のような 1 行で知らせ、エコーを続ける。`RX_BYTES` / `RX_ERRORS` が数える。
+
+- 配線: USB シリアル変換（3.3 V）の TXD を CN8 の 1 番（RXD2）、RXD を 2 番（TXD2）、GND を GND に。
+- ビルド: `scripts/hw-build.sh examples`（`build/hw/examples/serial-echo.elf`）
+- 実行: `HW_TIMEOUT=60 scripts/hw-run.sh build/hw/examples/serial-echo.elf` を走らせている間に、Windows で
+  `powershell -File scripts/hw/serial-echo.ps1 -Port COM8`（1 行、4096 バイト、ブレークの 4 チェック）。
+  切り離したあとは動かない（上記）。
+
 ## 予定
 
-1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）。UART の受信は未確認（上記）。CN8 の折り返しで確かめる
+1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）、~~UART（受信）~~（2026-11-04、デバッガをつないだ状態。上記）
 2. SPI（RSPI）、I2C（RIIC）、PWM（MTU / GPTW）、ADC（S12AD）
 3. 必要なら async（embassy の time driver を CMT で）、embedded-hal-nb の serial

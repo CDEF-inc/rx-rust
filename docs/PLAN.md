@@ -26,7 +26,7 @@
   その中の `src/llvm-project` は CDEF-inc/llvm-project `rx/23.1`（LLVM 23.1.4 `f738f3b0` + RX バックエンド）
 - `crates/rx-rt/` — 起動コード・ベクタ表・リンカスクリプト（M5）
 - `crates/rx72m-pac/`、`crates/rx72m-hal/` — RX72M の PAC（ビルド時に生成）と embedded-hal 実装（NOTES-hal.md）
-- `examples/blinky/` — AP-RX72M-0A の LD1 / LD2 点滅
+- `examples/blinky/` — AP-RX72M-0A の LD1 / LD2 点滅、`examples/serial-echo/` — CN8（SCI2）のエコー
 - `scripts/`, `test/` — ビルド・検証スクリプトとテスト（`test/hw` は実機用）、`docs/` — このファイルと NOTES-*.md
 - `gnu/install/`（`scripts/build-gnu.sh`、リポジトリ外）— 参照用 rx-elf binutils 2.43 / 上流 GCC 14.2 + libgcc（エンコーディング検証・ABI 比較・リンカ）。
   binutils には `scripts/patches/` を当てる（ld が e_flags の V2 / V3 を落とす不具合の修正）
@@ -125,4 +125,6 @@
 - [x] rx72m-pac と rx72m-hal: クロック（PLL 240 MHz）、GPIO、MPC、CMT の遅延、SCI2 の UART 送信、rx-rt の critical-section
 - [x] L チカ: `examples/blinky`（embedded-hal で LD1 / LD2 を点滅、コードフラッシュから起動）
 - [x] Rust で書いた RTOS が QEMU と RX72M で動く
-- [ ] UART の受信、SPI / I2C / PWM / ADC（NOTES-hal.md の「予定」）
+- [x] UART の受信と相手機器との通信: `examples/serial-echo`（USB シリアル変換で 4096 バイトとブレークまで。
+  デバッガをつないだ状態、NOTES-hal.md）
+- [ ] SPI / I2C / PWM / ADC（NOTES-hal.md の「予定」）

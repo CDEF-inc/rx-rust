@@ -15,7 +15,7 @@
 #            isr-bank, hw-irq, hw-pac, hw-hal, hw-uart, alloc-smoke, float-smoke (also with
 #            +flush-denormals: float-smoke-fd) (target-cpu=rxv3, release / dev), in the code
 #            flash with test/hw/rx72m-memory.x, booted from the reset vector
-#   examples examples/* (blinky; release), in the code  -> build/hw/examples
+#   examples examples/* (blinky, serial-echo; release), in the code  -> build/hw/examples
 #            flash. They run until stopped; hw-run.sh runs one for
 #            HW_TIMEOUT seconds and leaves it running (not part of its
 #            default list)
@@ -165,7 +165,7 @@ for g in "${groups[@]}"; do
     examples)
       d=$out/examples; mkdir -p "$d"
       tdir=$(target_dir "$root/build/examples")
-      for crate in blinky; do
+      for crate in blinky serial-echo; do
         # The crate's .cargo/config.toml has the target, its rustflags and
         # build-std.
         (cd "$root/examples/$crate" &&
