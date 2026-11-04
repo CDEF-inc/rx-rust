@@ -1,5 +1,8 @@
 # Configures LLVM (X86 + the experimental RX target, and lld) in build/llvm
 # and builds llc, llvm-mc, llvm-objdump, llvm-objcopy and lld (ld.lld).
+# Without the optional libraries CMake would pick up from the machine
+# (libxml2, zstd): the tools and the rustc linked against them need only
+# glibc, libstdc++ and zlib, wherever they were built (dist-toolchain.sh).
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 src=$root/rust/src/llvm-project/llvm
@@ -18,6 +21,7 @@ if [ ! -f "$out/build.ninja" ]; then
     -DLLVM_INCLUDE_BENCHMARKS=OFF \
     -DLLVM_INCLUDE_EXAMPLES=OFF \
     -DLLVM_ENABLE_ZSTD=OFF \
+    -DLLVM_ENABLE_LIBXML2=OFF \
     > "$out/cmake.log" 2>&1 || { tail -30 "$out/cmake.log"; exit 1; }
 fi
 # An older build/llvm without lld gets it added.

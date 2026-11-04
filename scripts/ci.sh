@@ -16,6 +16,7 @@
 #   gnu    gnu/install (GNU binutils and GCC for rx-elf, for the tests)
 #   qemu   ../qemu/build/qemu-system-rx (CDEF-inc/qemu at scripts/qemu.commit)
 #   test   what the tests need at run time (deps only)
+#   dist   what dist-toolchain.sh needs besides the parts (deps only)
 # The packs hold what the tests and dist-toolchain.sh use, not the object
 # files.
 set -eu
@@ -32,6 +33,7 @@ deps() {
     qemu) p+=(git ninja-build python3 python3-venv pkg-config gcc libglib2.0-dev
               libpixman-1-dev libfdt-dev zlib1g-dev zstd) ;;
     test) p+=(git python3 zstd iproute2 libglib2.0-0 libpixman-1-0 libfdt1) ;;
+    dist) p+=(patchelf xz-utils binutils) ;;
     *) echo "unknown part $part" >&2; exit 2 ;;
     esac
   done
