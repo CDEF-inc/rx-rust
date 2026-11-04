@@ -2,7 +2,10 @@
 # Configures LLDB for X86 + the experimental RX target in build/lldb and
 # builds lldb. LLDB needs clang, so this is a separate build directory: the
 # LLVM tools in build/llvm (which every test run rebuilds) stay without it.
-# No Python or Lua scripting. JOBS is the compile parallelism (default 6).
+# No Python or Lua scripting, and none of the optional libraries CMake would
+# pick up from the machine (libedit, curses, libxml2, lzma, zstd), so that
+# lldb needs only glibc, libstdc++ and zlib (dist-toolchain.sh). JOBS is the
+# compile parallelism (default 6).
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 src=$root/rust/src/llvm-project/llvm
@@ -23,6 +26,11 @@ if [ ! -f "$out/build.ninja" ]; then
     -DLLVM_INCLUDE_BENCHMARKS=OFF \
     -DLLVM_INCLUDE_EXAMPLES=OFF \
     -DLLVM_ENABLE_ZSTD=OFF \
+    -DLLVM_ENABLE_LIBXML2=OFF \
+    -DLLDB_ENABLE_LIBEDIT=OFF \
+    -DLLDB_ENABLE_CURSES=OFF \
+    -DLLDB_ENABLE_LIBXML2=OFF \
+    -DLLDB_ENABLE_LZMA=OFF \
     > "$out/cmake.log" 2>&1 || { tail -30 "$out/cmake.log"; exit 1; }
 fi
 # clang, lldb-test and the LLVM test tools are for the lit tests that

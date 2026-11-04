@@ -92,6 +92,19 @@ else
   echo "no build/lldb/bin/lldb (scripts/build-lldb.sh): the archive has no LLDB" >&2
 fi
 
+# Every binary must run with the base system libraries and what the archive
+# brings: a library from the build machine (libxml2, libedit, ... picked up
+# by CMake) would be missing elsewhere.
+missing=$(find "$d" -type f \( -perm -u+x -o -name '*.so*' \) -print0 |
+  while IFS= read -r -d '' f; do
+    ldd "$f" 2>/dev/null | awk -v f="${f#$d/}" '$2 == "=>" && $3 ~ /^\// {print f ": " $3}'
+  done | grep -v -F "$d/" | grep -v -E ': /[^ ]*/(libc|libm|libdl|libpthread|librt|libutil|libresolv|ld-linux[^/]*|libgcc_s|libstdc\+\+|libz)\.so' || true)
+if [ -n "$missing" ]; then
+  echo "binaries that need libraries from this machine (not in the archive):" >&2
+  echo "$missing" >&2
+  exit 1
+fi
+
 {
   echo "rx-rust        $(git -C "$root" rev-parse HEAD)"
   echo "rust           $(git -C "$root/rust" rev-parse HEAD)"
