@@ -40,7 +40,11 @@ port=$((20000 + $$ % 20000))
 "$QEMU" -M gdbsim-r5f562n8 -bios "$tmp/rom.bin" -display none -serial null \
   -monitor none -S -gdb tcp:127.0.0.1:$port &
 qemu=$!
-sleep 1
+# Wait for the gdbstub (up to 10 s: the machine may be busy with other tests).
+for _ in $(seq 50); do
+  ss -ltn "sport = :$port" | grep -q LISTEN && break
+  sleep 0.2
+done
 
 "$LLDB" -b -x -o "settings set use-color false" \
   -o "target create $elf" -o "gdb-remote 127.0.0.1:$port" \
@@ -64,7 +68,8 @@ sleep 1
   -o "continue" -o "finish" -o "continue" -o "finish" -o "continue" -o "finish" \
   -o "expr lldb_demo::outer(1, 2)" \
   -o "kill" > "$tmp/out" 2>&1
-cat "$tmp/out" > "$root/build/check-lldb.log"
+log=$target_dir/check-lldb.log
+cat "$tmp/out" > "$log"
 
 status=0
 expect() {
@@ -116,5 +121,5 @@ if grep -q -E 'Assertion|Stack dump|PLEASE submit' "$tmp/out"; then
 else
   echo "ok    LLDB did not crash"
 fi
-[ $status = 0 ] || echo "   (LLDB output in build/check-lldb.log)"
+[ $status = 0 ] || echo "   (LLDB output in ${log#$root/})"
 exit $status
