@@ -55,8 +55,11 @@ LLDB で RX のプログラム（Rust、C）をデバッグする。QEMU の gdb
 - LLDB は clang を必要とするので、build/llvm とは別のディレクトリにしている。テストのたびに
   build/llvm をビルドし直しても、clang までは作らずに済む。
 - Python と Lua のスクリプト機能はなし。`JOBS` でコンパイルの並列数を変えられる（既定 6）。
-- この環境には libxml2-dev がないので、LLDB は `target.xml` を読めない。QEMU 相手では
-  `GDBRemoteRegisterFallback` を使い、ブリッジは `qRegisterInfo` で同じ内容を返す。
+- libxml2（2.13.9）をソースから静的ライブラリとしてビルドし、LLDB にリンクする（#82）。
+  - 目的: GDB サーバーの `target.xml` とメモリマップ（`qXfer:memory-map`）を読むため。
+  - ICU・lzma・zlib なしでビルドするので、配布物の lldb が必要とするライブラリは増えない。
+  - ソースは download.gnome.org から取得し、SHA-256 で確かめる。
+- libxml2 なしの LLDB でも動くように、`GDBRemoteRegisterFallback` とブリッジの `qRegisterInfo` は残す。
 - `scripts/dist-toolchain.sh` は、build/lldb があれば `bin/lldb` と `lib/liblldb.so` を配布物に入れる。
 
 ## QEMU
