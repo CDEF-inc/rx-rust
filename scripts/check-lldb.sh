@@ -90,7 +90,8 @@ else
   echo "ok    backtrace: ends at _rx_reset"
 fi
 expect "struct argument"             '\(lldb_demo::Point\) p = \(x = 5, y = -2\)'
-expect "registers"                   'pc = 0xfff8[0-9a-f]+  lldb-demo`lldb_demo::scale'
+# One space or two before the symbol, depending on the LLDB version.
+expect "registers"                   'pc = 0xfff8[0-9a-f]+ +lldb-demo`lldb_demo::scale'
 expect "disassembly"                 '^-> +0xfff8[0-9a-f]+ <\+[0-9]+>: '
 expect "finish: return value"        'Return value: \(int\) \$[0-9]+ = 9'
 expect "next: the local"             '\(int\) s = 9'
