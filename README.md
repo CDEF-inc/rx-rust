@@ -232,6 +232,25 @@ scripts/hw-build.sh examples                            # in WSL
 HW_TIMEOUT=10 scripts/hw-run.sh build/hw/examples/blinky.elf  # in Git Bash
 ```
 
+### Example: serial-echo
+
+[`examples/serial-echo`](examples/serial-echo) echoes what arrives on the
+board's serial connector CN8 (SCI2, 115200 bps 8N1), through the
+`embedded-io` `Read` / `Write` traits that rx72m-hal's `Serial` implements;
+a receive error comes back as a line such as `! framing error`. Connect a
+3.3 V USB serial adapter to CN8 (its TXD to pin 1, its RXD to pin 2, and
+GND) and, while the runner keeps the program running, check it from
+Windows: a line, 4096 bytes back to back and a break.
+
+```sh
+HW_TIMEOUT=60 scripts/hw-run.sh build/hw/examples/serial-echo.elf  # in Git Bash
+powershell -File scripts/hw/serial-echo.ps1 -Port COM8         # meanwhile
+```
+
+So far it has only been checked with the debugger attached: after the
+runner detaches, nothing comes out of the serial port
+([`docs/NOTES-hal.md`](docs/NOTES-hal.md)).
+
 ## Writing a program
 
 See [`test/rust/qemu-demo`](test/rust/qemu-demo): a `#![no_main]` binary that

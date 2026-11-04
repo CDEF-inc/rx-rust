@@ -15,9 +15,10 @@
 //! RXD2 gets the internal pull-up, so that an unconnected CN8 idles high
 //! instead of floating into framing errors.
 //!
-//! Not checked on the board yet: only sending is (TXI2 as IR063, TEND, the
-//! TXD pin). Receiving (RXI2 as IR062, `Read`, the receive error handling)
-//! needs CN8's RXD and TXD wired together and has not been run; see
+//! Checked on the board with a USB serial adapter on CN8
+//! (examples/serial-echo, scripts/hw/serial-echo.ps1): sending, receiving
+//! (RXI2 as IR062, `Read`, `ReadReady`), 4096 bytes back to back at 115200
+//! bps without an overrun, and a break as `Error::Framing`. See
 //! docs/NOTES-hal.md.
 
 use core::fmt;
