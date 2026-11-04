@@ -1,0 +1,154 @@
+# Builds the toolchain and runs scripts/run-all-tests.sh on QEMU.
+#
+# The toolchain comes in four parts (scripts/ci.sh): rustc (LLVM and the
+# stage1 rustc), lldb, gnu (binutils / GCC for the tests) and qemu. Each is
+# cached under a key made of the commits and scripts it is built from, so a
+# run builds only the parts whose sources changed: a change to rx-rust
+# alone (rx-rt, the tests, the scripts) builds nothing and goes straight to
+# the tests. A new rust / llvm-project commit rebuilds rustc (about 3 hours
+# on a GitHub runner; ccache keeps the LLVM objects) and, for LLVM, lldb.
+#
+# Everything runs on ubuntu-22.04 (glibc 2.35). Board tests stay manual.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Bump to rebuild every part (e.g. after changing what scripts/ci.sh packs).
+  CACHE_VERSION: 1
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 2500M
+
+jobs:
+  keys:
+    runs-on: ubuntu-22.04
+    outputs:
+      rustc: ${{ steps.k.outputs.rustc }}
+      lldb: ${{ steps.k.outputs.lldb }}
+      gnu: ${{ steps.k.outputs.gnu }}
+      qemu: ${{ steps.k.outputs.qemu }}
+      rustc-hit: ${{ steps.rustc.outputs.cache-hit }}
+      lldb-hit: ${{ steps.lldb.outputs.cache-hit }}
+      gnu-hit: ${{ steps.gnu.outputs.cache-hit }}
+      qemu-hit: ${{ steps.qemu.outputs.cache-hit }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: k
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=v$CACHE_VERSION
+          rust=$(git rev-parse HEAD:rust)
+          llvm=$(gh api "repos/CDEF-inc/rust/contents/src/llvm-project?ref=$rust" --jq .sha)
+          qemu=$(grep -v '^#' scripts/qemu.commit)
+          {
+            echo "rustc=rustc-$v-$rust-${{ hashFiles('scripts/setup.sh', 'scripts/bootstrap.toml.in', 'scripts/build-llvm.sh', 'scripts/build-llvm-libs.sh', 'scripts/build-rustc.sh') }}"
+            echo "lldb=lldb-$v-$llvm-${{ hashFiles('scripts/build-lldb.sh') }}"
+            echo "gnu=gnu-$v-${{ hashFiles('scripts/build-gnu.sh', 'scripts/patches/**') }}"
+            echo "qemu=qemu-$v-$qemu-${{ hashFiles('scripts/build-qemu.sh') }}"
+          } | tee -a "$GITHUB_OUTPUT"
+      - id: rustc
+        uses: actions/cache/restore@v6
+        with: { path: build/ci/rustc.tar.zst, key: "${{ steps.k.outputs.rustc }}", lookup-only: true }
+      - id: lldb
+        uses: actions/cache/restore@v6
+        with: { path: build/ci/lldb.tar.zst, key: "${{ steps.k.outputs.lldb }}", lookup-only: true }
+      - id: gnu
+        uses: actions/cache/restore@v6
+        with: { path: build/ci/gnu.tar.zst, key: "${{ steps.k.outputs.gnu }}", lookup-only: true }
+      - id: qemu
+        uses: actions/cache/restore@v6
+        with: { path: build/ci/qemu.tar.zst, key: "${{ steps.k.outputs.qemu }}", lookup-only: true }
+
+  # One job per part that is not cached yet.
+  build:
+    needs: keys
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [rustc, lldb, gnu, qemu]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    steps:
+      - id: need
+        run: |
+          case ${{ matrix.part }} in
+          rustc) hit='${{ needs.keys.outputs.rustc-hit }}' ;;
+          lldb) hit='${{ needs.keys.outputs.lldb-hit }}' ;;
+          gnu) hit='${{ needs.keys.outputs.gnu-hit }}' ;;
+          qemu) hit='${{ needs.keys.outputs.qemu-hit }}' ;;
+          esac
+          [ "$hit" = true ] && echo "cached" || echo "build=1" >> "$GITHUB_OUTPUT"
+      - if: steps.need.outputs.build
+        uses: actions/checkout@v7
+      - if: steps.need.outputs.build && (matrix.part == 'rustc' || matrix.part == 'lldb')
+        name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - if: steps.need.outputs.build
+        run: bash scripts/ci.sh deps ${{ matrix.part }}
+      - if: steps.need.outputs.build && (matrix.part == 'rustc' || matrix.part == 'lldb')
+        uses: actions/cache/restore@v6
+        with:
+          path: .ccache
+          key: ccache-${{ matrix.part }}-${{ github.run_id }}
+          restore-keys: ccache-${{ matrix.part }}-
+      - if: steps.need.outputs.build
+        run: bash scripts/ci.sh build ${{ matrix.part }}
+      - if: steps.need.outputs.build
+        uses: actions/cache/save@v6
+        with:
+          path: build/ci/${{ matrix.part }}.tar.zst
+          key: ${{ needs.keys.outputs[matrix.part] }}
+      - if: always() && steps.need.outputs.build && (matrix.part == 'rustc' || matrix.part == 'lldb')
+        uses: actions/cache/save@v6
+        with:
+          path: .ccache
+          key: ccache-${{ matrix.part }}-${{ github.run_id }}
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-logs-${{ matrix.part }}
+          path: |
+            build/llvm/*.log
+            build/lldb/*.log
+            build/rustc.log
+            gnu/build/*/*.log
+          if-no-files-found: ignore
+
+  test:
+    needs: [keys, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - run: bash scripts/ci.sh deps test
+      - run: bash scripts/ci.sh sources
+      - uses: actions/cache/restore@v6
+        with: { path: build/ci/rustc.tar.zst, key: "${{ needs.keys.outputs.rustc }}", fail-on-cache-miss: true }
+      - uses: actions/cache/restore@v6
+        with: { path: build/ci/lldb.tar.zst, key: "${{ needs.keys.outputs.lldb }}", fail-on-cache-miss: true }
+      - uses: actions/cache/restore@v6
+        with: { path: build/ci/gnu.tar.zst, key: "${{ needs.keys.outputs.gnu }}", fail-on-cache-miss: true }
+      - uses: actions/cache/restore@v6
+        with: { path: build/ci/qemu.tar.zst, key: "${{ needs.keys.outputs.qemu }}", fail-on-cache-miss: true }
+      - run: bash scripts/ci.sh unpack rustc lldb gnu qemu
+      - run: bash scripts/run-all-tests.sh -j 8 --shard ${{ matrix.shard }}/4
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-logs-${{ matrix.shard }}
+          path: build/test-logs

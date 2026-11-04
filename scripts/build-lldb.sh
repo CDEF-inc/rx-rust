@@ -27,5 +27,5 @@ if [ ! -f "$out/build.ninja" ]; then
 fi
 # clang, lldb-test and the LLVM test tools are for the lit tests that
 # run-all-tests.sh runs.
-ninja -C "$out" lldb clang lldb-test FileCheck count not yaml2obj > "$out/ninja.log" 2>&1 || { grep -E -B2 -A8 'error|FAILED' "$out/ninja.log" | head -80; exit 1; }
+ninja -C "$out" lldb clang lldb-test FileCheck count not yaml2obj llvm-config > "$out/ninja.log" 2>&1 || { grep -E -B2 -A8 'error|FAILED' "$out/ninja.log" | head -80; exit 1; }
 "$out/bin/lldb" --version
