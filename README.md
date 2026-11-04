@@ -133,6 +133,14 @@ target directory, or check what another one built, run in order.
 `--shard K/N` runs one of N parts, for CI. QEMU runs with `-icount` there
 (`QEMU_FLAGS`), so that the timer tests do not depend on the machine's load.
 
+The CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs them on
+every pull request and on `main`, in four shards on GitHub's ubuntu-22.04
+runners. It builds the toolchain with [`scripts/ci.sh`](scripts/ci.sh) in
+four cached parts (LLVM + rustc, LLDB, GNU, QEMU at
+[`scripts/qemu.commit`](scripts/qemu.commit)), each rebuilt only when its
+commits or build scripts change: a pull request that does not move the
+`rust` submodule goes straight to the tests. Board tests stay manual.
+
 ```sh
 scripts/run-all-tests.sh                     # everything, on every CPU model
 scripts/run-all-tests.sh -j 8 --shard 1/4    # the first quarter, 8 at a time
