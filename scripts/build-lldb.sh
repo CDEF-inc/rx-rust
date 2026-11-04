@@ -22,9 +22,14 @@ if [ ! -f "$xml/lib/libxml2.a" ]; then
   xml_src=$out/libxml2-src
   mkdir -p "$xml_src"
   tarball=$xml_src/libxml2-$xml_version.tar.xz
-  [ -f "$tarball" ] || curl -fsSL -o "$tarball" \
-    "https://download.gnome.org/sources/libxml2/${xml_version%.*}/libxml2-$xml_version.tar.xz"
-  echo "$xml_sha256  $tarball" | sha256sum -c --quiet
+  # Download again when the archive is missing or does not match (an
+  # interrupted earlier download), and keep it only once it matches.
+  if ! echo "$xml_sha256  $tarball" | sha256sum -c --quiet > /dev/null 2>&1; then
+    curl -fsSL -o "$tarball.part" \
+      "https://download.gnome.org/sources/libxml2/${xml_version%.*}/libxml2-$xml_version.tar.xz"
+    echo "$xml_sha256  $tarball.part" | sha256sum -c --quiet
+    mv "$tarball.part" "$tarball"
+  fi
   rm -rf "$xml_src/libxml2-$xml_version"
   tar -C "$xml_src" -xJf "$tarball"
   cmake -G Ninja -S "$xml_src/libxml2-$xml_version" -B "$xml_src/build" \
