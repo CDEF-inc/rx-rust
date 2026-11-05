@@ -234,13 +234,18 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   - 選択は RXISelDAGToDAG の `selectDFPU`（untyped にはパターンが書けない）。DADD / DSUB / DMUL / DDIV / DSQRT /
     ITOD / UTOD / FTOD / DTOI / DTOU / DTOF は実命令をそのまま選び、DR_PAIR_P / DR_SPLIT_P / DR_LO_P（dtoi 等の結果の
     下位ワードを GPR へ）/ DCMP_P（`dcmp<cm> y, x` + `mvfdr`）は RXAsmPrinter が `dmov.l` などに展開する。
-  - 割り付けるのは **DR0 と DR1 だけ**（DR2〜DR15 は予約レジスタ）。rx-rt の割り込み入口（dfpu feature）が退避するのが
-    DR0・DR1 だけで、DR はすべて caller-saved（呼び出しをまたぐ値は退避される）。DR の退避・復帰は `dmov.d` の
+  - 割り付けるのは **DR0〜DR3 だけ**（DR4〜DR15 は予約レジスタ）。rx-rt の割り込み入口（dfpu feature）が退避するのが
+    DR0〜DR3 だけで、DR はすべて caller-saved（呼び出しをまたぐ値は退避される）。DR の退避・復帰は `dmov.d` の
     メモリ形（擬似命令 DST_D / DLD_D、dsp は 4 倍）、DR 間のコピーは `dmov.d dr, dr`。
-    2 本では足りない式（dfpu.ll の `da_tree`）や、同じ入力を 2 回使う式（`da_chain` の `a`）は退避が入る。
     DR_PAIR_P は再実体化可能にしてあるが、入力の GPR が既に死んでいるので実際には使われない。
-    DR0〜DR3 を割り付けると da_chain が 71 → 49 バイト、da_tree が 158 → 113 バイトになる（rx-rt で dr0-dr3 を退避する
-    必要がある。今回は入れていない）。以前の方式（演算ごとに 28 バイトの擬似命令）では da_chain は約 85 バイト。
+    以前の方式（演算ごとに 28 バイトの擬似命令）では da_chain は約 85 バイト。
+  - 2026-11-06（rx-rust #93）に DR0・DR1 から DR0〜DR3 に広げた。DR0・DR1 だけでは、2 本で足りない式（dfpu.ll の
+    `da_tree`）や同じ入力を 2 回使う式（`da_chain` の `a`）に退避が入っていた。-O2 で同じ条件で測ると da_chain が
+    64 → 42 バイト、da_chain_cmp が 53 → 37 バイト、da_tree が 144 → 99 バイト。代わりに rx-rt の割り込み入口が
+    `dpushm.d dr0-dr3` / `dpopm.d dr0-dr3` になり、スタックを 16 バイト多く使い、DR の転送が 2 つずつ増える。
+    - 検討して入れなかった案: DR の本数をサブターゲット機能にする（割り込み入口の重さを選べるが、rx-rt と
+      コンパイラの設定を合わせる必要がある）、DFPU を使うハンドラだけで退避する（遅延退避。ハンドラが DFPU を
+      使うかをリンク時に知る仕組みが要る）。
 - 変換（2026-11-02、rx-rust #49）: IEEE の libcall と結果が同じになる条件で DFPU を使う（`flushesDenormals` = その型の
   非正規化数環境が preserve-sign）。
   - `fptosi` / `fptoui`（f64 → i32）→ `dtoi` / `dtou`: 0 方向の切り捨てで同じ。範囲外・NaN は LLVM では poison なので

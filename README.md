@@ -275,7 +275,7 @@ rustflags = ["-C", "link-arg=-Tlink.x", "-C", "target-cpu=rxv3",
 - **Speed:** arithmetic, compares and `as` conversions then compile to FPU / DFPU instructions, about 28 times faster on an RX72M (`test/rust/float-smoke`'s benchmark).
 - **Results:** IEEE for NaNs, infinities, signed zeros and rounding.
 - **What changes:** denormal inputs and results become ±0 (FPSW.DN / DPSW.DDN, which rx-rt sets at reset).
-- **Interrupts:** rx-rt's interrupt entries save FPSW and, with the DFPU, DR0-DR1, DPSW and DCMR.
+- **Interrupts:** rx-rt's interrupt entries save FPSW and, with the DFPU, DR0-DR3, DPSW and DCMR.
 
 `docs/NOTES-codegen.md` ("IEEE の FPU / DFPU") has the details.
 

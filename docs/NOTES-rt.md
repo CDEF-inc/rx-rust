@@ -36,8 +36,9 @@
   逆順に戻して `popm / rte`（issue #1 のステップ 5）:
   - `fpu`（rxv2 以上の既定）: FPSW（`mvfc fpsw` + push）。コード生成は fast-math（かつ非正規化数を 0 にしてよい関数）の f32 演算と
     int→float 変換で FPU を使う
-  - `dfpu`（rxv3 / rxv3e）: `dpushm.d dr0-dr1` と `dpushm.l dpsw-dcmr`。コード生成の DFPU 列は DR0 / DR1 / DPSW / DCMR
-    を使い、割り込みは列の途中にも入りうる（DR2〜DR15 はコード生成が使わないので退避しない）
+  - `dfpu`（rxv3 / rxv3e）: `dpushm.d dr0-dr3` と `dpushm.l dpsw-dcmr`。コード生成の DFPU 列は DR0〜DR3 / DPSW / DCMR
+    を使い、割り込みは列の途中にも入りうる（DR4〜DR15 はコード生成が使わないので退避しない）。2026-11-06（#93）までは
+    DR0 / DR1 だけで、`dpushm.d dr0-dr1`
   - Cargo feature `save-acc`: DSP アキュムレータ。RXv1 は GCC の `-msave-acc-in-interrupts` と同じく ACC の
     63〜16 ビット（mvfachi / mvfacmi、戻すときは mvtachi と shll #16 + mvtaclo で下位 16 ビットは 0）、RXv2 以上は
     A0 / A1 の 72 ビット全部（mvfacgu / mvfachi / mvfaclo）。コード生成は DSP 命令を使わないので既定では無効
@@ -83,7 +84,8 @@
   `_rx_vector_N_rte` を置く（`_rx_isr_common_rte` と同じ理由）。
 - 検証: `test/rust/isr-bank`（rxv3、`RX_CPU=rxv3 scripts/run-rust-rom.sh test/rust/isr-bank`）33 チェック。
   - 割り込まれる側の R1〜R5・R7〜R15（`asm!` の固定レジスタで `int` をまたぐ）、FPSW、A0 / A1（ガードを含む）、
-    DR0 / DR1・DPSW・DCMR、USP が、それらを書き換えるハンドラの後も残る。
+    DR0〜DR3・DPSW・DCMR、USP が、それらを書き換えるハンドラの後も残る。DR2 / DR3 は #93 で足した
+    （DR0 / DR1 だけを退避する前の rx-rt では isr-bank が 6 チェック、isr-save が 3 チェック失敗する）。
   - ハンドラ開始時の FPSW / DPSW が 0x100。
   - バンク 1 のハンドラの中でバンク 2 の割り込みを起こし、外側のハンドラのレジスタと状態が残る（両方を同じバンクに
     すると 9 チェック失敗することを確かめた）。

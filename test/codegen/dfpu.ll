@@ -1,6 +1,6 @@
 ; double with +dfpu (RXv3): fast-math arithmetic and compares and the
 ; conversions in functions that allow flushing denormals (#0), and integer
-; to double conversions, use the DFPU on DR0 / DR1 (values computed by the
+; to double conversions, use the DFPU on DR0-DR3 (values computed by the
 ; DFPU stay there); everything else stays soft-float. Run with dfpu_main.c on
 ; a core with the DFPU (MCPU=rxv3 QEMU_CPU=rxv3 scripts/run-codegen-test.sh,
 ; CDEF-inc/qemu); scripts/check-dfpu.sh also checks the instruction
