@@ -147,3 +147,15 @@ lldb-demo（rxv3、dev、コードフラッシュ）で、次を確かめた:
 - **実行制御:** `finish` の戻り値、`next`、`up`、行番号でのブレーク、グローバル変数（`result = 28`）、
   ^C での停止（ブリッジへの直接のテスト）、`kill`。
 - **ウォッチポイント:** LLDB に未対応と伝わる（「Watchpoint creation failed」）。
+
+### レジスタのフィールド（2026-11-05、#82）
+
+libxml2 付きの LLDB（#113）で、blinky（コードフラッシュ）のリセットベクタで確かめた:
+
+- LLDB はブリッジの target.xml を読む。
+- `register read psw` は値の下にフィールドを出す:
+  `(IPL = 0, PM = 0, U = 0, I = 0, O = 0, S = 0, Z = 0, C = 0)`。
+- `register read fpsw` も同じ。リセット直後の 0x00000100 は `DN = 1`、ほかは 0。
+- `register info psw` はビットの配置表（IPL は 27〜24、PM は 20 など）を出す。
+
+QEMU の target.xml には `<flags>` がないので、QEMU 相手では値だけが出る。
