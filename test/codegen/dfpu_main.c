@@ -178,10 +178,12 @@ int main(void) {
   check(da_olt(0.0, dmin), 0);
 
   /* dmov.d loads and stores, at word offset 0 and 1 of a word buffer, so
-     on 8- and on 4-but-not-8-aligned addresses either way */
+     on 8- and on 4-but-not-8-aligned addresses either way (through a
+     may_alias double, since the buffer is also read as words) */
+  typedef double __attribute__((may_alias)) wdouble;
   static u32 w[2 + 2 * 300];
   for (unsigned o = 0; o < 2; o++) {
-    double *p = (double *)&w[o];
+    wdouble *p = (wdouble *)&w[o];
     for (unsigned i = 0; i < NV; i++) {
       double a = vals[i], b = vals[(i + 5) % NV];
       p[0] = a;
