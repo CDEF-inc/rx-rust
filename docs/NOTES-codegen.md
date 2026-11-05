@@ -334,7 +334,8 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - 検証: `fpu_ieee.ll` に `{f,d}_selueq`（ueq の select）、`{f,d}_brone`（one の分岐）、`{f,d}_min` / `{f,d}_max`、
   nnan nsz の `f_min_fast` / `d_max_fast` を足した（ueq / one の setcc は既存の 14 述語に入っている）。
   `fpu_ieee_main.c` は min / max の期待値を整数演算と libgcc の比較で作り、ソフトフロート経路が呼ぶ fminf ... fmax も
-  それで用意する（libm はリンクしない）。18,051 チェック。QEMU の rx62n（+fpu）/ rxv3 の -O0 / -O2、rxv3e の -O2
+  それで用意する（libm はリンクしない）。nnan nsz の版は NaN の組を除き、結果が 0 なら符号を問わない。
+  18,039 チェック。QEMU の rx62n（+fpu）/ rxv3 の -O0 / -O2、rxv3e の -O2
   （いずれも +flush-denormals）と、rx62n / rxv3 のソフトフロートで全通過（OR / AND を返していた版は非正規化数の組で
   48 チェック失敗）。`fpu-ieee.expected` は 122 関数。nnan nsz の min は `fcmp` 1 回。実機では未確認。
 

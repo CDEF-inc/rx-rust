@@ -99,6 +99,19 @@ static void check_d(double got, double want) {
     check((int)(g >> 32), (int)(w >> 32));
   }
 }
+/* nsz: the sign of a zero result does not matter */
+static void check_f_nsz(float got, float want) {
+  if (fbits(want) << 1 == 0)
+    check(fbits(got) << 1 == 0, 1);
+  else
+    check_f(got, want);
+}
+static void check_d_nsz(double got, double want) {
+  if (dbits(want) << 1 == 0)
+    check(dbits(got) << 1 == 0, 1);
+  else
+    check_d(got, want);
+}
 
 /* The 14 predicates from libgcc's compares (each returns the ordered
    answer: false for unordered operands). */
@@ -225,9 +238,9 @@ int main(void) {
               __unordsf2(a, b) || __eqsf2(a, b) == 0 ? a : b);
       check_f(f_min(a, b), fval(fminmax(fv[i], fv[j], 1)));
       check_f(f_max(a, b), fval(fminmax(fv[i], fv[j], 0)));
-      /* nnan nsz: no NaNs, and either zero for zeros of either sign */
-      if (!fnan(fv[i]) && !fnan(fv[j]) && (fv[i] | fv[j]) << 1)
-        check_f(f_min_fast(a, b), fval(fminmax(fv[i], fv[j], 1)));
+      /* nnan nsz: no NaNs, and a zero result of either sign */
+      if (!fnan(fv[i]) && !fnan(fv[j]))
+        check_f_nsz(f_min_fast(a, b), fval(fminmax(fv[i], fv[j], 1)));
     }
   for (unsigned i = 0; i < ND; i++)
     for (unsigned j = 0; j < ND; j++) {
@@ -242,8 +255,8 @@ int main(void) {
               __unorddf2(a, b) || __eqdf2(a, b) == 0 ? a : b);
       check_d(d_min(a, b), dval(dminmax(dv[i], dv[j], 1)));
       check_d(d_max(a, b), dval(dminmax(dv[i], dv[j], 0)));
-      if (!dnan(dv[i]) && !dnan(dv[j]) && (dv[i] | dv[j]) << 1)
-        check_d(d_max_fast(a, b), dval(dminmax(dv[i], dv[j], 0)));
+      if (!dnan(dv[i]) && !dnan(dv[j]))
+        check_d_nsz(d_max_fast(a, b), dval(dminmax(dv[i], dv[j], 0)));
     }
 
   for (unsigned i = 0; i < NFC; i++) {
