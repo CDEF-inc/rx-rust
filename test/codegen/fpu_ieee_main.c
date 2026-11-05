@@ -11,10 +11,11 @@ typedef unsigned long long u64;
 
 float f_fadd(float, float), f_fsub(float, float), f_fmul(float, float);
 float f_fdiv(float, float), f_sel(float, float), f_selueq(float, float);
-float f_min(float, float), f_max(float, float);
+float f_min(float, float), f_max(float, float), f_min_fast(float, float);
 double d_fadd(double, double), d_fsub(double, double), d_fmul(double, double);
 double d_fdiv(double, double), d_sel(double, double), d_sqrt(double);
 double d_selueq(double, double), d_min(double, double), d_max(double, double);
+double d_max_fast(double, double);
 double f_ext(float);
 float d_trunc(double);
 int f_br(float, float), d_br(double, double);
@@ -224,6 +225,9 @@ int main(void) {
               __unordsf2(a, b) || __eqsf2(a, b) == 0 ? a : b);
       check_f(f_min(a, b), fval(fminmax(fv[i], fv[j], 1)));
       check_f(f_max(a, b), fval(fminmax(fv[i], fv[j], 0)));
+      /* nnan nsz: no NaNs, and either zero for zeros of either sign */
+      if (!fnan(fv[i]) && !fnan(fv[j]) && (fv[i] | fv[j]) << 1)
+        check_f(f_min_fast(a, b), fval(fminmax(fv[i], fv[j], 1)));
     }
   for (unsigned i = 0; i < ND; i++)
     for (unsigned j = 0; j < ND; j++) {
@@ -238,6 +242,8 @@ int main(void) {
               __unorddf2(a, b) || __eqdf2(a, b) == 0 ? a : b);
       check_d(d_min(a, b), dval(dminmax(dv[i], dv[j], 1)));
       check_d(d_max(a, b), dval(dminmax(dv[i], dv[j], 0)));
+      if (!dnan(dv[i]) && !dnan(dv[j]) && (dv[i] | dv[j]) << 1)
+        check_d(d_max_fast(a, b), dval(dminmax(dv[i], dv[j], 0)));
     }
 
   for (unsigned i = 0; i < NFC; i++) {
@@ -276,6 +282,28 @@ int main(void) {
             : __fixunsdfsi(x);
     check((int)d_usat(x), (int)u);
   }
+
+  /* min / max of denormals and zeros: where the FPU flushes them (two
+     different denormals compare equal) the result need not be the IEEE one,
+     but it must still be one of the operands */
+  static const u32 fdn[] = {0x00000001, 0x00000002, 0x80000001, 0x00000000,
+                            0x80000000, 0x007fffff};
+  for (unsigned i = 0; i < sizeof fdn / sizeof fdn[0]; i++)
+    for (unsigned j = 0; j < sizeof fdn / sizeof fdn[0]; j++) {
+      float a = fval(fdn[i]), b = fval(fdn[j]);
+      u32 lo = fbits(f_min(a, b)), hi = fbits(f_max(a, b));
+      check(lo == fdn[i] || lo == fdn[j], 1);
+      check(hi == fdn[i] || hi == fdn[j], 1);
+    }
+  static const u64 ddn[] = {0x1ull, 0x2ull, 0x8000000000000001ull, 0x0ull,
+                            0x8000000000000000ull, 0x000fffffffffffffull};
+  for (unsigned i = 0; i < sizeof ddn / sizeof ddn[0]; i++)
+    for (unsigned j = 0; j < sizeof ddn / sizeof ddn[0]; j++) {
+      double a = dval(ddn[i]), b = dval(ddn[j]);
+      u64 lo = dbits(d_min(a, b)), hi = dbits(d_max(a, b));
+      check(lo == ddn[i] || lo == ddn[j], 1);
+      check(hi == ddn[i] || hi == ddn[j], 1);
+    }
 
   /* float <-> double */
   for (unsigned i = 0; i < NF; i++)

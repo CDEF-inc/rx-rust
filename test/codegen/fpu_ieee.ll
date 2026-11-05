@@ -85,6 +85,9 @@ define float @f_min(float %a, float %b) {
 define float @f_max(float %a, float %b) {
   %r = call float @llvm.maxnum.f32(float %a, float %b)
   ret float %r }
+define float @f_min_fast(float %a, float %b) {
+  %r = call nnan nsz float @llvm.minnum.f32(float %a, float %b)
+  ret float %r }
 declare float @llvm.minnum.f32(float, float)
 declare float @llvm.maxnum.f32(float, float)
 define i32 @f_toi(float %a) { %r = fptosi float %a to i32
@@ -177,6 +180,9 @@ define double @d_min(double %a, double %b) {
   ret double %r }
 define double @d_max(double %a, double %b) {
   %r = call double @llvm.maxnum.f64(double %a, double %b)
+  ret double %r }
+define double @d_max_fast(double %a, double %b) {
+  %r = call nnan nsz double @llvm.maxnum.f64(double %a, double %b)
   ret double %r }
 declare double @llvm.minnum.f64(double, double)
 declare double @llvm.maxnum.f64(double, double)

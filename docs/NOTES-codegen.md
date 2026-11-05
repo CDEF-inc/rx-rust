@@ -323,16 +323,20 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
 - **min / max:** `llvm.minnum` / `llvm.maxnum`（Rust の `f32::min` / `max`、`f64` も）は、FPU / DFPU を使える関数では
   型合法化の前の combine（expandFMinMaxNum）で比較と select にする。RX に FMIN / FMAX 命令はない。
   - この LLVM の FMINNUM の意味（ISDOpcodes.h）: NaN の被演算子はもう一方を返す（両方 NaN なら NaN）、-0 は +0 より小さい。
-  - `r = a olt b ? a : b`（max は ogt）、`a oeq b` なら a と b のビットの OR（max は AND。等しい値で違いが出るのは符号違いの 0
-    だけで、OR は -0、AND は +0）、`b uno b` なら a。
+  - `r = a olt b ? a : b`（max は ogt）、`a oeq b` なら符号ビットの立っている方（max は立っていない方。等しい値で違いが
+    出るのは符号違いの 0 だけ）、`b uno b` なら a。nnan なら NaN の判定を、nsz なら等しいときの判定を省く。
+  - 結果は必ずどちらかの被演算子。最初は等しいときに両方のビットの OR / AND を返していたが、非正規化数を 0 にする
+    比較では違う非正規化数どうしも等しくなり、0x00000001 と 0x00000002 の min が 0x00000003 になった
+    （llvm-project#34 のレビュー）。fpu_ieee_main.c は非正規化数と 0 の組で、結果がどちらかの被演算子であることを見る。
   - compiler-builtins の fminf / fmin は符号違いの 0 でどちらを返すか決めていない（Rust の `f32::min` も同じ）。
     -0 < +0 はその範囲に入る。
   - それ以外の関数では libcall（fminf / fmaxf / fmin / fmax）のまま。
-- 検証: `fpu_ieee.ll` に `{f,d}_selueq`（ueq の select）、`{f,d}_brone`（one の分岐）、`{f,d}_min` / `{f,d}_max` を足した
-  （ueq / one の setcc は既存の 14 述語に入っている）。`fpu_ieee_main.c` は min / max の期待値を整数演算と libgcc の比較で
-  作り、ソフトフロート経路が呼ぶ fminf ... fmax もそれで用意する（libm はリンクしない）。17,412 チェック。
-  QEMU の rx62n（+fpu）/ rxv3 の -O0 / -O2、rxv3e の -O2（いずれも +flush-denormals）と、rxv1 / rxv3 のソフトフロートで
-  全通過。`fpu-ieee.expected` は 118 関数。実機では未確認。
+- 検証: `fpu_ieee.ll` に `{f,d}_selueq`（ueq の select）、`{f,d}_brone`（one の分岐）、`{f,d}_min` / `{f,d}_max`、
+  nnan nsz の `f_min_fast` / `d_max_fast` を足した（ueq / one の setcc は既存の 14 述語に入っている）。
+  `fpu_ieee_main.c` は min / max の期待値を整数演算と libgcc の比較で作り、ソフトフロート経路が呼ぶ fminf ... fmax も
+  それで用意する（libm はリンクしない）。18,051 チェック。QEMU の rx62n（+fpu）/ rxv3 の -O0 / -O2、rxv3e の -O2
+  （いずれも +flush-denormals）と、rx62n / rxv3 のソフトフロートで全通過（OR / AND を返していた版は非正規化数の組で
+  48 チェック失敗）。`fpu-ieee.expected` は 122 関数。nnan nsz の min は `fcmp` 1 回。実機では未確認。
 
 ## f64 のロード・ストア（dmov.d、rx-rust #91、2026-11-05）
 - DR に入れる double のロードと、DR から出す double のストアは、`mov.l` 2 つ + `dmov.l` 2 つではなく `dmov.d` 1 つにする
