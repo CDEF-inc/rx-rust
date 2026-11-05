@@ -24,6 +24,12 @@ u32 da_tou(double);
 double da_ext(float), da_ext_chain(float, double), d_ext(float);
 double d_ext_f32only(float);
 float da_trunc(double), da_trunc_chain(double, double), d_trunc(double);
+void dm_add(double *, const double *, const double *);
+double dm_off(const double *), dm_global(double), dm_stack(double, double);
+void dm_store_off(double *, double, double);
+long long dm_bits(const double *, double *);
+void dm_volatile(double *, const double *), dm_unaligned(double *, const double *);
+extern double dm_g;
 
 static u32 fbits(float f) {
   union { float f; u32 u; } v = {f};
@@ -36,6 +42,8 @@ static float ffrom_bits(u32 u) {
 
 /* Called by da_call. */
 double ext(double x) { return x * 2.0 + 1.0; }
+/* Called by dm_stack with its stack array: element 2 += 1. */
+void dm_use(double *s) { s[2] += 1.0; }
 /* d_sqrt calls sqrt; it is not checked (no libm here). */
 double sqrt(double x) { return x; }
 
@@ -168,5 +176,57 @@ int main(void) {
   check_d(da_add_ieee(dmin, dmin), from_bits(2));
   check(da_olt_ieee(0.0, dmin), 1);
   check(da_olt(0.0, dmin), 0);
+
+  /* dmov.d loads and stores, at word offset 0 and 1 of a word buffer, so
+     on 8- and on 4-but-not-8-aligned addresses either way (through a
+     may_alias double, since the buffer is also read as words) */
+  typedef double __attribute__((may_alias)) wdouble;
+  static u32 w[2 + 2 * 300];
+  for (unsigned o = 0; o < 2; o++) {
+    wdouble *p = (wdouble *)&w[o];
+    for (unsigned i = 0; i < NV; i++) {
+      double a = vals[i], b = vals[(i + 5) % NV];
+      p[0] = a;
+      p[1] = b;
+      p[2] = 99.0;
+      dm_add(&p[2], &p[0], &p[1]);
+      check_d(p[2], a + b);
+      check_d(p[0], a);
+      check_d(p[1], b);
+      p[1] = a;
+      p[128] = b;
+      check_d(dm_off(&p[0]), a * b);
+      dm_store_off(&p[0], a, b);
+      /* byte 1020: words 255 and 256 from p */
+      u32 *q = &w[o + 255];
+      check_d(from_bits((u64)q[1] << 32 | q[0]), a - b);
+      dm_g = a;
+      check_d(dm_global(b), a * b);
+      check_d(dm_g, a * b);
+      p[3] = 0.0;
+      long long ab = dm_bits(&p[0], &p[3]);
+      check((int)ab, (int)bits(a));
+      check((int)(ab >> 32), (int)(bits(a) >> 32));
+      check_d(p[3], a + a);
+      dm_volatile(&p[4], &p[0]);
+      check_d(p[4], a + a);
+      /* dm_unaligned reads and writes the double at byte 2 */
+      unsigned char *src = (unsigned char *)&p[6], *dst = (unsigned char *)&p[9];
+      for (unsigned k = 0; k < 8; k++) {
+        src[2 + k] = (unsigned char)(bits(a) >> 8 * k);
+        dst[2 + k] = 0;
+      }
+      dm_unaligned((double *)dst, (const double *)src);
+      u64 out = 0;
+      for (unsigned k = 0; k < 8; k++)
+        out |= (u64)dst[2 + k] << 8 * k;
+      check_d(from_bits(out), a + a);
+    }
+  }
+  for (unsigned i = 0; i < NV; i++) {
+    double a = vals[i], b = vals[(i + 3) % NV];
+    double s = a + b + 1.0;
+    check_d(dm_stack(a, b), s * s);
+  }
   return failures;
 }

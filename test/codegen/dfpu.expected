@@ -49,8 +49,7 @@ _da_chain
   dmov.l r4, drh1
   dmul dr1, dr0, dr1
   dmov.d dr1, 8[r0]                      ; 8-byte Folded Spill
-  dmov.l r2, drl1
-  dmov.l r1, drh1
+  dmov.d 24[r0], dr1
   dmov.d 8[r0], dr0                      ; 8-byte Folded Reload
   dsub dr1, dr0, dr1
   dmov.d [r0], dr0                       ; 8-byte Folded Reload
@@ -67,11 +66,9 @@ _da_tree
   dmov.d dr1, 24[r0]                     ; 8-byte Folded Spill
   dmul dr1, dr0, dr0
   dmov.d dr0, 8[r0]                      ; 8-byte Folded Spill
-  dmov.l r2, drl0
-  dmov.l r1, drh0
+  dmov.d 48[r0], dr0
   dmov.d dr0, 32[r0]                     ; 8-byte Folded Spill
-  dmov.l r2, drl0
-  dmov.l r1, drh0
+  dmov.d 56[r0], dr0
   dmov.d dr0, [r0]                       ; 8-byte Folded Spill
   dmov.d 32[r0], dr1                     ; 8-byte Folded Reload
   dmul dr0, dr1, dr1
@@ -278,3 +275,67 @@ _da_call
   dmul dr1, dr0, dr0
   dmov.l drl0, r1
   dmov.l drh0, r2
+
+_dm_add
+  dmov.d [r2], dr0
+  dmov.d [r3], dr1
+  dadd dr1, dr0, dr0
+  dmov.d dr0, [r1]
+
+_dm_off
+  dmov.d 8[r1], dr0
+  dmov.d 1024[r1], dr1
+  dmul dr1, dr0, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
+_dm_store_off
+  dmov.l r2, drl0
+  dmov.l r3, drh0
+  dmov.d 4[r0], dr1
+  dsub dr1, dr0, dr0
+  dmov.d dr0, 1020[r1]
+
+_dm_global
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.d [r1], dr1
+  dmul dr0, dr1, dr0
+  dmov.d dr0, [r1]
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
+_dm_stack
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dadd dr1, dr0, dr0
+  dmov.d dr0, 16[r0]
+  bsr.a _dm_use
+  dmov.d 16[r0], dr0
+  dmul dr0, dr0, dr0
+  dmov.l drl0, r1
+  dmov.l drh0, r2
+
+_dm_bits
+  dmov.l r1, drl0
+  dmov.l r3, drh0
+  dadd dr0, dr0, dr0
+  dmov.d dr0, [r2]
+
+_dm_volatile
+  dmov.l r2, drl0
+  dmov.l r3, drh0
+  dadd dr0, dr0, dr0
+  dmov.l drl0, r2
+  dmov.l drh0, r3
+
+_dm_unaligned
+  dmov.l r2, drl0
+  dmov.l r3, drh0
+  dadd dr0, dr0, dr0
+  dmov.l drl0, r2
+  dmov.l drh0, r3
+
+_dm_g

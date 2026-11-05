@@ -139,6 +139,65 @@ define double @da_call(double %a, double %b) #0 {
   ret double %z }
 declare double @llvm.sqrt.f64(double)
 
+; Loads into and stores from DR registers are dmov.d (#91): through
+; pointers, with dsp:8 / dsp:16 displacements, to a global and on the
+; stack. A double is 4-aligned in memory; dm_* are run on 8- and on
+; 4-but-not-8-aligned addresses.
+@dm_g = global double 0.0, align 4
+define void @dm_add(ptr %d, ptr %a, ptr %b) #0 {
+  %x = load double, ptr %a, align 4
+  %y = load double, ptr %b, align 4
+  %r = fadd nnan ninf double %x, %y
+  store double %r, ptr %d, align 4
+  ret void }
+define double @dm_off(ptr %a) #0 {
+  %p1 = getelementptr i8, ptr %a, i32 8
+  %p2 = getelementptr i8, ptr %a, i32 1024
+  %x = load double, ptr %p1, align 4
+  %y = load double, ptr %p2, align 4
+  %r = fmul nnan ninf double %x, %y
+  ret double %r }
+define void @dm_store_off(ptr %d, double %a, double %b) #0 {
+  %r = fsub nnan ninf double %a, %b
+  %p = getelementptr i8, ptr %d, i32 1020
+  store double %r, ptr %p, align 4
+  ret void }
+define double @dm_global(double %k) #0 {
+  %x = load double, ptr @dm_g, align 4
+  %r = fmul nnan ninf double %x, %k
+  store double %r, ptr @dm_g, align 4
+  ret double %r }
+declare void @dm_use(ptr)
+define double @dm_stack(double %a, double %b) #0 {
+  %s = alloca [4 x double], align 4
+  %p = getelementptr double, ptr %s, i32 2
+  %r = fadd nnan ninf double %a, %b
+  store double %r, ptr %p, align 4
+  call void @dm_use(ptr %s)
+  %y = load double, ptr %p, align 4
+  %z = fmul nnan ninf double %y, %y
+  ret double %z }
+; Not dmov.d: a loaded double also used as bits (two mov.l, then the DR
+; transfers), volatile accesses and an access below 4-byte alignment.
+define i64 @dm_bits(ptr %a, ptr %d) #0 {
+  %x = load double, ptr %a, align 4
+  %r = fadd nnan ninf double %x, %x
+  store double %r, ptr %d, align 4
+  %i = bitcast double %x to i64
+  ret i64 %i }
+define void @dm_volatile(ptr %d, ptr %a) #0 {
+  %x = load volatile double, ptr %a, align 4
+  %r = fadd nnan ninf double %x, %x
+  store volatile double %r, ptr %d, align 4
+  ret void }
+define void @dm_unaligned(ptr %d, ptr %a) #0 {
+  %p = getelementptr i8, ptr %a, i32 2
+  %x = load double, ptr %p, align 2
+  %r = fadd nnan ninf double %x, %x
+  %q = getelementptr i8, ptr %d, i32 2
+  store double %r, ptr %q, align 2
+  ret void }
+
 ; Denormals may be flushed to a zero of the same sign (DPSW.DDN = 1).
 attributes #0 = { denormal_fpenv(preservesign) }
 ; Only float denormals may be flushed.
