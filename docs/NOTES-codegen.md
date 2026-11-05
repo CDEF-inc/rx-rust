@@ -227,7 +227,8 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   `DR_PAIR(lo, hi)` がワード対を DR に入れ、`DR_SPLIT` がワード対に戻す。f64 のオペランドは
   `DR_PAIR(splitF64(x))`、結果は `joinF64(DR_SPLIT(d))` にし、どの段階の DAG combine でも
   `DR_PAIR(DR_SPLIT(d))` を `d` に畳む。これで DFPU が計算して DFPU が使う値（同じ基本ブロック内の連鎖）は
-  DR に残り、GPR を通らない。基本ブロックをまたぐ値・呼び出しの引数と戻り値・ロード / ストアは従来どおりワード対。
+  DR に残り、GPR を通らない。基本ブロックをまたぐ値・呼び出しの引数と戻り値は従来どおりワード対。
+  ロード / ストアは `dmov.d`（下記「f64 のロード・ストア」、rx-rust #91）。
   - f64 を DR の合法型にしない理由は従来どおり（IEEE の double がすべて DR を通るようになる）。untyped は型合法化の
     対象外なので、合法化の前に作ってよい。
   - 選択は RXISelDAGToDAG の `selectDFPU`（untyped にはパターンが書けない）。DADD / DSUB / DMUL / DDIV / DSQRT /
@@ -303,11 +304,31 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
     compiler-builtins の関数と比べる（`is_nan` は浮動小数点の比較なので使わずビットで判定）。3,988 チェック。
     QEMU の 4 コアの release / dev で、flush-denormals の有無とも全通過、実機でも全通過。
     flush-denormals では f32 の関数から呼び出しが消え（`bench_f` は 9 呼び出し → FPU 命令 9 個、117 → 80 バイト）、
-    rxv3 では f64 も DFPU になる（`bench_d` は 162 → 228 バイト。DR への出し入れが GPR 経由のため大きい）。
+    rxv3 では f64 も DFPU になる（`bench_d` は 162 → 228 バイト。DR への出し入れが GPR 経由のため大きい。
+    #91 で f64 のロードを `dmov.d` にして 207 バイト。変更前を同じ条件で測り直すと 225 バイト）。
   - 速度（RX72M、rx-rt のままの LOCO クロック）: float-smoke のベンチマーク（64 要素の内積と 3 次多項式、f32 と f64）
     1 周がソフトフロートで約 0.82 秒、FPU / DFPU で約 0.029 秒（約 28 倍）。200 周と 10 周の実行時間の差から求めた。
-- 未対応: f64 のロード・ストアを `dmov.d` で直接 DR に出し入れすること（いまは GPR 対を経由）、ueq / one の 2 条件化、
-  min / max（`llvm.maxnum` は libcall）。
+- 未対応: ueq / one の 2 条件化、min / max（`llvm.maxnum` は libcall）。
+
+## f64 のロード・ストア（dmov.d、rx-rust #91、2026-11-05）
+- DR に入れる double のロードと、DR から出す double のストアは、`mov.l` 2 つ + `dmov.l` 2 つではなく `dmov.d` 1 つにする
+  （llvm-project#33）。
+  - **ロード:** `DR_PAIR` の 2 つの入力が、連続するアドレスからの普通のワードロード（型合法化が double のロードを分けた形）で、
+    ほかに使われず同じチェーンなら `RXISD::DLOAD`。どの段階の combine でも見る。型合法化の前の f64 ロードで見ると、
+    複数の DFPU 演算が使う double を取りこぼした（最初の `DR_PAIR` を見た時点ではロードにまだ別の使い手があり、
+    その後は見直されない）。スタックで渡される double の引数もこれで `dmov.d` になる。
+  - **ストア:** 型合法化の前に、`DR_SPLIT` の 2 ワードの 8 バイトのストア（f64、または DAGCombiner が直した i64）を
+    `RXISD::DSTORE` にする。
+  - 選択は DR の退避と同じ擬似命令 DLD_D / DST_D（(base, dsp)、dsp は 4 倍。`selectAddr(…, 4)`）。
+  - 対象外（従来どおり 32 ビットの移動）: volatile / atomic、4 バイト未満のアライメント（double のメモリ上の
+    アライメントは 4）、整数のビットとしても使われるロード。
+  - アライメント: RXv3e のソフトウェアマニュアルの DMOV には、メモリ形のアライメントの制約は書かれていない。
+    DR の退避は 4 バイト境界のスタックで以前から `dmov.d` を使っていて、M5 の実機テストを通っている。
+- 検証: `dfpu.ll` に `dm_*`（ポインタ、dsp:8 / dsp:16、グローバル、スタックの配列、32 ビットのままのもの 3 つ）。
+  `dfpu_main.c` が 8 バイト境界と、4 バイト境界で 8 バイト境界でないアドレスの両方で実行する。
+  CDEF-inc/qemu の rxv3（-O0〜-O3）と rxv3e で 8318 チェック全通過。`dfpu.expected` は 46 関数。
+  float-smoke の `bench_d`（rxv3、+flush-denormals）は 225 → 207 バイト（rustc の IR をこの llc で -O3）。
+  実機では未確認。
 
 ## 乗算の上位半分（emul / emulu、rx-rust #58、2026-11-02）
 - `emul` / `emulu src, Rd` は 32 × 32 → 64 ビットの積を Rd+1:Rd（Rd が下位）に書く。この組を表すレジスタクラスは
