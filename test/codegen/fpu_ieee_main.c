@@ -10,12 +10,15 @@ typedef unsigned int u32;
 typedef unsigned long long u64;
 
 float f_fadd(float, float), f_fsub(float, float), f_fmul(float, float);
-float f_fdiv(float, float), f_sel(float, float);
+float f_fdiv(float, float), f_sel(float, float), f_selueq(float, float);
+float f_min(float, float), f_max(float, float);
 double d_fadd(double, double), d_fsub(double, double), d_fmul(double, double);
 double d_fdiv(double, double), d_sel(double, double), d_sqrt(double);
+double d_selueq(double, double), d_min(double, double), d_max(double, double);
 double f_ext(float);
 float d_trunc(double);
 int f_br(float, float), d_br(double, double);
+int f_brone(float, float), d_brone(double, double);
 int f_toi(float), f_sat(float), d_toi(double), d_sat(double);
 u32 f_tou(float), f_usat(float), d_tou(double), d_usat(double);
 #define PRED(p) int f_##p(float, float), d_##p(double, double);
@@ -119,6 +122,7 @@ static void check_d(double got, double want) {
     check(s##_une(a, b), !eq);                                            \
     check(s##_uno(a, b), un);                                             \
     check(s##_br(a, b), un || ge ? 7 : 3);                                \
+    check(s##_brone(a, b), !un && !eq ? 7 : 3);                           \
   }
 PREDS(float, f, sf)
 PREDS(double, d, df)
@@ -165,6 +169,32 @@ static int fle(float a, float b) { return __lesf2(a, b) <= 0; }
 static int dge(double a, double b) { return __gedf2(a, b) >= 0; }
 static int dle(double a, double b) { return __ledf2(a, b) <= 0; }
 
+/* minnum / maxnum (llvm.minnum, Rust's min): a NaN operand gives the other
+   operand, and -0 is below +0. These are also the soft-float f_min ... d_max
+   (no libm here). */
+static u32 fminmax(u32 a, u32 b, int min) {
+  if (fnan(b))
+    return a;
+  if (fnan(a))
+    return b;
+  if (__eqsf2(fval(a), fval(b)) == 0)
+    return min ? a | b : a & b;
+  return (__ltsf2(fval(a), fval(b)) < 0) == min ? a : b;
+}
+static u64 dminmax(u64 a, u64 b, int min) {
+  if (dnan(b))
+    return a;
+  if (dnan(a))
+    return b;
+  if (__eqdf2(dval(a), dval(b)) == 0)
+    return min ? a | b : a & b;
+  return (__ltdf2(dval(a), dval(b)) < 0) == min ? a : b;
+}
+float fminf(float a, float b) { return fval(fminmax(fbits(a), fbits(b), 1)); }
+float fmaxf(float a, float b) { return fval(fminmax(fbits(a), fbits(b), 0)); }
+double fmin(double a, double b) { return dval(dminmax(dbits(a), dbits(b), 1)); }
+double fmax(double a, double b) { return dval(dminmax(dbits(a), dbits(b), 0)); }
+
 /* sqrt for the soft-float d_sqrt (no libm here): exact for the values
    used, with the IEEE special cases. */
 double sqrt(double x) {
@@ -190,6 +220,10 @@ int main(void) {
       check_f(f_fdiv(a, b), __divsf3(a, b));
       check_preds_f(a, b);
       check_f(f_sel(a, b), __gtsf2(a, b) > 0 ? a : b);
+      check_f(f_selueq(a, b),
+              __unordsf2(a, b) || __eqsf2(a, b) == 0 ? a : b);
+      check_f(f_min(a, b), fval(fminmax(fv[i], fv[j], 1)));
+      check_f(f_max(a, b), fval(fminmax(fv[i], fv[j], 0)));
     }
   for (unsigned i = 0; i < ND; i++)
     for (unsigned j = 0; j < ND; j++) {
@@ -200,6 +234,10 @@ int main(void) {
       check_d(d_fdiv(a, b), __divdf3(a, b));
       check_preds_d(a, b);
       check_d(d_sel(a, b), __gtdf2(a, b) > 0 ? a : b);
+      check_d(d_selueq(a, b),
+              __unorddf2(a, b) || __eqdf2(a, b) == 0 ? a : b);
+      check_d(d_min(a, b), dval(dminmax(dv[i], dv[j], 1)));
+      check_d(d_max(a, b), dval(dminmax(dv[i], dv[j], 0)));
     }
 
   for (unsigned i = 0; i < NFC; i++) {

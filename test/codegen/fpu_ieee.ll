@@ -67,6 +67,26 @@ y:
 n:
   ret i32 3
 }
+define float @f_selueq(float %a, float %b) { %c = fcmp ueq float %a, %b
+  %r = select i1 %c, float %a, float %b
+  ret float %r }
+define i32 @f_brone(float %a, float %b) {
+entry:
+  %c = fcmp one float %a, %b
+  br i1 %c, label %y, label %n
+y:
+  ret i32 7
+n:
+  ret i32 3
+}
+define float @f_min(float %a, float %b) {
+  %r = call float @llvm.minnum.f32(float %a, float %b)
+  ret float %r }
+define float @f_max(float %a, float %b) {
+  %r = call float @llvm.maxnum.f32(float %a, float %b)
+  ret float %r }
+declare float @llvm.minnum.f32(float, float)
+declare float @llvm.maxnum.f32(float, float)
 define i32 @f_toi(float %a) { %r = fptosi float %a to i32
   ret i32 %r }
 define i32 @f_tou(float %a) { %r = fptoui float %a to i32
@@ -140,6 +160,26 @@ y:
 n:
   ret i32 3
 }
+define double @d_selueq(double %a, double %b) { %c = fcmp ueq double %a, %b
+  %r = select i1 %c, double %a, double %b
+  ret double %r }
+define i32 @d_brone(double %a, double %b) {
+entry:
+  %c = fcmp one double %a, %b
+  br i1 %c, label %y, label %n
+y:
+  ret i32 7
+n:
+  ret i32 3
+}
+define double @d_min(double %a, double %b) {
+  %r = call double @llvm.minnum.f64(double %a, double %b)
+  ret double %r }
+define double @d_max(double %a, double %b) {
+  %r = call double @llvm.maxnum.f64(double %a, double %b)
+  ret double %r }
+declare double @llvm.minnum.f64(double, double)
+declare double @llvm.maxnum.f64(double, double)
 define i32 @d_toi(double %a) { %r = fptosi double %a to i32
   ret i32 %r }
 define i32 @d_tou(double %a) { %r = fptoui double %a to i32
