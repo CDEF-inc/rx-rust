@@ -28,7 +28,7 @@ deps() {
   for part; do
     case $part in
     rustc) p+=(cmake ninja-build ccache python3 g++ curl git zstd) ;;
-    lldb) p+=(cmake ninja-build ccache python3 g++ git zstd) ;;
+    lldb) p+=(cmake ninja-build ccache python3 g++ git curl xz-utils zstd) ;;
     gnu) p+=(g++ make patch bison flex texinfo libgmp-dev libmpfr-dev libmpc-dev wget xz-utils zstd) ;;
     qemu) p+=(git ninja-build python3 python3-venv pkg-config gcc libglib2.0-dev
               libpixman-1-dev libfdt-dev zlib1g-dev zstd) ;;

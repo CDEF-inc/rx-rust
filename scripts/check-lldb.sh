@@ -117,6 +117,12 @@ expect "thread return"               'r1 = 0x00000007'
 expect "expression"                  '\(int\) \$[0-9]+ = 4'
 expect "expression on a struct field" '\(int\) \$[0-9]+ = 10'
 expect "a call: a clean error"       "error: Can't evaluate the expression"
+# build-lldb.sh links libxml2, so LLDB reads QEMU's target.xml (#82).
+if grep -q 'does not have XML parsing enabled' "$tmp/out"; then
+  echo "FAIL  target.xml: LLDB was built without libxml2"; status=1
+else
+  echo "ok    target.xml: read"
+fi
 if grep -q -E 'Assertion|Stack dump|PLEASE submit' "$tmp/out"; then
   echo "FAIL  LLDB crashed"; status=1
 else
