@@ -33,10 +33,9 @@ _f_ole
   scge.l r1
 
 _f_one
-  bsr.a ___eqsf2
-  scne.l r8
-  bsr.a ___unordsf2
-  sceq.l r1
+  fcmp r2, r1
+  scno.l r3
+  fcmp r2, r1
   scne.l r1
 
 _f_ord
@@ -44,11 +43,10 @@ _f_ord
   scno.l r1
 
 _f_ueq
-  bsr.a ___eqsf2
-  sceq.l r8
-  bsr.a ___unordsf2
-  scne.l r1
-  scne.l r1
+  fcmp r2, r1
+  sco.l r3
+  fcmp r2, r1
+  sceq.l r1
 
 _f_ugt
   fcmp r1, r2
@@ -79,6 +77,50 @@ _f_sel
   bn .L
 
 _f_br
+  fcmp r2, r1
+  bn .L
+
+_f_selueq
+  fcmp r2, r1
+  sco.l r3
+  fcmp r2, r1
+  sceq.l r4
+  bne .L
+
+_f_brone
+  fcmp r2, r1
+  sco.l r3
+  fcmp r2, r1
+  sceq.l r1
+  bne .L
+
+_f_min
+  blt .L
+  fcmp r2, r1
+  bpz .L
+  fcmp r2, r1
+  bne .L
+  fcmp r2, r2
+  bno .L
+  fcmp r2, r1
+  beq .L
+  fcmp r2, r2
+  bo .L
+
+_f_max
+  bgt .L
+  fcmp r1, r2
+  bpz .L
+  fcmp r2, r1
+  bne .L
+  fcmp r2, r2
+  bno .L
+  fcmp r2, r1
+  beq .L
+  fcmp r2, r2
+  bo .L
+
+_f_min_fast
   fcmp r2, r1
   bn .L
 
@@ -184,6 +226,31 @@ _d_br
   bsr.a ___ltdf2
   blt .L
 
+_d_selueq
+  bsr.a ___unorddf2
+  bsr.a ___eqdf2
+  sceq.l r1
+  bne .L
+  bne .L
+
+_d_brone
+  bsr.a ___unorddf2
+  bsr.a ___eqdf2
+  sceq.l r1
+  bne .L
+
+_d_min
+  bsr.a _fmin
+
+_d_max
+  bsr.a _fmax
+
+_d_max_fast
+  bsr.a ___gtdf2
+  bgt .L
+  bsr.a ___gtdf2
+  bgt .L
+
 _d_toi
   bsr.a ___fixdfsi
 
@@ -250,10 +317,9 @@ _f_ole
   scge.l r1
 
 _f_one
-  bsr.a ___eqsf2
-  scne.l r8
-  bsr.a ___unordsf2
-  sceq.l r1
+  fcmp r2, r1
+  scno.l r3
+  fcmp r2, r1
   scne.l r1
 
 _f_ord
@@ -261,11 +327,10 @@ _f_ord
   scno.l r1
 
 _f_ueq
-  bsr.a ___eqsf2
-  sceq.l r8
-  bsr.a ___unordsf2
-  scne.l r1
-  scne.l r1
+  fcmp r2, r1
+  sco.l r3
+  fcmp r2, r1
+  sceq.l r1
 
 _f_ugt
   fcmp r1, r2
@@ -296,6 +361,50 @@ _f_sel
   bn .L
 
 _f_br
+  fcmp r2, r1
+  bn .L
+
+_f_selueq
+  fcmp r2, r1
+  sco.l r3
+  fcmp r2, r1
+  sceq.l r4
+  bne .L
+
+_f_brone
+  fcmp r2, r1
+  sco.l r3
+  fcmp r2, r1
+  sceq.l r1
+  bne .L
+
+_f_min
+  blt .L
+  fcmp r2, r1
+  bpz .L
+  fcmp r2, r1
+  bne .L
+  fcmp r2, r2
+  bno .L
+  fcmp r2, r1
+  beq .L
+  fcmp r2, r2
+  bo .L
+
+_f_max
+  bgt .L
+  fcmp r1, r2
+  bpz .L
+  fcmp r2, r1
+  bne .L
+  fcmp r2, r2
+  bno .L
+  fcmp r2, r1
+  beq .L
+  fcmp r2, r2
+  bo .L
+
+_f_min_fast
   fcmp r2, r1
   bn .L
 
@@ -403,10 +512,16 @@ _d_ole
   sceq.l r1
 
 _d_one
-  bsr.a ___eqdf2
-  scne.l r10
-  bsr.a ___unorddf2
-  sceq.l r1
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmpeq dr0, dr1
+  mvfdr
+  scne.l r1
+  dcmpun dr0, dr1
+  mvfdr
+  scne.l r2
 
 _d_ord
   dmov.l r3, drl0
@@ -418,9 +533,16 @@ _d_ord
   scne.l r1
 
 _d_ueq
-  bsr.a ___unorddf2
-  bsr.a ___eqdf2
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmpeq dr0, dr1
+  mvfdr
   sceq.l r1
+  dcmpun dr0, dr1
+  mvfdr
+  sceq.l r2
 
 _d_ugt
   dmov.l r3, drl0
@@ -496,6 +618,96 @@ _d_br
   dcmplt dr0, dr1
   mvfdr
   sceq.l r1
+  bne .L
+
+_d_selueq
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmpeq dr0, dr1
+  mvfdr
+  sceq.l r5
+  dcmpun dr0, dr1
+  mvfdr
+  sceq.l r14
+  beq .L
+  beq .L
+  bne .L
+
+_d_brone
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmpeq dr0, dr1
+  mvfdr
+  sceq.l r1
+  dcmpun dr0, dr1
+  mvfdr
+  sceq.l r2
+  bne .L
+
+_d_min
+  blt .L
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dcmplt dr0, dr1
+  mvfdr
+  sceq.l r15
+  bne .L
+  dcmpeq dr0, dr1
+  mvfdr
+  sceq.l r3
+  bne .L
+  dcmpun dr0, dr0
+  mvfdr
+  sceq.l r14
+  bne .L
+  bne .L
+  bge .L
+  beq .L
+  beq .L
+  bne .L
+  bne .L
+
+_d_max
+  bgt .L
+  dmov.l r1, drl1
+  dmov.l r2, drh1
+  dmov.l r3, drl0
+  dmov.l r4, drh0
+  dcmplt dr1, dr0
+  mvfdr
+  sceq.l r15
+  bne .L
+  dcmpeq dr0, dr1
+  mvfdr
+  sceq.l r3
+  bne .L
+  dcmpun dr0, dr0
+  mvfdr
+  sceq.l r14
+  bne .L
+  bne .L
+  ble .L
+  beq .L
+  beq .L
+  bne .L
+  bne .L
+
+_d_max_fast
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dcmplt dr0, dr1
+  mvfdr
+  sceq.l r5
+  beq .L
+  beq .L
   bne .L
 
 _d_toi

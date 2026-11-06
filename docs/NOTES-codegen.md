@@ -291,7 +291,7 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
     ogt / ule / ole / ugt は被演算子を入れ替えて N / PZ / GE / LT、uno → O、ord → NO。
   - DFPU は `dcmp{un,eq,lt,le}` が IEEE の述語（順序なしでは un 以外が偽）で、MVFDR で Z にする。oeq / olt / ole は
     そのまま、une / uge / ugt は否定（NE）、ogt / oge / ule / ult は入れ替え、uno / ord は dcmpun。
-  - ueq / one は 1 つの条件では書けないので libcall（__eqsf2 + __unordsf2 など）のまま。
+  - ueq / one は 1 つの条件では書けないので、比較 2 回にする（#92。下の「ueq / one と min / max」）。
 - 変換: float → int は `ftoi`（RXv2 では `ftou` も）、double → int は `dtoi` / `dtou`。fptosi / fptoui は範囲外・NaN が
   poison なので命令の結果のままでよい。Rust の `as`（`fptosi.sat` / `fptoui.sat`）は汎用の展開（変換 + 比較 + select、
   NaN → 0）で、float は合法化で、double は型合法化の前の PerformDAGCombine で expandFP_TO_INT_SAT を呼び、出てきた
@@ -313,7 +313,36 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
     #91 で f64 のロードを `dmov.d` にして 207 バイト。変更前を同じ条件で測り直すと 225 バイト）。
   - 速度（RX72M、rx-rt のままの LOCO クロック）: float-smoke のベンチマーク（64 要素の内積と 3 次多項式、f32 と f64）
     1 周がソフトフロートで約 0.82 秒、FPU / DFPU で約 0.029 秒（約 28 倍）。200 周と 10 周の実行時間の差から求めた。
-- 未対応: ueq / one の 2 条件化、min / max（`llvm.maxnum` は libcall）。
+
+## ueq / one と min / max（rx-rust #92、2026-11-06）
+- **ueq / one:** FPU / DFPU の比較 1 回ではどの条件でも表せない（fcmp では順序なしが O だけ、DCMPcm の cm は un / eq / lt /
+  le の 4 つ）。そこで 2 回比較する。ueq は「uo または oeq」、one は「o かつ une」。
+  - float: `setCondCodeAction(SETUEQ / SETONE, f32, Expand)` で、合法化が 2 つの setcc と or / and に分ける。
+    `fcmp` が 2 回、`sco.l` / `sceq.l` と `or` になる。
+  - double: 型合法化の前の combine（SETCC / SELECT_CC / BR_CC）で `emitDFPUUEqOne` が DCMP 2 回と `RXISD::SETCC` 2 つの
+    or / and を作る。汎用の setcc 2 つで作ると、DAGCombiner がそれを ueq の setcc に畳み戻して止まらない
+    （llc がアサーションで落ちた）。
+  - `RXISD::SETCC`（`sc<cond>.l`）の結果は 0 か 1 なので、computeKnownBitsForTargetNode でそう伝える
+    （or の後の `and #1` が消える）。
+  - 非正規化数を 0 にしてよくない関数では、これまでどおり libcall 2 つ（__unordsf2 + __eqsf2 など）。
+- **min / max:** `llvm.minnum` / `llvm.maxnum`（Rust の `f32::min` / `max`、`f64` も）は、FPU / DFPU を使える関数では
+  型合法化の前の combine（expandFMinMaxNum）で比較と select にする。RX に FMIN / FMAX 命令はない。
+  - この LLVM の FMINNUM の意味（ISDOpcodes.h）: NaN の被演算子はもう一方を返す（両方 NaN なら NaN）、-0 は +0 より小さい。
+  - `r = a olt b ? a : b`（max は ogt）、`a oeq b` なら符号ビットの立っている方（max は立っていない方。等しい値で違いが
+    出るのは符号違いの 0 だけ）、`b uno b` なら a。nnan なら NaN の判定を、nsz なら等しいときの判定を省く。
+  - 結果は必ずどちらかの被演算子。最初は等しいときに両方のビットの OR / AND を返していたが、非正規化数を 0 にする
+    比較では違う非正規化数どうしも等しくなり、0x00000001 と 0x00000002 の min が 0x00000003 になった
+    （llvm-project#34 のレビュー）。fpu_ieee_main.c は非正規化数と 0 の組で、結果がどちらかの被演算子であることを見る。
+  - compiler-builtins の fminf / fmin は符号違いの 0 でどちらを返すか決めていない（Rust の `f32::min` も同じ）。
+    -0 < +0 はその範囲に入る。
+  - それ以外の関数では libcall（fminf / fmaxf / fmin / fmax）のまま。
+- 検証: `fpu_ieee.ll` に `{f,d}_selueq`（ueq の select）、`{f,d}_brone`（one の分岐）、`{f,d}_min` / `{f,d}_max`、
+  nnan nsz の `f_min_fast` / `d_max_fast` を足した（ueq / one の setcc は既存の 14 述語に入っている）。
+  `fpu_ieee_main.c` は min / max の期待値を整数演算と libgcc の比較で作り、ソフトフロート経路が呼ぶ fminf ... fmax も
+  それで用意する（libm はリンクしない）。nnan nsz の版は NaN の組を除き、結果が 0 なら符号を問わない。
+  18,039 チェック。QEMU の rx62n（+fpu）/ rxv3 の -O0 / -O2、rxv3e の -O2
+  （いずれも +flush-denormals）と、rx62n / rxv3 のソフトフロートで全通過（OR / AND を返していた版は非正規化数の組で
+  48 チェック失敗）。`fpu-ieee.expected` は 122 関数。nnan nsz の min は `fcmp` 1 回。実機では未確認。
 
 ## f64 のロード・ストア（dmov.d、rx-rust #91、2026-11-05）
 - DR に入れる double のロードと、DR から出す double のストアは、`mov.l` 2 つ + `dmov.l` 2 つではなく `dmov.d` 1 つにする
