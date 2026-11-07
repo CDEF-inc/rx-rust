@@ -1,7 +1,8 @@
 //! Echoes what arrives on the EK-RX74N's USB serial port J27 (RSCI12, P114 =
 //! TXD012-B / P115 = RXD012-B, 115200 bps 8N1) back to the sender, forever.
 //! The echo itself is written against the `embedded-io` traits only (`echo`);
-//! `main` sets up rx74n-hal's `Serial` and hands it over. A receive error is
+//! `main` sets the clocks up (CPUCLK0 600 MHz; SCICLK stays on the 8 MHz
+//! MOCO), sets up rx74n-hal's `Serial` and hands it over. A receive error is
 //! reported as a line `! <error>` (a break gives a framing error), and the
 //! echo goes on.
 //!
@@ -16,7 +17,7 @@ use core::panic::PanicInfo;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use embedded_io::{Read, Write};
-use rx74n_hal::clock::Clocks;
+use rx74n_hal::clock::Config;
 use rx74n_hal::gpio::Parts;
 use rx74n_hal::pac::Peripherals;
 use rx74n_hal::serial::Serial;
@@ -54,10 +55,10 @@ where
 #[unsafe(no_mangle)]
 fn main() -> ! {
     let p = Peripherals::take().unwrap();
-    let clocks = Clocks::after_reset();
+    let clocks = Config::pll_600mhz_from_24mhz().configure(&p.sysc, &p.sram, &p.mram);
     let pins = Parts::take().unwrap();
     let mut serial = Serial::rsci12(p.rsci12, pins.p114, pins.p115, 115_200, &clocks);
-    serial.write_all(b"serial-echo: rx74n-hal RSCI12, 115200 8N1\r\n").unwrap();
+    serial.write_all(b"serial-echo: rx74n-hal RSCI12, 115200 8N1, CPUCLK0 600 MHz\r\n").unwrap();
     echo(&mut serial)
 }
 

@@ -58,12 +58,28 @@ RX72M と名前が違う: SYSTEM は SYSC と MSTPREG に分かれ（`p.sysc.prc
 | ユーザー LED | LED1（青）= PF05、LED2（緑）= P807、LED3（赤）= P604 | |
 | ユーザースイッチ | SW1 = P414、SW2 = P109 | 押すと Low。SW3 はリセット |
 | USB シリアル（J27） | P114 = TXD012-B、P115 = RXD012-B（RSCI12） | FT234XD。PC からは COM ポートに見える |
-| メインクロック | 水晶 24 MHz | |
+| メインクロック | 水晶 24 MHz（X1、EXTAL / XTAL） | MOMCR.MOSEL = 0（水晶）。外部クロック入力（MOSEL = 1）では発振しない |
+
+ボードのマニュアルのジャンパ表では XTAL と X1 の間（E25）が Open と読めたが、水晶として動く。Renesas の RX FSP の
+ボード設定（Renesas.RX_board_rx74n_ek パック）もメインクロックを水晶、PLL を 24 MHz / 3 x150 / 2 = 600 MHz にしている。
 
 ## HAL（crates/rx74n-hal）
 
-リセット後のクロックのまま動く。MOCO 8 MHz で、分周はすべて 1、SCICLK も MOCO（ICLK、PCLKB、SCICLK が 8 MHz）。
-PLL の設定はまだない。`Clocks::after_reset()` がこの値を返す。全部 root ワールド（Flat-Project）でセキュア側のアドレスを使う。
+リセット後は MOCO 8 MHz で、分周はすべて 1、SCICLK も MOCO（`Clocks::after_reset()`）。全部 root ワールド（Flat-Project）で
+セキュア側のアドレスを使う。
+
+- `clock`: `Config::configure` がメインクロック（水晶）、PLL1、待ちサイクルを設定し、システムクロックを PLL1P にする。
+  手順はハードウェアマニュアルの表 9.7 と図 65.14 のとおり: PRCR_S の PRC0 / PRC1 → PLL1LDOCR（リセット後は有効）→
+  MOMCR / MOSCWTCR / MOSCCR と OSCSF.MOSCSF → PLLCCR / PLLCCR2 / PLLCR と OSCSF.PLLSF → MRCFREQ（MRICLK の MHz、
+  切り上げ）と MREFREQ（MRPCLK）を書いて読み戻す → ICLK 150 MHz 超なら SRAMWTSC.WTEN → 600 MHz なら VSCR を VSCR_1 →
+  SCKDIVCR、SCKDIVCR2 → SCKSCR = PLL1P → 30 us 待つ（DCDC モードの場合、図 9.14）。SCICLK は MOCO のまま。
+  - `pll_480mhz_from_24mhz()`: PLL1 x40（VCO 960 MHz）/ 2。CPUCLK0 480 MHz、ICLK / MRICLK / PCLKE 240 MHz、
+    MRPCLK / PCLKA / PCLKD / BCLK 120 MHz、PCLKB / PCLKC 60 MHz。リセット後の VSCR_2 のまま使える上限。
+  - `pll_600mhz_from_24mhz()`: PLL1 / 3 x150（VCO 1200 MHz）/ 2。CPUCLK0 600 MHz、ICLK / MRICLK / PCLKE 300 MHz、
+    MRPCLK / PCLKA / PCLKD / BCLK 150 MHz、PCLKB / PCLKC 75 MHz。DCDC モード（ボードは UMRECR = FFFF_FFFFh で
+    DCDCCTL = 1）で VSCR_1 にする（表 67.52）。R5K574NxB4xx の最大。
+  - `configure` は設定値をハードウェアマニュアルの制限（PLL の入力 8〜24 MHz、VCO 960〜2400 MHz、各クロックの最大、
+    クロック間の N:1、3 の倍数の分周と 2 の累乗の分周を混ぜない）で検査し、外れていれば panic する。
 
 - `gpio`: 320 ピン版の全ポート端子を `Parts::take()` で渡す（`pf05` のようにポートは 16 ビット、ビットは 2 桁）。端子のモードは RX72M と違い
   PmnPFS（`0x87C00800 + 0x40 * ポート + 4 * ビット`）にまとまっていて、PDR、PCR、PMR、PSEL をここで書く。保護は PWPR_S。
@@ -74,8 +90,17 @@ PLL の設定はまだない。`Clocks::after_reset()` がこの値を返す。�
   8 MHz で 115200 bps を出すにはビットレート補正が要る（ABCS = BGDM = 1、BRR = 7、MDDR = 236、115234 bps、+0.03%）。
 
 確認: test/rust/hw-hal-rx74n（rt グループ、10 チェック、release / dev とも通る。LED が順に光る）。
-examples/rx74n-serial-echo は `scripts/hw/serial-echo.ps1 -Port COM9` ですべて通った（1 行のエコー、4096 バイトを 390 ms で取りこぼしなし、
-ブレークがフレーミングエラーになり、そのあともエコーが続く）。hw-run.sh で動かしている間に実行する。
+test/rust/hw-clock-rx74n（rt グループ、20 チェック、480 MHz と `--cfg clock600` の 600 MHz、release / dev とも通る）は
+設定後のレジスタに加えて、CAC でクロックを測る。メインクロック対 MOCO / 8192 は 23580（MOCO が 4% 速い）、
+PLL1P / 16 対メインクロック / 8192 は 10239（480 MHz、計算は 10240）と 12799（600 MHz、12800）、PCLKB は 20479 と 25599。
+CMT0 で測った 100 ms の遅延、CPU のループ（100 万回で 37.5 ms と 30 ms、比は 600 / 480）も確かめる。
+examples/rx74n-serial-echo（CPUCLK0 600 MHz）は `scripts/hw/serial-echo.ps1 -Port COM9` ですべて通った（1 行のエコー、
+4096 バイトを 375 ms で取りこぼしなし、ブレークがフレーミングエラーになり、そのあともエコーが続く）。
+hw-run.sh で動かしている間に実行する。MOCO 8 MHz のままでも通っていた（4096 バイトで 390 ms）。
+
+CAC はメインクロックが発振していないと測定が終わらない（基準にしても対象にしても MENDF が立たない）。OSCSF.MOSCSF は
+MOSCWTCR の待ち時間が過ぎたことを示すだけで、発振しているかどうかは分からない。外部クロック入力の設定で PLL を
+メインクロックにつなぐと、PLLSF は立つが周波数が違う（PCLKB を MOCO / 8192 で測ると 12033。60 MHz なら 6 万近く）。
 
 ## AP-RX72M-0A の配線（ボードのハードウェアマニュアル v6.0 より）
 
