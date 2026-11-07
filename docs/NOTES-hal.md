@@ -125,6 +125,10 @@ MOSCWTCR の待ち時間が過ぎたことを示すだけで、発振してい�
   `into_function(psel)` は MPC の PFS.PSEL を書き（PWPR の B0WI = 0、PFSWE = 1 で保護を外して戻す）、PMR = 1 にする。
   P35（NMI）は入力専用（PDR / PODR / PMR / PCR のビットがない）なので、`into_*` は `IoCapable`（P35 以外の
   136 本に実装）を持つ端子だけにあり、P35 は `InputPin` としてだけ使える（P35 の `into_*` はコンパイルエラー）。
+  `into_analog()` は A/D のアナログ入力を持つ端子（`AnalogCapable`: P40〜P47 = AN000〜AN007、PE2〜PE7 = AN100〜AN105、
+  PD6 / PD7 = AN106 / AN107、PD0〜PD5 = AN108〜AN113、P90〜P93 = AN114〜AN117、P00〜P02 = AN118〜AN120）を
+  PMR = 0、PDR = 0、PCR = 0、PFS = 80h（ASEL）にする（I/O ポートの章の注意のとおり）。ほかの `into_*` は PFS.ASEL を
+  読んで、立っていれば消す（ASEL のない端子では読むと 0）。
 
 確認: test/rust/hw-hal（ボード、rt グループ、17 チェック、release / dev とも通る）。
 - PLL 240 MHz への切り替え後のレジスタ（CKSEL、MOOVF / PLOVF、MEMWAIT、STC、MODRV2、SCKCR）。
@@ -176,6 +180,34 @@ MOSCWTCR の待ち時間が過ぎたことを示すだけで、発振してい�
 - CN9 の 3・4 番（MOSI・MISO）をつなぐと、内部ループバックなしでも戻ることを確かめる（`loopback=1`）。つないで
   いなければ MISO はプルアップで FFh を読む。
 
+- `adc`: 12 ビット A/D 変換器（S12ADFa）。`Adc::s12ad(p.s12ad, &clocks)`（ユニット 0、AN000〜AN007、ADCLK = PCLKC、
+  MSTPCRA.MSTPA17）と `Adc::s12ad1(p.s12ad1, &clocks)`（ユニット 1、AN100〜AN120、内部基準電圧、温度センサ、
+  ADCLK = PCLKD、MSTPA16。ADSAM.SAM = 1 の中速変換にする。ADSAMPR で保護を外し、割り込み禁止で書く）。
+  embedded-hal 1.0 には A/D のトレイトがないので、`read(&pin)` が `into_analog()` した端子（`Channel<Unit0 / Unit1>`）
+  を 1 回変換して 12 ビットの値（右詰め）を返す。ソフトウェアトリガのシングルスキャンで、ADCSR.ADST が消えるのを待つ。
+  サンプリング時間はリセット値（11 ステート）のまま。2 つのユニットはレジスタの並びが同じ（0x89000 / 0x89100）なので
+  アドレスで直接扱う。PCLKB : ADCLK は 1、2、4、8 のどれか（それ以外は panic）。
+  - `self_diagnosis(DiagVoltage::Zero / Half / Full)`: ADCER.DIAGM と DIAGLD（電圧固定モード）でチャネルを選ばずに
+    変換し、ADRD の値と状態（bit 15〜14、どの電圧を変換したか）を返す。
+  - `read_internal_reference()`（ユニット 1）: ADEXICR.OCSA、400 ns 待って変換し ADOCDR を返す。1.13〜1.23 V。
+  - `TemperatureSensor::new(p.temps, p.tempsconst)`（MSTPCRB.MSTPB8）: `read_raw(&mut adc1)` は図 60.3 の手順
+    （TSCR.TSEN、30 us、TSOE、ADEXICR.TSSA で変換、センサを止める）で ADTSDR を返す。`calibration()` は TSCDR
+    （FE7F_7D7Ch、Tj = 125 °C、AVCC1 = 3.3 V での変換値）。`read_millicelsius` は TSCDR と典型の傾き 4 mV/°C から
+    T = 125 + (raw − TSCDR) × 3.3 V / 4096 / 4 mV（AVCC1 = 3.3 V とみなす。1 点校正の誤差は ±7 °C ほど、図 60.2）。
+  - 温度センサと内部基準電圧はサンプリング時間を 5 us 以上にする（58.2.18 の注。電気的特性の表 65.59 では温度センサは
+    4.15 us）。ADSSTRT / ADSSTRO は 8 ビット（最大 255 ステート）なので、ADCLK = PCLKD が 51 MHz 以下でないと
+    足りない。リセット後の 240 MHz の設定では PCLKD = 60 MHz（4.25 us まで）なので、使うときは `pclkd: Div::Div8`
+    （30 MHz、150 ステート）にする。足りなければ panic する。
+
+確認: test/rust/hw-adc（ボード、rt グループ、24 チェック、release / dev とも通る。2026-11-08）。配線なしで確かめる
+（ボードの AN 端子は拡張コネクタにだけ出ていて、決まった電圧につながっているものはない）。PCLKD = 30 MHz。
+- 自己診断: 両ユニットで 0 V が 0、1/2 が 2047、基準電圧が 4094〜4095。状態のビットも変換した電圧と合う。
+- 内部基準電圧: 1467（1.182 V。AVCC1 = 3.3 V として）。ADSSTRO = 150。
+- 温度センサ: TSCDR = 2001（125 °C で 1.612 V）、変換値 1498〜1502 で 24.7〜25.3 °C（室温）。ADSSTRT = 150、
+  終わったあと TSCR = 0。
+- P40（AN000）/ PE2（AN100）の `into_analog`（PFS = 80h、PMR / PDR = 0）と `read`（何もつながっていないので値は
+  見ない）、読んだあとのチャネル選択と ADST が 0、`into_input` で PFS.ASEL が消えること。
+
 ### UART の受信と相手機器との通信（2026-11-04）
 
 CN8 に USB シリアル変換（FTDI、3.3 V、Windows では COM8）をつなぎ、examples/serial-echo（下記）と
@@ -224,5 +256,5 @@ CN8（SCI2、115200 bps 8N1）に届いたバイトをそのまま送り返す�
 ## 予定
 
 1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）、~~UART（受信）~~（2026-11-04、デバッガをつないだ状態。上記）
-2. ~~SPI（RSPI）~~（2026-11-08、内部ループバック。CN9 に相手機器はまだつないでいない）、I2C（RIIC）、PWM（MTU / GPTW）、ADC（S12AD）
+2. ~~SPI（RSPI）~~（2026-11-08、内部ループバック。CN9 に相手機器はまだつないでいない）、~~ADC（S12AD）~~（2026-11-08、自己診断・内部基準電圧・温度センサ。外部の電圧はまだ）、I2C（RIIC）、PWM（MTU / GPTW）
 3. 必要なら async（embassy の time driver を CMT で）、embedded-hal-nb の serial

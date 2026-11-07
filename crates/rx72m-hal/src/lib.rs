@@ -7,10 +7,12 @@
 //! - [`delay`]: `DelayNs` on CMT2.
 //! - [`serial`]: SCI2 as a UART (`embedded-io` `Read` / `Write`).
 //! - [`spi`]: RSPI2 as an SPI master (`SpiBus`).
+//! - [`adc`]: the 12-bit A/D converter units, the internal reference
+//!   voltage and the temperature sensor.
 //!
 //! Register access goes through [`pac`] (rx72m-pac, generated from e2
 //! studio's RX72M.sfrx) where its types fit, and through the uniform port
-//! register layout for GPIO. Read-modify-write of shared registers runs in a
+//! register layout for GPIO and the A/D converter units. Read-modify-write of shared registers runs in a
 //! critical section; the application provides the implementation (rx-rt's
 //! `critical-section` feature).
 
@@ -20,6 +22,7 @@ pub use embedded_hal;
 pub use embedded_io;
 pub use rx72m_pac as pac;
 
+pub mod adc;
 pub mod clock;
 pub mod delay;
 pub mod gpio;

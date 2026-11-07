@@ -4,8 +4,10 @@
 //! AP-RX72M-0A manual's I/O tables: ports 0-9, A-G and J) once, as a
 //! [`Pin`] in [`Input`] mode, the state after reset. A pin changes mode with
 //! `into_*`: [`Output`] (push-pull, PDR = 1), [`Input`] or [`PullUpInput`]
-//! (PCR = 1), all general I/O port modes (PMR = 0), or [`Function`]
-//! (`into_function(psel)`: MPC PFS.PSEL, PMR = 1) for a peripheral.
+//! (PCR = 1), all general I/O port modes (PMR = 0), [`Function`]
+//! (`into_function(psel)`: MPC PFS.PSEL, PMR = 1) for a peripheral, or
+//! [`Analog`] (`into_analog`: PFS.ASEL = 1) for the A/D converter on the
+//! pins that have an analog input ([`AnalogCapable`]).
 //!
 //! P35 (NMI) is input only: it has no PDR, PODR, PMR or PCR bit, so it has
 //! no `into_*` (they need [`IoCapable`]) and is only an `InputPin`.
@@ -36,6 +38,9 @@ pub struct PullUpInput;
 pub struct Output;
 /// A peripheral function (PMR = 1, the function chosen by PFS.PSEL).
 pub struct Function;
+/// An analog input (PMR = 0, PDR = 0, PFS.ASEL = 1). The pin is not read
+/// through PIDR then.
+pub struct Analog;
 
 const PWPR: *mut u8 = 0x0008_c11f as _;
 const PFS: usize = 0x0008_c140;
@@ -62,6 +67,23 @@ fn modify(base: usize, p: usize, bit: u8, set: bool) {
 /// pull-up: every pin but P35.
 pub trait IoCapable<const P: usize, const N: u8> {}
 
+/// Implemented (for `()`) for the pins with an analog input of the A/D
+/// converter (AN000-AN007, AN100-AN120): P00-P02, port 4, P90-P93, port D
+/// and PE2-PE7.
+pub trait AnalogCapable<const P: usize, const N: u8> {}
+
+/// Writes PFS of the pin, through the PWPR write protection (B0WI = 0,
+/// PFSWE = 1, then back).
+fn write_pfs(p: usize, n: u8, v: u8) {
+    critical_section::with(|_| unsafe {
+        write_volatile(PWPR, 0x00);
+        write_volatile(PWPR, 0x40);
+        write_volatile((PFS + p * 8 + n as usize) as *mut u8, v);
+        write_volatile(PWPR, 0x00);
+        write_volatile(PWPR, 0x80);
+    });
+}
+
 impl<const P: usize, const N: u8, MODE> Pin<P, N, MODE> {
     const fn new() -> Self {
         Pin { _mode: PhantomData }
@@ -76,9 +98,19 @@ impl<const P: usize, const N: u8, MODE> Pin<P, N, MODE>
 where
     (): IoCapable<P, N>,
 {
+    /// Clears PFS.ASEL if the pin was an analog input (the bit reads 0 on
+    /// the pins without one).
+    fn leave_analog(&self) {
+        let pfs = unsafe { read_volatile((PFS + P * 8 + N as usize) as *const u8) };
+        if pfs & 0x80 != 0 {
+            write_pfs(P, N, pfs & 0x7f);
+        }
+    }
+
     /// Push-pull output, starting at `high` (PODR is set before PDR).
     pub fn into_output(self, high: bool) -> Pin<P, N, Output> {
         modify(PMR, P, N, false);
+        self.leave_analog();
         modify(PCR, P, N, false);
         modify(PODR, P, N, high);
         modify(PDR, P, N, true);
@@ -95,6 +127,7 @@ where
         modify(PMR, P, N, false);
         modify(PDR, P, N, false);
         modify(PCR, P, N, false);
+        self.leave_analog();
         Pin::new()
     }
 
@@ -103,6 +136,7 @@ where
         modify(PMR, P, N, false);
         modify(PDR, P, N, false);
         modify(PCR, P, N, true);
+        self.leave_analog();
         Pin::new()
     }
 
@@ -113,14 +147,23 @@ where
     pub fn into_function(self, psel: u8) -> Pin<P, N, Function> {
         assert!(psel < 64);
         modify(PMR, P, N, false);
-        critical_section::with(|_| unsafe {
-            write_volatile(PWPR, 0x00);
-            write_volatile(PWPR, 0x40);
-            write_volatile((PFS + P * 8 + N as usize) as *mut u8, psel);
-            write_volatile(PWPR, 0x00);
-            write_volatile(PWPR, 0x80);
-        });
+        write_pfs(P, N, psel);
         modify(PMR, P, N, true);
+        Pin::new()
+    }
+}
+
+impl<const P: usize, const N: u8, MODE> Pin<P, N, MODE>
+where
+    (): AnalogCapable<P, N>,
+{
+    /// An analog input: PMR = 0, PDR = 0, PCR = 0, then PFS = 80h (ASEL,
+    /// no PSEL or ISEL), as the I/O port chapter asks for analog pins.
+    pub fn into_analog(self) -> Pin<P, N, Analog> {
+        modify(PMR, P, N, false);
+        modify(PDR, P, N, false);
+        modify(PCR, P, N, false);
+        write_pfs(P, N, 0x80);
         Pin::new()
     }
 }
@@ -492,3 +535,36 @@ impl IoCapable<0x12, 1> for () {}
 impl IoCapable<0x12, 2> for () {}
 impl IoCapable<0x12, 3> for () {}
 impl IoCapable<0x12, 5> for () {}
+
+// The analog inputs: P40-P47 = AN000-AN007, PE2-PE7 = AN100-AN105,
+// PD6 / PD7 = AN106 / AN107, PD0-PD5 = AN108-AN113, P90-P93 =
+// AN114-AN117, P00-P02 = AN118-AN120.
+impl AnalogCapable<0x00, 0> for () {}
+impl AnalogCapable<0x00, 1> for () {}
+impl AnalogCapable<0x00, 2> for () {}
+impl AnalogCapable<0x04, 0> for () {}
+impl AnalogCapable<0x04, 1> for () {}
+impl AnalogCapable<0x04, 2> for () {}
+impl AnalogCapable<0x04, 3> for () {}
+impl AnalogCapable<0x04, 4> for () {}
+impl AnalogCapable<0x04, 5> for () {}
+impl AnalogCapable<0x04, 6> for () {}
+impl AnalogCapable<0x04, 7> for () {}
+impl AnalogCapable<0x09, 0> for () {}
+impl AnalogCapable<0x09, 1> for () {}
+impl AnalogCapable<0x09, 2> for () {}
+impl AnalogCapable<0x09, 3> for () {}
+impl AnalogCapable<0x0d, 0> for () {}
+impl AnalogCapable<0x0d, 1> for () {}
+impl AnalogCapable<0x0d, 2> for () {}
+impl AnalogCapable<0x0d, 3> for () {}
+impl AnalogCapable<0x0d, 4> for () {}
+impl AnalogCapable<0x0d, 5> for () {}
+impl AnalogCapable<0x0d, 6> for () {}
+impl AnalogCapable<0x0d, 7> for () {}
+impl AnalogCapable<0x0e, 2> for () {}
+impl AnalogCapable<0x0e, 3> for () {}
+impl AnalogCapable<0x0e, 4> for () {}
+impl AnalogCapable<0x0e, 5> for () {}
+impl AnalogCapable<0x0e, 6> for () {}
+impl AnalogCapable<0x0e, 7> for () {}
