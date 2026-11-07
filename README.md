@@ -69,7 +69,8 @@ test/codegen/   LLVM IR + C tests run on QEMU (Rust/LLVM <-> GCC calls)
 test/qemu/      instruction tests for the QEMU CPU models (also run on the board)
 test/hw/        start-up code, harness and linker scripts for the RX72M board
 test/rust/      Rust tests: core-smoke (with a C driver), qemu-demo, isr-save, isr-bank,
-                hw-irq (also on the board), hw-pac, hw-hal, hw-uart and hw-spi (board only)
+                hw-irq (also on the board), hw-pac, hw-hal, hw-uart, hw-spi and hw-adc
+                (board only)
 docs/           design notes and plan (in Japanese)
 ```
 
