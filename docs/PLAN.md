@@ -122,8 +122,8 @@
 - [x] AP-RX72M-0A（RX72M、RXv3 + DFPU）を E2 Lite で動かすテスト環境（`scripts/hw-build.sh`、`scripts/hw-run.sh`）。
   命令・codegen・core-smoke・割り込みの 31 本、35,560 チェックがすべて実機で通過（NOTES-hw.md）。
   実機と QEMU の違いは CDEF-inc/qemu で直した（NOTES-qemu.md）
-- [x] EK-RX74N（RXv3e）でも RAM で動くテスト 40 本が通過（`HW_BOARD=rx74n`、NOTES-hw.md）。
-  コード MRAM に置くテスト（rom、rt、examples）と non-secure ワールドの実行はまだ
+- [x] EK-RX74N（RXv3e）でも命令・codegen・core-smoke と周辺を使わない rx-rt のテスト 59 本が通過
+  （`HW_BOARD=rx74n`、NOTES-hw.md）。周辺を使うテスト（RX74N の PAC と HAL が要る）と non-secure ワールドの実行はまだ
 - [x] rx72m-pac と rx72m-hal: クロック（PLL 240 MHz）、GPIO、MPC、CMT の遅延、SCI2 の UART 送信、rx-rt の critical-section
 - [x] L チカ: `examples/blinky`（embedded-hal で LD1 / LD2 を点滅、コードフラッシュから起動）
 - [x] Rust で書いた RTOS が QEMU と RX72M で動く
