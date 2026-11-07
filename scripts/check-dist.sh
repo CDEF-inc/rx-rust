@@ -11,6 +11,9 @@
 # index for -Zbuild-std, so it needs the network.
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
+# Through scripts\msvc.bat: Git Bash's /usr/bin/link comes before MSVC's
+# link.exe, which rustc runs to link build scripts.
+if command -v cl > /dev/null; then PATH=$(dirname "$(command -v cl)"):$PATH; fi
 [ $# = 1 ] || { echo "usage: $0 ARCHIVE.tar.xz|ARCHIVE.zip" >&2; exit 2; }
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

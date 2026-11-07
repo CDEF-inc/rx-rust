@@ -17,8 +17,9 @@
 #
 # To use it: put NAME\bin on PATH and set RUSTC=NAME\bin\rustc.exe and
 # RUSTC_BOOTSTRAP=1. Linking build scripts needs the MSVC linker (Visual
-# Studio Build Tools), as with any x86_64-pc-windows-msvc Rust. The rest needs
-# nothing installed: the MSVC runtime is linked statically.
+# Studio Build Tools), as with any x86_64-pc-windows-msvc Rust; in Git Bash
+# its directory has to come before /usr/bin, whose link is not the linker.
+# The rest needs nothing installed: the MSVC runtime is linked statically.
 # scripts/check-dist.sh tests a zip (in Git Bash).
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
