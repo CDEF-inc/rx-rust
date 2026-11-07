@@ -153,6 +153,29 @@ MOSCWTCR の待ち時間が過ぎたことを示すだけで、発振してい�
 - 受信エラーなし（RXD のプルアップ）。CN8 の 1・2 番（RXD・TXD）をつなぐと送った 6 バイトが戻ることを確かめる
   （つないでいないので `loopback=0`、受信と RXI2 = ベクタ 62 はまだ実機で確かめていない）。
 
+- `spi`: `Spi::rspi2(p.rspi2, pins.p56, pins.p54, pins.p55, MODE_0, 1_000_000, &clocks)`。RSPI2（MSTPCRC.MSTPC22）を
+  無線モジュール用コネクタ CN9 の P56 = RSPCKC-B / P54 = MOSIC-B / P55 = MISOC-B（PSEL 0Dh）でマスタにし、
+  embedded-hal の `SpiBus<u8>` を実装する。クロック同期式動作（SPCR.SPMS = 1、3 線）なので SSL 端子は使わず、
+  CS はアプリケーションが GPIO で扱う（embedded-hal-bus の `ExclusiveDevice` など）。SPCMD0 だけ、1 フレーム 8 ビット、
+  MSB ファースト、SPDR はバイトアクセス（SPDCR.SPBYT = 1、SPDR.HH = 000D_0304h）。遅延は既定のまま（RSPCK 遅延と
+  SSL ネゲート遅延が 1 RSPCK、次アクセス遅延が 1 RSPCK + 2 PCLKA）。
+  RSPI のクロックは PCLKA（120 MHz）で、ビットレートは PCLKA / (2 × (SPBR + 1) × 2^BRDV)。要求以下で最も高いものを選ぶ
+  （30 MHz は SPBR = 1、1 MHz は SPBR = 59、最低は PCLKA / 4096 = 29.3 kHz）。
+  SPTEF / SPRF をポーリングする（マニュアル 45.5.4 のとおり SPTIE / SPRIE = 0 で）。1 バイトずつ受信してから次を送るので
+  受信バッファはオーバーランせず、エラーはない（`Error = Infallible`）。`read` は FFh を送る。MISO には内蔵プルアップを入れる。
+  `set_loopback(Some(false))`（SPPCR.SPLP2、そのまま）/ `Some(true)`（SPLP、反転）で、配線なしにシフトレジスタの
+  送信側を受信側につなげる（RSPCK と MOSI は端子にも出る）。
+
+確認: test/rust/hw-spi（ボード、rt グループ、31 チェック、release / dev とも通る。2026-11-08）。
+- ビットレートの選び方（7 通り）、MPC（P54〜P56 の PSEL = 0Dh、PMR、P55 の PCR）、SPCR = 49h。
+- 内部ループバック: SPLP2 で 00h〜FFh がそのまま、SPLP で反転して戻る。`read` / `write` / `transfer`（長さの違う
+  バッファ）/ `transfer_in_place`。4 つのモードで 1 MHz と 30 MHz。
+- 端子: アイドル時の RSPCK（P56）が CPOL のとおり、MOSI（P54）が最後のビットのまま。
+- 64 バイトの転送時間を CMT0（PCLKB / 8）で計る: 1 MHz で 8 ビット分（3840 カウント）以上、500 kHz でその 2 倍。
+  ボードでは 5032 カウント（671 us、1 バイト約 10.5 RSPCK）と 10053 カウント（比 2.00）。
+- CN9 の 3・4 番（MOSI・MISO）をつなぐと、内部ループバックなしでも戻ることを確かめる（`loopback=1`）。つないで
+  いなければ MISO はプルアップで FFh を読む。
+
 ### UART の受信と相手機器との通信（2026-11-04）
 
 CN8 に USB シリアル変換（FTDI、3.3 V、Windows では COM8）をつなぎ、examples/serial-echo（下記）と
@@ -201,5 +224,5 @@ CN8（SCI2、115200 bps 8N1）に届いたバイトをそのまま送り返す�
 ## 予定
 
 1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）、~~UART（受信）~~（2026-11-04、デバッガをつないだ状態。上記）
-2. SPI（RSPI）、I2C（RIIC）、PWM（MTU / GPTW）、ADC（S12AD）
+2. ~~SPI（RSPI）~~（2026-11-08、内部ループバック。CN9 に相手機器はまだつないでいない）、I2C（RIIC）、PWM（MTU / GPTW）、ADC（S12AD）
 3. 必要なら async（embassy の time driver を CMT で）、embedded-hal-nb の serial

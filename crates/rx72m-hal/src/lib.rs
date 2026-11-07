@@ -6,6 +6,7 @@
 //!   and the MPC pin functions.
 //! - [`delay`]: `DelayNs` on CMT2.
 //! - [`serial`]: SCI2 as a UART (`embedded-io` `Read` / `Write`).
+//! - [`spi`]: RSPI2 as an SPI master (`SpiBus`).
 //!
 //! Register access goes through [`pac`] (rx72m-pac, generated from e2
 //! studio's RX72M.sfrx) where its types fit, and through the uniform port
@@ -24,3 +25,4 @@ pub mod delay;
 pub mod gpio;
 mod mstp;
 pub mod serial;
+pub mod spi;
