@@ -4,7 +4,8 @@
 # HW_BOARD=rx74n they are for the RX74N (EK-RX74N: RXv3e), in build/hw-rx74n:
 # insns with rxv3e-insns and without cmt, whose registers are elsewhere
 # there, rom, codegen, rust, the rt tests isr-save, isr-bank, alloc-smoke,
-# float-smoke, hw-pac-rx74n and hw-hal-rx74n, and rx74n-serial-echo.
+# float-smoke, hw-pac-rx74n, hw-hal-rx74n and hw-clock-rx74n (480 and 600 MHz),
+# and rx74n-serial-echo.
 #
 #   hw-build.sh [insns] [rom] [codegen] [rust] [rt] [examples]
 #                                                   default: all six
@@ -44,7 +45,8 @@ case $board in
     insns=(cmt) extra_defs=() examples=(blinky serial-echo) ;;
   rx74n)
     out=$root/build/hw-rx74n cpu=rxv3e v3e=1 ram_ld=rx74n-ram.ld rom_ld=rx74n-rom.ld
-    memory_x=rx74n-memory.x peripherals=(hw-pac-rx74n hw-hal-rx74n)
+    memory_x=rx74n-memory.x peripherals=(hw-pac-rx74n hw-hal-rx74n hw-clock-rx74n
+                 "hw-clock-rx74n:-600:--cfg clock600")
     all=(insns rom codegen rust rt examples)
     insns=(rxv3e-insns) extra_defs=(--defsym ROOT_ONLY=1)
     examples=(rx74n-serial-echo) ;;
