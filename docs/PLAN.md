@@ -112,6 +112,7 @@
 - [x] `-Zbuild-std=core` で `core` がビルドでき、テスト crate を GCC とリンクして QEMU で 80 チェック全通過（release/dev）
 - [x] RX の target feature（rxv2 / rxv3 / rxv3e / fpu / dfpu、rust #4）とインライン asm（`asm!`、M5、`test/codegen/inline-asm.ll`）
 - [x] 配布用ツールチェイン（`scripts/dist-toolchain.sh`、rx-rust #40）。CI の RX ジョブで使う
+- [x] Windows 版の配布用ツールチェイン（`scripts/build-windows.sh`、`scripts/dist-toolchain-windows.sh`、host は x86_64-pc-windows-msvc）
 - [ ] `alloc` の確認
 - [ ] tidy / UI テスト / platform-support のドキュメント（上流化する場合）
 

@@ -117,6 +117,22 @@ RUSTC=$T/bin/rustc RUSTC_BOOTSTRAP=1 PATH=$T/bin:$PATH \
   $T/bin/cargo build --release   # a crate set up like test/rust/qemu-demo
 ```
 
+For Windows, [`scripts/build-windows.sh`](scripts/build-windows.sh) builds
+the same tools with Visual Studio's C++ tools (host
+`x86_64-pc-windows-msvc`; `qemu-system-rx` with MSYS2's MinGW, and its DLLs
+beside it) and `scripts/dist-toolchain-windows.sh` packs them into
+`build/dist/rx-toolchain-x86_64-windows.zip`. It is the
+`rx-toolchain-x86_64-windows` artifact of the Windows workflow. The programs
+need nothing installed, but build scripts need the MSVC linker (Visual Studio
+Build Tools), as with any MSVC Rust. In PowerShell:
+
+```powershell
+tar -xf rx-toolchain-x86_64-windows.zip
+$T = "$PWD\rx-toolchain-x86_64-windows"
+$env:RUSTC = "$T\bin\rustc.exe"; $env:RUSTC_BOOTSTRAP = 1; $env:PATH = "$T\bin;$env:PATH"
+cargo build --release   # a crate set up like test/rust/qemu-demo
+```
+
 The tests use `../qemu/build/qemu-system-rx` (CDEF-inc/qemu, built as in
 [`docs/NOTES-qemu.md`](docs/NOTES-qemu.md)) when it exists, else
 `qemu-system-rx` from `PATH`.

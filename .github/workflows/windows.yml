@@ -1,0 +1,156 @@
+# Builds the Windows toolchain and packs the zip
+# (scripts/dist-toolchain-windows.sh, the rx-toolchain-x86_64-windows
+# artifact).
+#
+# It is three parts (scripts/build-windows.sh): rustc (LLVM and the stage1
+# rustc), lldb and qemu, cached like ci.yml's. There is no ccache here, so a
+# new rust / llvm-project commit rebuilds LLVM in full (hours on a GitHub
+# runner): this runs on main and by hand, and on a pull request only when it
+# changes the Windows build itself. The tests stay in ci.yml, on Linux; the
+# dist job runs check-dist.sh on the zip.
+name: Windows
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/windows.yml
+      - scripts/build-windows.sh
+      - scripts/dist-toolchain-windows.sh
+      - scripts/msvc.bat
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Bump to rebuild every part (e.g. after changing what is packed below).
+  CACHE_VERSION: 2
+
+jobs:
+  keys:
+    runs-on: ubuntu-22.04
+    outputs:
+      rustc: ${{ steps.k.outputs.rustc }}
+      lldb: ${{ steps.k.outputs.lldb }}
+      qemu: ${{ steps.k.outputs.qemu }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: k
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=win-v$CACHE_VERSION
+          rust=$(git rev-parse HEAD:rust)
+          llvm=$(gh api "repos/CDEF-inc/rust/contents/src/llvm-project?ref=$rust" --jq .sha)
+          qemu=$(grep -v '^#' scripts/qemu.commit)
+          s=${{ hashFiles('scripts/build-windows.sh', 'scripts/bootstrap.toml.in', 'scripts/setup.sh') }}
+          {
+            echo "rustc=rustc-$v-$rust-$s"
+            echo "lldb=lldb-$v-$llvm-$s"
+            echo "qemu=qemu-$v-$qemu-$s"
+          } | tee -a "$GITHUB_OUTPUT"
+
+  build:
+    needs: keys
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [rustc, lldb, qemu]
+    runs-on: windows-2022
+    timeout-minutes: 350
+    steps:
+      - id: hit
+        uses: actions/cache/restore@v6
+        with:
+          path: build/ci/${{ matrix.part }}.tar
+          key: ${{ needs.keys.outputs[matrix.part] }}
+          lookup-only: true
+      - if: steps.hit.outputs.cache-hit != 'true'
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.longpaths true
+      - if: steps.hit.outputs.cache-hit != 'true'
+        uses: actions/checkout@v7
+      - if: steps.hit.outputs.cache-hit != 'true' && matrix.part != 'qemu'
+        shell: bash
+        run: SETUP_DEPTH=1 bash scripts/setup.sh
+      - if: steps.hit.outputs.cache-hit != 'true' && matrix.part == 'rustc'
+        shell: cmd
+        run: |
+          call scripts\msvc.bat scripts/build-windows.sh llvm || exit /b 1
+          call scripts\msvc.bat scripts/build-windows.sh rustc
+      - if: steps.hit.outputs.cache-hit != 'true' && matrix.part == 'lldb'
+        shell: cmd
+        run: call scripts\msvc.bat scripts/build-windows.sh lldb
+      - if: steps.hit.outputs.cache-hit != 'true' && matrix.part == 'qemu'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: >-
+            git make diffutils bison flex
+            mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-glib2 mingw-w64-ucrt-x86_64-pixman
+            mingw-w64-ucrt-x86_64-dtc
+      - if: steps.hit.outputs.cache-hit != 'true' && matrix.part == 'qemu'
+        shell: msys2 {0}
+        run: bash scripts/build-windows.sh qemu
+      - if: steps.hit.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p build/ci
+          # Not all of stage1/lib: rustlib/src and rustc-src link to the checkout,
+          # and Git Bash's tar cannot extract those links.
+          host=x86_64-pc-windows-msvc
+          h=rust/build/$host
+          case ${{ matrix.part }} in
+          rustc) p="build/llvm/bin/lld.exe build/llvm/bin/llvm-*.exe $h/stage1/bin $h/stage1/lib/rustlib/$host $h/stage0/bin/cargo.exe" ;;
+          lldb) p="build/lldb/bin/lldb.exe build/lldb/bin/liblldb.dll" ;;
+          qemu) p="build/qemu-windows" ;;
+          esac
+          tar -cf build/ci/${{ matrix.part }}.tar $p
+      - if: steps.hit.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: build/ci/${{ matrix.part }}.tar
+          key: ${{ needs.keys.outputs[matrix.part] }}
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-build-logs-${{ matrix.part }}
+          path: |
+            build/llvm/*.log
+            build/lldb/*.log
+            build/rustc.log
+          if-no-files-found: ignore
+
+  dist:
+    needs: [keys, build]
+    runs-on: windows-2022
+    steps:
+      - run: |
+          git config --global core.autocrlf false
+          git config --global core.longpaths true
+      - uses: actions/checkout@v7
+      - shell: bash
+        run: SETUP_DEPTH=1 bash scripts/setup.sh
+      - uses: actions/cache/restore@v6
+        with: { path: build/ci/rustc.tar, key: "${{ needs.keys.outputs.rustc }}", fail-on-cache-miss: true }
+      - uses: actions/cache/restore@v6
+        with: { path: build/ci/lldb.tar, key: "${{ needs.keys.outputs.lldb }}", fail-on-cache-miss: true }
+      - uses: actions/cache/restore@v6
+        with: { path: build/ci/qemu.tar, key: "${{ needs.keys.outputs.qemu }}", fail-on-cache-miss: true }
+      - shell: bash
+        run: |
+          for p in rustc lldb qemu; do tar -xf build/ci/$p.tar; done
+          bash scripts/dist-toolchain-windows.sh
+      - shell: cmd
+        run: call scripts\msvc.bat scripts/check-dist.sh build/dist/rx-toolchain-x86_64-windows.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rx-toolchain-x86_64-windows
+          path: build/dist/rx-toolchain-x86_64-windows.zip
+          compression-level: 0
