@@ -11,7 +11,8 @@
 #
 #   check-lldb.sh          PROFILE=dev|release (default dev); RUST_EXTRA_FLAGS
 #                          adds rustc flags (e.g. -C target-feature=+relax),
-#                          in a target directory of its own
+#                          in a target directory of its own; LLDB_TIMEOUT
+#                          seconds for the LLDB session (120)
 set -u
 root=$(cd "$(dirname "$0")/.." && pwd)
 host=x86_64-unknown-linux-gnu
@@ -46,7 +47,12 @@ for _ in $(seq 50); do
   sleep 0.2
 done
 
-"$LLDB" -b -x -o "settings set use-color false" \
+# The session takes seconds. A stop that never comes would make LLDB wait
+# forever (once in CI, rx-rust#126, until the job's 60 minutes ran out and
+# no log was kept), so it gets a time limit and the output so far is
+# checked and shown.
+lldb_timeout=${LLDB_TIMEOUT:-120}
+timeout -k 10 "$lldb_timeout" "$LLDB" -b -x -o "settings set use-color false" \
   -o "target create $elf" -o "gdb-remote 127.0.0.1:$port" \
   -o "breakpoint set -n scale" -o "continue" \
   -o "bt" -o "frame variable" -o "expr k + 1" -o "expr p.x * 2" \
@@ -68,10 +74,17 @@ done
   -o "continue" -o "finish" -o "continue" -o "finish" -o "continue" -o "finish" \
   -o "expr lldb_demo::outer(1, 2)" \
   -o "kill" > "$tmp/out" 2>&1
+lldb_status=$?
 log=$target_dir/check-lldb.log
 cat "$tmp/out" > "$log"
 
 status=0
+# 124: timeout stopped it (137: killed after the grace period).
+if [ $lldb_status = 124 ] || [ $lldb_status = 137 ]; then
+  echo "FAIL  LLDB did not finish in $lldb_timeout s"; status=1
+else
+  echo "ok    LLDB finished"
+fi
 expect() {
   if grep -q -E -- "$2" "$tmp/out"; then echo "ok    $1"
   else echo "FAIL  $1: no /$2/"; status=1; fi
