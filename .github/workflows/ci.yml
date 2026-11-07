@@ -150,7 +150,8 @@ jobs:
         with: { path: build/ci/qemu.tar.zst, key: "${{ needs.keys.outputs.qemu }}", fail-on-cache-miss: true }
       - run: bash scripts/ci.sh unpack rustc lldb gnu qemu
       - run: bash scripts/run-all-tests.sh -j 8 --shard ${{ matrix.shard }}/4
-      - if: failure()
+      # Also when the job is cancelled or runs out of time.
+      - if: failure() || cancelled()
         uses: actions/upload-artifact@v7
         with:
           name: test-logs-${{ matrix.shard }}

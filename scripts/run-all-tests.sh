@@ -61,12 +61,14 @@ run() {
   groups[$g]+=" $i"
 }
 
-# run_group G: run the tests of group G in order.
+# run_group G: run the tests of group G in order, each within
+# $TEST_TIMEOUT seconds (default 900; the longest take a few minutes), so
+# that a test that hangs fails with its log instead of holding the run.
 run_group() {
   local i log
   for i in ${groups[$1]}; do
     log=$logs/$(echo "${names[$i]}" | tr ' /=' '___').log
-    if eval "${cmds[$i]}" > "$log" 2>&1 < /dev/null; then
+    if timeout -k 10 "${TEST_TIMEOUT:-900}" bash -c "${cmds[$i]}" > "$log" 2>&1 < /dev/null; then
       echo ok > "$logs/status/$i"
       printf 'ok    %s\n' "${names[$i]}"
     else
