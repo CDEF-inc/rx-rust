@@ -16,7 +16,7 @@
 #
 # rustc links its C runtime statically on MSVC (bootstrap's crt_static), so
 # LLVM has to as well; it also makes the programs run without the Visual C++
-# redistributable. /utf-8: cl reads sources in the system's code page
+# redistributable. -utf-8: cl reads sources in the system's code page
 # otherwise. In code page 932 that can lose the line after a comment, and it
 # breaks clang's Lexer. JOBS is the compile parallelism (default all cores).
 set -eu
@@ -29,7 +29,9 @@ msvc() {
   command -v cl > /dev/null || { echo "run this through scripts\\msvc.bat" >&2; exit 2; }
   # Git Bash's /usr/bin/link is not the linker.
   PATH=$(dirname "$(command -v cl)"):$PATH
-  export CL=/utf-8 VSLANG=1033
+  # -utf-8, not /utf-8: Git Bash turns what looks like a Unix path into a
+  # Windows one, in the environment and in arguments, also after an `=`.
+  export CL=-utf-8 VSLANG=1033
   python --version > /dev/null 2>&1 ||
     PATH=$(ls -d /c/Renesas/e2_studio/eclipse/plugins/com.renesas.python3.win32.*/bin | tail -1):$PATH
   python --version
@@ -89,7 +91,7 @@ lldb() {
     curl -fsSL -o "$tarball" \
       "https://download.gnome.org/sources/libxml2/${xml_version%.*}/libxml2-$xml_version.tar.xz"
     echo "$xml_sha256  $tarball" | sha256sum -c --quiet
-    tar -C "$xml_src" -xJf "$tarball"
+    tar --force-local -C "$xml_src" -xJf "$tarball"   # C: is not a host
     cmake -G Ninja -S "$xml_src/libxml2-$xml_version" -B "$xml_src/build" \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_C_COMPILER=cl \
@@ -115,7 +117,7 @@ lldb() {
   # link. No lldb-server: it is for debugging the host.
   [ -f "$out/build.ninja" ] || cmake "${llvm_flags[@]}" -B "$out" \
     "-DLLVM_ENABLE_PROJECTS=clang;lldb" \
-    -DCMAKE_C_FLAGS=/DLIBXML_STATIC -DCMAKE_CXX_FLAGS=/DLIBXML_STATIC \
+    -DCMAKE_C_FLAGS=-DLIBXML_STATIC -DCMAKE_CXX_FLAGS=-DLIBXML_STATIC \
     -DCMAKE_SHARED_LINKER_FLAGS=bcrypt.lib \
     -DCLANG_INCLUDE_TESTS=OFF \
     -DLLDB_INCLUDE_TESTS=OFF \
