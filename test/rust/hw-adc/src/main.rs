@@ -69,6 +69,12 @@ fn main() -> ! {
     check(2, adc0.adclk() == 60_000_000 && adc1.adclk() == 30_000_000);
     // Module stop released: MSTPCRA.MSTPA17 / MSTPA16
     check(3, unsafe { read_volatile(0x0008_0010 as *const u32) } & 0b11 << 16 == 0);
+    // Sampling time of the electrical characteristics: unit 0 16 states at
+    // 60 MHz (ADSSTR0-7), unit 1 38 at 60 MHz scaled to 30 MHz = 19
+    // (ADSSTR0-15, ADSSTRL)
+    check(25, adc0.rated_sampling_states() == 16 && adc1.rated_sampling_states() == 19);
+    check(26, (0x0008_90e0..=0x0008_90e7).all(|a| rd8(a) == 16));
+    check(27, (0x0008_91e0..=0x0008_91ef).all(|a| rd8(a) == 19) && rd8(0x0008_91dd) == 19);
 
     // --- self-diagnosis: the status says which voltage was converted
     for (unit, base) in [(0usize, 4u32), (1, 8)] {
@@ -125,6 +131,10 @@ fn main() -> ! {
     let rd16 = |a| unsafe { read_volatile(a as *const u16) };
     check(22, rd16(0x0008_9004) == 0 && rd16(0x0008_9104) == 0);
     check(23, rd16(0x0008_9000) & 1 << 15 == 0 && rd16(0x0008_9100) & 1 << 15 == 0);
+    // A longer sampling time for every channel of unit 0
+    adc0.set_sampling_states(40);
+    let _ = adc0.read(&p40);
+    check(28, (0x0008_90e0..=0x0008_90e7).all(|a| rd8(a) == 40));
     // Back to a digital input: ASEL cleared
     let _p40 = p40.into_input();
     check(24, rd8(0x0008_c160) == 0);

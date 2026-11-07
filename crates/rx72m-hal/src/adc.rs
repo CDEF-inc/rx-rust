@@ -6,8 +6,14 @@
 //! embedded-hal 1.0 has no A/D converter trait, so [`Adc::read`] takes an
 //! analog pin (`Pin::into_analog`) of the unit and returns the 12-bit
 //! result, right-aligned. Each read is a single scan of that channel
-//! started by software (ADCSR.ADST), polled until ADST clears. The sampling
-//! time of the channels stays at its reset value (11 ADCLK states).
+//! started by software (ADCSR.ADST), polled until ADST clears.
+//!
+//! The channels' sampling time starts at that of the electrical
+//! characteristics (tables 65.55 / 65.56, a 1 kΩ source): unit 0 16
+//! states at 60 MHz (267 ns), unit 1 38 states at 60 MHz (633 ns), scaled
+//! to the unit's ADCLK, at least 5 states. The reset value, 11 states, is
+//! shorter. [`Adc::set_sampling_states`] changes it, for example for a
+//! source of higher impedance (manual 58.5).
 //!
 //! [`Adc::self_diagnosis`] converts one of the unit's internal voltages
 //! (0 V, half the reference, the reference). Unit 1 also converts its
@@ -40,8 +46,10 @@ const ADRD: usize = 0x1e;
 const ADDR0: usize = 0x20;
 const ADSAMPR: usize = 0x63;
 const ADSAM: usize = 0x6e;
+const ADSSTRL: usize = 0xdd;
 const ADSSTRT: usize = 0xde;
 const ADSSTRO: usize = 0xdf;
+const ADSSTR0: usize = 0xe0;
 
 const ADST: u16 = 1 << 15;
 const DIAGM: u16 = 1 << 11;
@@ -62,6 +70,13 @@ mod sealed {
 pub trait Unit: sealed::Sealed {
     #[doc(hidden)]
     const BASE: usize;
+    /// The number of ADSSTRn registers (ADSSTR0-7, ADSSTR0-15).
+    #[doc(hidden)]
+    const SSTR_COUNT: usize;
+    /// The sampling states of the electrical characteristics at ADCLK =
+    /// 60 MHz.
+    #[doc(hidden)]
+    const STATES_AT_60MHZ: u32;
     /// The unit's PAC peripheral.
     type Periph;
 }
@@ -76,10 +91,14 @@ impl sealed::Sealed for Unit0 {}
 impl sealed::Sealed for Unit1 {}
 impl Unit for Unit0 {
     const BASE: usize = 0x0008_9000;
+    const SSTR_COUNT: usize = 8;
+    const STATES_AT_60MHZ: u32 = 16;
     type Periph = pac::S12ad;
 }
 impl Unit for Unit1 {
     const BASE: usize = 0x0008_9100;
+    const SSTR_COUNT: usize = 16;
+    const STATES_AT_60MHZ: u32 = 38;
     type Periph = pac::S12ad1;
 }
 
@@ -225,7 +244,32 @@ impl<U: Unit> Adc<U> {
             wr16(U::BASE + ADANSA1, 0);
             wr16(U::BASE + ADEXICR, 0);
         }
-        Adc { _adc: adc, adclk, iclk: clocks.iclk, _unit: PhantomData }
+        let mut adc = Adc { _adc: adc, adclk, iclk: clocks.iclk, _unit: PhantomData };
+        adc.set_sampling_states(adc.rated_sampling_states());
+        adc
+    }
+
+    /// The sampling states of the electrical characteristics, scaled to
+    /// this unit's ADCLK (rounded up, at least 5): unit 0 16 and unit 1 38
+    /// at 60 MHz, unit 1 19 at 30 MHz.
+    pub fn rated_sampling_states(&self) -> u8 {
+        (self.adclk as u64 * U::STATES_AT_60MHZ as u64).div_ceil(60_000_000).clamp(5, 255) as u8
+    }
+
+    /// Sets the sampling time of every channel and of the self-diagnosis
+    /// to `states` ADCLK cycles (ADSSTR0-7 or ADSSTR0-15, and ADSSTRL for
+    /// AN116-AN120 of unit 1). The temperature sensor and the internal
+    /// reference voltage keep their own (5 us).
+    ///
+    /// Panics if `states` is below 5 (manual 58.2.18).
+    pub fn set_sampling_states(&mut self, states: u8) {
+        assert!(states >= 5);
+        for n in 0..U::SSTR_COUNT {
+            unsafe { write_volatile((U::BASE + ADSSTR0 + n) as *mut u8, states) };
+        }
+        if U::BASE == Unit1::BASE {
+            unsafe { write_volatile((U::BASE + ADSSTRL) as *mut u8, states) };
+        }
     }
 
     /// The unit's A/D conversion clock in Hz.
