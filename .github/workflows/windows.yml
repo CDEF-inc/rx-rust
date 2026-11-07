@@ -27,7 +27,7 @@ concurrency:
 
 env:
   # Bump to rebuild every part (e.g. after changing what is packed below).
-  CACHE_VERSION: 1
+  CACHE_VERSION: 2
 
 jobs:
   keys:
@@ -102,9 +102,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p build/ci
-          h=rust/build/x86_64-pc-windows-msvc
+          # Not all of stage1/lib: rustlib/src and rustc-src link to the checkout,
+          # and Git Bash's tar cannot extract those links.
+          host=x86_64-pc-windows-msvc
+          h=rust/build/$host
           case ${{ matrix.part }} in
-          rustc) p="build/llvm/bin/lld.exe build/llvm/bin/llvm-*.exe $h/stage1/bin $h/stage1/lib $h/stage0/bin/cargo.exe" ;;
+          rustc) p="build/llvm/bin/lld.exe build/llvm/bin/llvm-*.exe $h/stage1/bin $h/stage1/lib/rustlib/$host $h/stage0/bin/cargo.exe" ;;
           lldb) p="build/lldb/bin/lldb.exe build/lldb/bin/liblldb.dll" ;;
           qemu) p="build/qemu-windows" ;;
           esac
