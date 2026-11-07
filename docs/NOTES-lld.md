@@ -65,8 +65,11 @@ GNU ld の RX エミュレーションは `--no-flag-mismatch-warnings` が既�
 
 - `-m elf32rx` を受け付ける（rustc が渡す）。
 - アーカイブ中の `lib.rmeta*` メンバは黙って飛ばす。rustc の `object`
-  crate は RX を知らないため、rlib のメタデータを ELF に包まず生のまま
-  入れており、lld はそれを「ELF でない」と警告していた。
+  crate が RX を知らなかったころは、rlib のメタデータを ELF に包まず生のまま
+  入れており、lld はそれを「ELF でない」と警告していた。今の rustc
+  （CDEF-inc/rust#37、CDEF-inc/object の `Architecture::Rx` を使う）は RX の ELF
+  （e_flags はコードのオブジェクトと同じ、文字列命令のビットを除く）に包むので、
+  この特例は古い rlib のためだけに残っている。
 - `rx72m-rom.ld`: `.fixedvec`（0xffffff80）にメモリ領域を割り当てた。
   GNU ld は領域なしの出力セクションを領域の外に置くが、lld は属性の合う
   直前の領域（ROM、0xffffff80 で終わる）に入れようとしてあふれていた。
