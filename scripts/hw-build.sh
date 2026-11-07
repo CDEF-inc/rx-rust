@@ -2,8 +2,9 @@
 # Builds the tests for the RX72M (AP-RX72M-0A board: RXv3 with the FPU and
 # the DFPU) into build/hw, for scripts/hw-run.sh to run on the board. With
 # HW_BOARD=rx74n they are for the RX74N (EK-RX74N: RXv3e), in build/hw-rx74n:
-# the groups that run in RAM (insns, codegen, rust), with rxv3e-insns and
-# without cmt, whose registers are elsewhere there.
+# insns with rxv3e-insns and without cmt, whose registers are elsewhere
+# there, rom, codegen, rust, and the rt tests that use no peripherals
+# (isr-save, isr-bank, alloc-smoke, float-smoke).
 #
 #   hw-build.sh [insns] [rom] [codegen] [rust] [rt] [examples]
 #                                                   default: all six
@@ -36,12 +37,15 @@ T=$root/test/hw
 board=${HW_BOARD:-rx72m}
 case $board in
   rx72m)
-    out=$root/build/hw cpu=rxv3 v3e=0 ram_ld=rx72m-ram.ld
+    out=$root/build/hw cpu=rxv3 v3e=0 ram_ld=rx72m-ram.ld rom_ld=rx72m-rom.ld
+    memory_x=rx72m-memory.x
+    peripherals=(hw-irq hw-pac hw-hal hw-uart "hw-irq:-relax:-C target-feature=+relax")
     all=(insns rom codegen rust rt examples)
     insns=(cmt) extra_defs=() ;;
   rx74n)
-    out=$root/build/hw-rx74n cpu=rxv3e v3e=1 ram_ld=rx74n-ram.ld
-    all=(insns codegen rust)
+    out=$root/build/hw-rx74n cpu=rxv3e v3e=1 ram_ld=rx74n-ram.ld rom_ld=rx74n-rom.ld
+    memory_x=rx74n-memory.x peripherals=()
+    all=(insns rom codegen rust rt)
     insns=(rxv3e-insns) extra_defs=(--defsym ROOT_ONLY=1) ;;
   *)
     echo "unknown HW_BOARD $board (rx72m, rx74n)" >&2
@@ -109,7 +113,7 @@ for g in "${groups[@]}"; do
       insn_tests "$out/insns" start-ram.s "$ram_ld" cpu-features fcmp-flags \
         fpu-status rxv2-fpu dsp-v2 dfpu-insns rxv3-insns mem-insns memex-insns         "${insns[@]}" ;;
     rom)
-      insn_tests "$out/rom" start-rom.s rx72m-rom.ld rxv2-insns ;;
+      insn_tests "$out/rom" start-rom.s "$rom_ld" rxv2-insns ;;
     codegen)
       d=$out/codegen; mkdir -p "$d"
       "$MC" -triple=rx -mcpu=rxv3e -filetype=obj "$T/start-ram.s" -o "$d/start.o"
@@ -155,22 +159,21 @@ for g in "${groups[@]}"; do
       d=$out/rt; mkdir -p "$d"
       # NAME or NAME:SUFFIX:RUSTFLAGS (float-smoke also with the FPU / DFPU;
       # some also with linker relaxation)
-      for spec in isr-save isr-bank hw-irq hw-pac hw-hal hw-uart alloc-smoke float-smoke \
+      for spec in isr-save isr-bank "${peripherals[@]}" alloc-smoke float-smoke \
                   "float-smoke:-fd:-C target-feature=+flush-denormals" \
                   "isr-save:-relax:-C target-feature=+relax" \
                   "isr-bank:-relax:-C target-feature=+relax" \
-                  "hw-irq:-relax:-C target-feature=+relax" \
                   "alloc-smoke:-relax:-C target-feature=+relax" \
                   "float-smoke:-fd-relax:-C target-feature=+flush-denormals,+relax"; do
         IFS=: read -r crate suffix extra <<< "$spec"
-        tdir=$(target_dir "$root/build/hw/rt-target$suffix")
+        tdir=$(target_dir "$out/rt-target$suffix")
         for profile in release dev; do
           # RUSTFLAGS replaces the crate's rustflags (isr-save's are for QEMU's
           # rx62n), so it gives the linker script too.
           (cd "$root/test/rust/$crate" &&
            RUSTC=$root/rust/build/$host/stage1/bin/rustc RUSTC_BOOTSTRAP=1 \
-           RUSTFLAGS="-C link-arg=-Tlink.x -C target-cpu=rxv3 $extra $linker_flag" \
-           RX_MEMORY_X=$T/rx72m-memory.x PATH=$G:$PATH \
+           RUSTFLAGS="-C link-arg=-Tlink.x -C target-cpu=$cpu $extra $linker_flag" \
+           RX_MEMORY_X=$T/$memory_x PATH=$G:$PATH \
            "$root/rust/build/$host/stage0/bin/cargo" build -q --profile "$profile" \
              --target-dir "$tdir")
           cp "$tdir/rx-none-elf/$([ "$profile" = dev ] && echo debug || echo "$profile")/$crate" \

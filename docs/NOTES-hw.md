@@ -64,7 +64,7 @@ RX72M の割り込みで分かったこと:
 - `test/hw/start-ram.s`、`start-rom.s`: 起動処理。main の戻り値を `exit_code` に、終わったら
   `finished` に 1 を書いて `_done` でループする
 - `test/hw/harness.s`: test/qemu/harness.s と同じ `_check` と例外の入口に、失敗の記録（`_faillog`）を足したもの
-- `test/hw/rx74n-ram.ld`: EK-RX74N の RAM 用リンカスクリプト
+- `test/hw/rx74n-ram.ld`、`rx74n-rom.ld`、`rx74n-memory.x`: EK-RX74N のリンカスクリプトと rx-rt の `memory.x`
 - `test/hw/rx72m-ram.ld`、`rx72m-rom.ld`: リンカスクリプト。デバッガが作業領域に 0x1000 付近と
   0x7fb40〜0x7ffff を使うので、RAM 版は 0x4000 から置き、スタックは 0x7f000 から
 - `scripts/hw-build.sh`: ビルド（WSL）
@@ -73,7 +73,7 @@ RX72M の割り込みで分かったこと:
 
 ## EK-RX74N（RXv3e）
 
-RAM で動くテスト（insns、codegen、rust）を実機の RXv3e で確かめられる。2026-11-07 に全 40 本が通った。
+insns、rom、codegen、rust と、周辺を使わない rt のテスト（isr-save、isr-bank、alloc-smoke、float-smoke）を実機の RXv3e で確かめられる。2026-11-07 に全 59 本が通った。
 
 | | |
 |---|---|
@@ -99,7 +99,8 @@ RX72M との違い:
   Protect Zone の設定は要らない。`test/hw/rx74n-ram.ld` は On-chip RAM のセキュア側（`0x82000000`〜）に置く。e² studio のリンカスクリプトも同じ。
 - `rxv3e-insns` は `ROOT_ONLY` でアセンブルし、root ワールドの部分だけを実行する（27 チェック）。`trrte` で non-secure ワールドへ移ると、
   セキュアなメモリのコードを実行できず止まる。QEMU にはこの分離がないので全部通る。
-- `cmt` は実行しない（周辺レジスタのアドレスが違う）。rom、rt、examples もまだない（コード MRAM への書き込みと、周辺のアドレスの対応が要る）。
+- コード MRAM は R5K574NC で 1 MB（`0xFFF00000`〜）。RAM と同じ手順で書き込める。`test/hw/rx74n-rom.ld`、`rx74n-memory.x` の変数は On-chip RAM のセキュア側に置く。
+- 周辺のアドレスが違うので、`cmt` と rt の hw-irq、hw-pac、hw-hal、hw-uart、examples は実行しない（RX74N の PAC と HAL が要る）。
 - 一度、`FFWRXCmd_AuthKey` の JTAG 通信エラーで接続できなくなった（JTAG クロックを下げても同じ）。SW6 を Pin1 ON / Pin2 OFF にして
   J27 を抜き差しすると戻った。どちらが効いたかは切り分けていない。
 
