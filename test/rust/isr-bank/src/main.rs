@@ -1,7 +1,7 @@
 //! Checks rx-rt's register bank interrupt entry (`interrupt!(n, handler,
 //! bank = b)`, RXv3 `save` / `rstr`): across a software interrupt the
-//! interrupted code keeps R1-R5 and R7-R15, FPSW, A0 and A1 (72 bits), DR0,
-//! DR1, DPSW, DCMR and USP, although the handler changes them; handlers start
+//! interrupted code keeps R1-R5 and R7-R15, FPSW, A0 and A1 (72 bits),
+//! DR0-DR3, DPSW, DCMR and USP, although the handler changes them; handlers start
 //! with FPSW = DPSW = 0x100; an interrupt nested in a handler uses another
 //! bank and leaves the handler's registers; and an entry of the first form
 //! (`interrupt!(n, handler)`) works next to them. Built for RXv3:
@@ -111,18 +111,22 @@ fn set_accs(v: Accs) {
     };
 }
 
-// DR0 and DR1 as words, DPSW and DCMR.
-type Dfpu = [u32; 6];
+// DR0-DR3 as words (high, low), DPSW and DCMR.
+type Dfpu = [u32; 10];
 
 fn dfpu_state() -> Dfpu {
     let (h0, l0, h1, l1, dpsw, dcmr): (u32, u32, u32, u32, u32, u32);
+    let (h2, l2, h3, l3): (u32, u32, u32, u32);
     unsafe {
         asm!("dmov.l drh0, {0}", "dmov.l drl0, {1}", "dmov.l drh1, {2}",
              "dmov.l drl1, {3}", "mvfdc dpsw, {4}", "mvfdc dcmr, {5}",
              out(reg) h0, out(reg) l0, out(reg) h1, out(reg) l1,
-             out(reg) dpsw, out(reg) dcmr, options(nomem, nostack))
+             out(reg) dpsw, out(reg) dcmr, options(nomem, nostack));
+        asm!("dmov.l drh2, {0}", "dmov.l drl2, {1}", "dmov.l drh3, {2}",
+             "dmov.l drl3, {3}", out(reg) h2, out(reg) l2, out(reg) h3,
+             out(reg) l3, options(nomem, nostack))
     };
-    [h0, l0, h1, l1, dpsw, dcmr]
+    [h0, l0, h1, l1, h2, l2, h3, l3, dpsw, dcmr]
 }
 
 fn set_dfpu_state(s: Dfpu) {
@@ -130,7 +134,10 @@ fn set_dfpu_state(s: Dfpu) {
         asm!("dmov.l {0}, drh0", "dmov.l {1}, drl0", "dmov.l {2}, drh1",
              "dmov.l {3}, drl1", "mvtdc {4}, dpsw", "mvtdc {5}, dcmr",
              in(reg) s[0], in(reg) s[1], in(reg) s[2], in(reg) s[3],
-             in(reg) s[4], in(reg) s[5], options(nomem, nostack))
+             in(reg) s[8], in(reg) s[9], options(nomem, nostack));
+        asm!("dmov.l {0}, drh2", "dmov.l {1}, drl2", "dmov.l {2}, drh3",
+             "dmov.l {3}, drl3", in(reg) s[4], in(reg) s[5], in(reg) s[6],
+             in(reg) s[7], options(nomem, nostack))
     };
 }
 
@@ -141,7 +148,8 @@ fn clobber(k: u32) {
     unsafe { asm!("mvtc #3, fpsw", options(nomem, nostack)) };
     set_accs([0x0000_0080 ^ k, 0xdead_beef, 0x0bad_f00d, 0xffff_ff80, 0xfeed_face ^ k,
               0xcafe_babe]);
-    set_dfpu_state([0xdead, 0xbeef ^ k, 0xbad, 0xf00d, 0x103, 0]);
+    set_dfpu_state([0xdead, 0xbeef ^ k, 0xbad, 0xf00d, 0xd2, 0xd2 ^ k, 0xd3, 0xd3, 0x103,
+                    0]);
     set_usp(0x1234_0000 ^ k);
     unsafe {
         asm!("mov.l #0xbad00001, r1", "mov.l #0xbad00002, r2", "mov.l #0xbad00003, r3",
@@ -165,12 +173,12 @@ static NESTED_STATE: AtomicBool = AtomicBool::new(false);
 // Bank 1. Raises interrupt 66 (bank 2) with its own registers and state.
 extern "C" fn outer() {
     ENTRY_FPSW.store(fpsw(), Ordering::Relaxed);
-    ENTRY_DPSW.store(dfpu_state()[4], Ordering::Relaxed);
+    ENTRY_DPSW.store(dfpu_state()[8], Ordering::Relaxed);
     let n = OUTER.load(Ordering::Relaxed);
     unsafe { asm!("mvtc #0x102, fpsw", options(nomem, nostack)) };
     let a = [1, 2, 3 + n, 0xffff_ffff, 5, 6];
     set_accs(a);
-    let d = [0x4008_0000, n, 0x3ff8_0000, 7, 0x102, 1];
+    let d = [0x4008_0000, n, 0x3ff8_0000, 7, 0x4010_0000, n + 2, 0x3fe0_0000, 9, 0x102, 1];
     set_dfpu_state(d);
     set_usp(0x5678_0000 + n);
     let seed = 0xa5a5_0000 + n;
@@ -187,7 +195,7 @@ rx_rt::interrupt!(65, outer, bank = 1);
 // Bank 2, nested in `outer`.
 extern "C" fn inner() {
     INNER_FPSW.store(fpsw(), Ordering::Relaxed);
-    INNER_DPSW.store(dfpu_state()[4], Ordering::Relaxed);
+    INNER_DPSW.store(dfpu_state()[8], Ordering::Relaxed);
     clobber(2);
     INNER.store(INNER.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
 }
@@ -215,7 +223,8 @@ fn main() -> ! {
                  0xffff_ff9a, 0x8000_0001, 0x7fff_fffe ^ round];
         set_accs(a);
         let d = [0x3ff0_0000 + round, 0x1111_1111, 0x4000_0000,
-                 0x2222_2222 ^ round, 0x101, 1];
+                 0x2222_2222 ^ round, 0x4020_0000, 0x3333_3333 ^ round,
+                 0xc000_0000 + round, 0x4444_4444, 0x101, 1];
         set_dfpu_state(d);
         let u = 0x0000_4000 + 16 * round;
         set_usp(u);

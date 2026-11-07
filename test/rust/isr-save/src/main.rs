@@ -1,6 +1,6 @@
 //! Checks that rx-rt's interrupt entry preserves FPSW and the accumulator
 //! (`save-acc`), and that handlers start with FPSW = 0x100. On RXv2 and
-//! later it also checks A1 with its guard bits, and with the DFPU DR0 / DR1,
+//! later it also checks A1 with its guard bits, and with the DFPU DR0-DR3,
 //! DPSW and DCMR (and that handlers start with DPSW = 0x100). On RXv3e it
 //! runs `int Rs`, the 5-bit `mvtipl` and the new control registers from
 //! `asm!`, which needs rustc's LLVM to know them. Built for
@@ -90,26 +90,33 @@ fn set_acc1(gu: u32, hi: u32, lo: u32) {
     };
 }
 
-// DR0 and DR1 as words, DPSW and DCMR.
+// DR0-DR3 as words (high, low), DPSW and DCMR.
 #[cfg(target_feature = "dfpu")]
-fn dfpu_state() -> [u32; 6] {
+fn dfpu_state() -> [u32; 10] {
     let (h0, l0, h1, l1, dpsw, dcmr): (u32, u32, u32, u32, u32, u32);
+    let (h2, l2, h3, l3): (u32, u32, u32, u32);
     unsafe {
         asm!("dmov.l drh0, {0}", "dmov.l drl0, {1}", "dmov.l drh1, {2}",
              "dmov.l drl1, {3}", "mvfdc dpsw, {4}", "mvfdc dcmr, {5}",
              out(reg) h0, out(reg) l0, out(reg) h1, out(reg) l1,
-             out(reg) dpsw, out(reg) dcmr, options(nomem, nostack))
+             out(reg) dpsw, out(reg) dcmr, options(nomem, nostack));
+        asm!("dmov.l drh2, {0}", "dmov.l drl2, {1}", "dmov.l drh3, {2}",
+             "dmov.l drl3, {3}", out(reg) h2, out(reg) l2, out(reg) h3,
+             out(reg) l3, options(nomem, nostack))
     };
-    [h0, l0, h1, l1, dpsw, dcmr]
+    [h0, l0, h1, l1, h2, l2, h3, l3, dpsw, dcmr]
 }
 
 #[cfg(target_feature = "dfpu")]
-fn set_dfpu_state(s: [u32; 6]) {
+fn set_dfpu_state(s: [u32; 10]) {
     unsafe {
         asm!("dmov.l {0}, drh0", "dmov.l {1}, drl0", "dmov.l {2}, drh1",
              "dmov.l {3}, drl1", "mvtdc {4}, dpsw", "mvtdc {5}, dcmr",
              in(reg) s[0], in(reg) s[1], in(reg) s[2], in(reg) s[3],
-             in(reg) s[4], in(reg) s[5], options(nomem, nostack))
+             in(reg) s[8], in(reg) s[9], options(nomem, nostack));
+        asm!("dmov.l {0}, drh2", "dmov.l {1}, drl2", "dmov.l {2}, drh3",
+             "dmov.l {3}, drl3", in(reg) s[4], in(reg) s[5], in(reg) s[6],
+             in(reg) s[7], options(nomem, nostack))
     };
 }
 
@@ -126,8 +133,9 @@ extern "C" fn soft() {
     set_acc1(0x0000_0080, 0xfeed_face, 0xcafe_babe);
     #[cfg(target_feature = "dfpu")]
     {
-        ENTRY_DPSW.store(dfpu_state()[4], Ordering::Relaxed);
-        set_dfpu_state([0xdead, 0xbeef, 0xbad, 0xf00d, 0x103, 0]);
+        ENTRY_DPSW.store(dfpu_state()[8], Ordering::Relaxed);
+        set_dfpu_state([0xdead, 0xbeef, 0xbad, 0xf00d, 0xd2, 0xd2, 0xd3, 0xd3,
+                        0x103, 0]);
     }
     CALLS.store(n + 1, Ordering::Relaxed);
 }
@@ -162,7 +170,7 @@ fn main() -> ! {
     // rx-rt sets FPSW (and DPSW) to 0x100 at reset.
     check(1, fpsw() == 0x100);
     #[cfg(target_feature = "dfpu")]
-    check(2, dfpu_state()[4] == 0x100);
+    check(2, dfpu_state()[8] == 0x100);
 
     for round in 0..3u32 {
         // Rounding towards zero in the interrupted code. (MVTC cannot set
@@ -176,7 +184,8 @@ fn main() -> ! {
         set_acc1(a1.0, a1.1, a1.2);
         #[cfg(target_feature = "dfpu")]
         let dfpu = [0x3ff0_0000 + round, 0x1111_1111, 0x4000_0000,
-                    0x2222_2222 ^ round, 0x101, 1];
+                    0x2222_2222 ^ round, 0x4020_0000, 0x3333_3333 ^ round,
+                    0xc000_0000 + round, 0x4444_4444, 0x101, 1];
         #[cfg(target_feature = "dfpu")]
         set_dfpu_state(dfpu);
         let id = 10 * (round + 1);

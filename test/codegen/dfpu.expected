@@ -44,15 +44,11 @@ _da_sqrt
 _da_chain
   dmov.l r1, drl0
   dmov.l r2, drh0
-  dmov.d dr0, [r0]                       ; 8-byte Folded Spill
   dmov.l r3, drl1
   dmov.l r4, drh1
   dmul dr1, dr0, dr1
-  dmov.d dr1, 8[r0]                      ; 8-byte Folded Spill
-  dmov.d 24[r0], dr1
-  dmov.d 8[r0], dr0                      ; 8-byte Folded Reload
-  dsub dr1, dr0, dr1
-  dmov.d [r0], dr0                       ; 8-byte Folded Reload
+  dmov.d 4[r0], dr2
+  dsub dr2, dr1, dr1
   ddiv dr0, dr1, dr0
   dmov.l drl0, r1
   dmov.l drh0, r2
@@ -63,43 +59,31 @@ _da_tree
   dmov.d dr0, 16[r0]                     ; 8-byte Folded Spill
   dmov.l r3, drl1
   dmov.l r4, drh1
-  dmov.d dr1, 24[r0]                     ; 8-byte Folded Spill
-  dmul dr1, dr0, dr0
-  dmov.d dr0, 8[r0]                      ; 8-byte Folded Spill
-  dmov.d 48[r0], dr0
-  dmov.d dr0, 32[r0]                     ; 8-byte Folded Spill
-  dmov.d 56[r0], dr0
-  dmov.d dr0, [r0]                       ; 8-byte Folded Spill
-  dmov.d 32[r0], dr1                     ; 8-byte Folded Reload
-  dmul dr0, dr1, dr1
-  dmov.d 8[r0], dr0                      ; 8-byte Folded Reload
-  dsub dr1, dr0, dr0
-  dmov.d dr0, 8[r0]                      ; 8-byte Folded Spill
-  dmov.d 24[r0], dr1                     ; 8-byte Folded Reload
-  dmov.d 16[r0], dr0                     ; 8-byte Folded Reload
-  dadd dr1, dr0, dr0
-  dmov.d dr0, 24[r0]                     ; 8-byte Folded Spill
-  dmov.d 32[r0], dr0                     ; 8-byte Folded Reload
-  dmov.d [r0], dr1                       ; 8-byte Folded Reload
-  dsub dr1, dr0, dr0
-  dmov.d 24[r0], dr1                     ; 8-byte Folded Reload
+  dmov.d dr1, 8[r0]                      ; 8-byte Folded Spill
+  dmul dr1, dr0, dr1
+  dmov.d 32[r0], dr3
+  dmov.d 40[r0], dr0
+  dmul dr0, dr3, dr2
+  dsub dr2, dr1, dr1
+  dmov.d dr1, [r0]                       ; 8-byte Folded Spill
+  dmov.d 16[r0], dr1                     ; 8-byte Folded Reload
+  dmov.d 8[r0], dr2                      ; 8-byte Folded Reload
+  dadd dr2, dr1, dr1
+  dsub dr0, dr3, dr0
   dmul dr0, dr1, dr0
-  dmov.d 8[r0], dr1                      ; 8-byte Folded Reload
+  dmov.d [r0], dr1                       ; 8-byte Folded Reload
   ddiv dr0, dr1, dr0
   dadd dr1, dr0, dr0
   dmov.l drl0, r1
   dmov.l drh0, r2
 
 _da_chain_cmp
-  dmov.l r1, drl1
-  dmov.l r2, drh1
-  dmov.l r3, drl0
-  dmov.l r4, drh0
-  dmov.d dr0, [r0]                       ; 8-byte Folded Spill
-  dmov.d [r0], dr0                       ; 8-byte Folded Reload
-  dmul dr0, dr1, dr0
-  dadd dr1, dr0, dr0
-  dmov.d [r0], dr1                       ; 8-byte Folded Reload
+  dmov.l r1, drl0
+  dmov.l r2, drh0
+  dmov.l r3, drl1
+  dmov.l r4, drh1
+  dmul dr1, dr0, dr2
+  dadd dr0, dr2, dr0
   dcmplt dr1, dr0
   mvfdr
 

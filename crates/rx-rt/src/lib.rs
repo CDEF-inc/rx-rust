@@ -17,7 +17,7 @@
 //!
 //! - `fpu` (rxv2 and later): FPSW. The compiler uses the FPU for fast-math
 //!   `f32` code and integer-to-`f32` conversions.
-//! - `dfpu` (rxv3, rxv3e): DR0, DR1, DPSW and DCMR, the registers of the
+//! - `dfpu` (rxv3, rxv3e): DR0-DR3, DPSW and DCMR, the registers of the
 //!   compiler's DFPU sequences (fast-math `f64` code, integer-to-`f64`
 //!   conversions). An interrupt may arrive in the middle of one.
 //! - the `save-acc` Cargo feature: the DSP accumulator(s), which compiled
@@ -31,7 +31,7 @@
 //!
 //! On RXv3, `interrupt!(n, handler, bank = b)` saves the registers in a
 //! register bank instead (`save` / `rstr`): R1-R15, USP, FPSW and both
-//! accumulators in one instruction, and with the DFPU also DR0, DR1, DPSW and
+//! accumulators in one instruction, and with the DFPU also DR0-DR3, DPSW and
 //! DCMR on the stack.
 //!
 //! With the `critical-section` Cargo feature, this crate also provides the
@@ -113,7 +113,7 @@ macro_rules! dfpu_init {
 macro_rules! dfpu_save {
     () => {
         concat!(
-            "\tdpushm.d\tdr0-dr1\n\t.cfi_adjust_cfa_offset 16\n",
+            "\tdpushm.d\tdr0-dr3\n\t.cfi_adjust_cfa_offset 32\n",
             "\tdpushm.l\tdpsw-dcmr\n\t.cfi_adjust_cfa_offset 8\n",
             dfpu_init!()
         )
@@ -124,7 +124,7 @@ macro_rules! dfpu_restore {
     () => {
         concat!(
             "\tdpopm.l\tdpsw-dcmr\n\t.cfi_adjust_cfa_offset -8\n",
-            "\tdpopm.d\tdr0-dr1\n\t.cfi_adjust_cfa_offset -16\n",
+            "\tdpopm.d\tdr0-dr3\n\t.cfi_adjust_cfa_offset -32\n",
         )
     };
 }
@@ -309,7 +309,7 @@ global_asm!(concat!(
 
 // Common part of the register bank entries (`interrupt!(n, handler, bank =
 // b)`, RXv3), called after `save` with the handler in R5: sets FPSW, and
-// with the DFPU saves DR0, DR1, DPSW and DCMR (`save` does not) and sets
+// with the DFPU saves DR0-DR3, DPSW and DCMR (`save` does not) and sets
 // DPSW, then calls the handler. The bank holds everything else, the
 // accumulators in full.
 #[cfg(target_feature = "rxv3")]
