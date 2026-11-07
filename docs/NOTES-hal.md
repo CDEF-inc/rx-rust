@@ -51,6 +51,32 @@ RX72M と名前が違う: SYSTEM は SYSC と MSTPREG に分かれ（`p.sysc.prc
 
 確認: test/rust/hw-pac-rx74n（EK-RX74N、rt グループ、11 チェック、release / dev とも通る）。
 
+## EK-RX74N の配線（ボードのマニュアル R20UT5626EG0100 より）
+
+| 用途 | 端子 | メモ |
+|---|---|---|
+| ユーザー LED | LED1（青）= PF05、LED2（緑）= P807、LED3（赤）= P604 | |
+| ユーザースイッチ | SW1 = P414、SW2 = P109 | 押すと Low。SW3 はリセット |
+| USB シリアル（J27） | P114 = TXD012-B、P115 = RXD012-B（RSCI12） | FT234XD。PC からは COM ポートに見える |
+| メインクロック | 水晶 24 MHz | |
+
+## HAL（crates/rx74n-hal）
+
+リセット後のクロックのまま動く。MOCO 8 MHz で、分周はすべて 1、SCICLK も MOCO（ICLK、PCLKB、SCICLK が 8 MHz）。
+PLL の設定はまだない。`Clocks::after_reset()` がこの値を返す。全部 root ワールド（Flat-Project）でセキュア側のアドレスを使う。
+
+- `gpio`: 320 ピン版の全ポート端子を `Parts::take()` で渡す（`pf05` のようにポートは 16 ビット、ビットは 2 桁）。端子のモードは RX72M と違い
+  PmnPFS（`0x87C00800 + 0x40 * ポート + 4 * ビット`）にまとまっていて、PDR、PCR、PMR、PSEL をここで書く。保護は PWPR_S。
+  データは `0x87C00000 + 0x20 * ポート`（PODR + 2、PIDR + 4、16 ビット）。
+- `delay`: CMT2、PCLKB / 8。モジュールストップは MSTPCRF.MSTPF14。
+- `serial`: RSCI12。RX72M の SCI とは別の周辺で、レジスタは 32 ビット。SSR の RDRF / TDRE をそのままポーリングできる
+  （RX72M のように IR を見なくてよい）。エラーは SSCR で消す。FIFO は使わない。
+  8 MHz で 115200 bps を出すにはビットレート補正が要る（ABCS = BGDM = 1、BRR = 7、MDDR = 236、115234 bps、+0.03%）。
+
+確認: test/rust/hw-hal-rx74n（rt グループ、10 チェック、release / dev とも通る。LED が順に光る）。
+examples/rx74n-serial-echo は `scripts/hw/serial-echo.ps1 -Port COM9` ですべて通った（1 行のエコー、4096 バイトを 390 ms で取りこぼしなし、
+ブレークがフレーミングエラーになり、そのあともエコーが続く）。hw-run.sh で動かしている間に実行する。
+
 ## AP-RX72M-0A の配線（ボードのハードウェアマニュアル v6.0 より）
 
 | 用途 | 端子 | メモ |
