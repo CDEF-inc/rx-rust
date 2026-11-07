@@ -64,11 +64,44 @@ RX72M の割り込みで分かったこと:
 - `test/hw/start-ram.s`、`start-rom.s`: 起動処理。main の戻り値を `exit_code` に、終わったら
   `finished` に 1 を書いて `_done` でループする
 - `test/hw/harness.s`: test/qemu/harness.s と同じ `_check` と例外の入口に、失敗の記録（`_faillog`）を足したもの
+- `test/hw/rx74n-ram.ld`: EK-RX74N の RAM 用リンカスクリプト
 - `test/hw/rx72m-ram.ld`、`rx72m-rom.ld`: リンカスクリプト。デバッガが作業領域に 0x1000 付近と
   0x7fb40〜0x7ffff を使うので、RAM 版は 0x4000 から置き、スタックは 0x7f000 から
 - `scripts/hw-build.sh`: ビルド（WSL）
 - `scripts/hw-run.sh`: サーバーの起動と停止（Windows の Git Bash）
 - `scripts/hw/run.py`、`scripts/hw/rsp.py`: GDB リモートプロトコルで ELF を書き込み、実行し、結果を読む
+
+## EK-RX74N（RXv3e）
+
+RAM で動くテスト（insns、codegen、rust）を実機の RXv3e で確かめられる。2026-11-07 に全 40 本が通った。
+
+| | |
+|---|---|
+| ボード | Renesas EK-RX74N（R5K574NCB4AE、水晶 24 MHz） |
+| デバッガ | E2 Lite を J9（14 ピン）につなぎ、SW6 は Pin1 ON / Pin2 OFF（Debug in）。電源は J27 の USB から取る（E2 Lite からは給電できない） |
+| シリアル | J27（FT234XD、既定は RSCI12） |
+
+e² studio 2026-10 の E2 用デバイス一覧に RX74N はなく、最初は `No matching device found` になる。
+[RX FSP](https://github.com/renesas/rx-fsp/releases) の `RX_FSP_Packs_v1.0.0.zip` を e² studio のサポートフォルダ
+（`~/.eclipse/com.renesas.platform_<番号>`）に展開し、e² studio を再起動して RX の新規プロジェクト画面を開くと、
+`DebugComp/RX/RX/E2_v3.3.5` に配置される。再起動だけでは配置されない。`E2DeviceList.xml` は変わらないが、接続できるようになる。
+
+```sh
+HW_BOARD=rx74n scripts/hw-build.sh     # WSL: build/hw-rx74n に置く
+HW_BOARD=rx74n scripts/hw-run.sh       # Windows の Git Bash
+```
+
+RX72M との違い:
+
+- アドレスの bit 31 でセキュア側（`0x80000000` 以上）と非セキュア側に分かれ、同じ資源が両方に見える。リセット後の RAM はセキュアなので、
+  デバッガからは `0x82000000` では読めるが `0x02000000` では `The specified address is in the secure area` で失敗する
+  （ハードウェアマニュアル R01UH1056EJ0110 の 4.1、56.3、56.4）。リセット後は root ワールド（Flat-Project の動作）で全空間にアクセスできるので、
+  Protect Zone の設定は要らない。`test/hw/rx74n-ram.ld` は On-chip RAM のセキュア側（`0x82000000`〜）に置く。e² studio のリンカスクリプトも同じ。
+- `rxv3e-insns` は `ROOT_ONLY` でアセンブルし、root ワールドの部分だけを実行する（27 チェック）。`trrte` で non-secure ワールドへ移ると、
+  セキュアなメモリのコードを実行できず止まる。QEMU にはこの分離がないので全部通る。
+- `cmt` は実行しない（周辺レジスタのアドレスが違う）。rom、rt、examples もまだない（コード MRAM への書き込みと、周辺のアドレスの対応が要る）。
+- 一度、`FFWRXCmd_AuthKey` の JTAG 通信エラーで接続できなくなった（JTAG クロックを下げても同じ）。SW6 を Pin1 ON / Pin2 OFF にして
+  J27 を抜き差しすると戻った。どちらが効いたかは切り分けていない。
 
 ## e2-server-gdb の使い方で分かったこと
 
