@@ -9,12 +9,14 @@
 //! - [`spi`]: RSPI2 as an SPI master (`SpiBus`).
 //! - [`adc`]: the 12-bit A/D converter units, the internal reference
 //!   voltage and the temperature sensor.
+//! - [`pwm`]: MTU6 PWM on PJ1 (the LED LD2) as `SetDutyCycle`.
 //!
 //! Register access goes through [`pac`] (rx72m-pac, generated from e2
-//! studio's RX72M.sfrx) where its types fit, and through the uniform port
-//! register layout for GPIO and the A/D converter units. Read-modify-write of shared registers runs in a
-//! critical section; the application provides the implementation (rx-rt's
-//! `critical-section` feature).
+//! studio's RX72M.sfrx) where its types fit, and directly by address for
+//! the uniform port registers, the A/D converter units and MTU6.
+//! Read-modify-write of shared registers runs in a critical section; the
+//! application provides the implementation (rx-rt's `critical-section`
+//! feature).
 
 #![no_std]
 
@@ -27,5 +29,6 @@ pub mod clock;
 pub mod delay;
 pub mod gpio;
 mod mstp;
+pub mod pwm;
 pub mod serial;
 pub mod spi;

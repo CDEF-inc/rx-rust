@@ -215,6 +215,32 @@ MOSCWTCR の待ち時間が過ぎたことを示すだけで、発振してい�
 - P40（AN000）/ PE2（AN100）の `into_analog`（PFS = 80h、PMR / PDR = 0）と `read`（何もつながっていないので値は
   見ない）、読んだあとのチャネル選択と ADST が 0、`into_input` で PFS.ASEL が消えること。
 
+- `pwm`: `Pwm::mtu6(p.mtu6, pins.pj1, 1_000, &clocks)`。MTU6（MTU 全体のモジュールストップは MSTPCRA.MSTPA9）を
+  PWM モード 1 にし、PJ1 = MTIOC6A（PSEL 01h）から出す。PJ1 はモニタ LED の LD2（High で点灯）なので、ボードの外に
+  配線せずに端子で測れて、目でも明るさが分かる（MTIOC6B は PJ0 = LD1 だが、PWM モード 1 の出力は A と C）。
+  embedded-hal の `SetDutyCycle`。
+  - カウントクロックは PCLKA（120 MHz）の 1、2、4、8、16、32、64、256、1024 分周（TCR.TPSC と TCR2.TPSC2、表 24.9）
+    のうち、周期が 65535 カウント以下に収まる最小のもの（デューティの刻みが最も細かい）。`Timing::new` が周波数に
+    最も近い周期を選ぶ（1 kHz は 2 分周で 60000、50 Hz は 64 分周で 37500、1 MHz は 1 分周で 120。1.8 Hz〜60 MHz）。
+  - TCR.CCLR = TGRA のコンペアマッチでクリアし、周期は TGRA + 1。TIORH は IOA = 0001b（A で Low）、IOB = 0010b
+    （B で High）で、TGRB のマッチから TGRA のマッチまで（TGRA − TGRB カウント）High。`max_duty_cycle()` は周期の
+    カウント数。デューティ 0 と最大は TIORH を A・B とも Low（0001b）または High（0110b）にし、TGRB = 0 にする。
+    TGRB が TGRA と同じだとコンペアマッチで出力が変わらない（図 24.29）ので、初めのドライバは 100 % にしても Low の
+    ままだった（hw-pwm で見つけた）。
+  - TGRB はバッファしない（新しいデューティは次の TGRB のマッチから。書いた周期に 1 回、半端なパルスが出ることがある）。
+    MTIOC6A は TOERB の対象ではない（MTIOC6B / 7A / 7B / 6D / 7C / 7D だけ）。TSTRB.CST6 は MTU7 と共用なので
+    critical-section の中で書き換える。PAC の MTU のまとまりは不規則（MTU0〜2 のベースが同じなど）なので、MTU6 の
+    レジスタはアドレス（000C_1A00h〜）で扱う。
+
+確認: test/rust/hw-pwm（ボード、rt グループ、21 チェック、release / dev とも通る。2026-11-08）。PJ1 を PIDR で読む
+ループで測る。CMT0（PCLKB / 8 = 7.5 MHz）の 2 回の読み出しの間の時間を、先に読んだレベルの時間として足す
+（サンプルの数で数えると、dev ではループ 1 回の時間がレベルで違うためデューティが 2〜3 % 低く出た）。
+- `Timing::new`（5 通り）、MPC（PJ1PFS = 01h、PMR）、TCR = 20h、TCR2 = 1、TMDR1 = 2、TGRA = 59999、CST6。
+- 1 kHz: デューティ 0 で High の時間が 0、最大で全部 High。25 / 50 / 75 % は 24.9 / 50.0 / 74.9 %（release）、
+  24.9 / 49.9 / 75.0 %（dev）、100 ms に立ち上がりが 100 回。
+- 100 kHz（1 分周、周期 1200）の 50 %: 49.8 % / 51.9 %、10 ms に立ち上がりが 1000 回。
+- 終わったあとは 1 kHz・5 % で LD2 が薄く光る。
+
 ### UART の受信と相手機器との通信（2026-11-04）
 
 CN8 に USB シリアル変換（FTDI、3.3 V、Windows では COM8）をつなぎ、examples/serial-echo（下記）と
@@ -263,5 +289,5 @@ CN8（SCI2、115200 bps 8N1）に届いたバイトをそのまま送り返す�
 ## 予定
 
 1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）、~~UART（受信）~~（2026-11-04、デバッガをつないだ状態。上記）
-2. ~~SPI（RSPI）~~（2026-11-08、内部ループバック。CN9 に相手機器はまだつないでいない）、~~ADC（S12AD）~~（2026-11-08、自己診断・内部基準電圧・温度センサ。外部の電圧はまだ）、I2C（RIIC）、PWM（MTU / GPTW）
+2. ~~SPI（RSPI）~~（2026-11-08、内部ループバック。CN9 に相手機器はまだつないでいない）、~~ADC（S12AD）~~（2026-11-08、自己診断・内部基準電圧・温度センサ。外部の電圧はまだ）、~~PWM（MTU）~~（2026-11-08、MTU6 を LD2 に。GPTW はまだ）、I2C（RIIC）
 3. 必要なら async（embassy の time driver を CMT で）、embedded-hal-nb の serial
