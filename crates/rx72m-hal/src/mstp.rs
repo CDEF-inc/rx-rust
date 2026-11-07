@@ -1,5 +1,5 @@
 //! Module stop control: the drivers take their module out of module stop
-//! (MSTPCRA / MSTPCRB, write-protected by PRCR.PRC1).
+//! (MSTPCRA / MSTPCRB / MSTPCRC, write-protected by PRCR.PRC1).
 
 use core::ptr::{read_volatile, write_volatile};
 
@@ -10,6 +10,7 @@ const PRCR: *mut u16 = 0x0008_03fe as _;
 pub(crate) enum Mstpcr {
     A = 0x0008_0010,
     B = 0x0008_0014,
+    C = 0x0008_0018,
 }
 
 /// Clears bit `bit` of the register (starts the module), with PRC1 set
