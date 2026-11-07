@@ -52,6 +52,8 @@ elf=$target_dir/rx-none-elf/$([ "$profile" = dev ] && echo debug || echo "$profi
 "$G/rx-elf-size" -A "$elf" | awk '$2 != 0 && $1 !~ /^\.debug/'
 
 tmp=$(mktemp -d)
+# QEMU on Windows takes Windows paths, also in file:.
+qtmp=$tmp; command -v cygpath > /dev/null && qtmp=$(cygpath -m "$tmp")
 trap 'rm -rf "$tmp"' EXIT
 "$G/rx-elf-objcopy" -O binary "$elf" "$tmp/rom.bin"
 size=$(stat -c %s "$tmp/rom.bin")
@@ -70,8 +72,8 @@ done
   echo "info registers"
   echo quit
 } | timeout 60 "$QEMU" -M gdbsim-r5f562n8 ${QEMU_CPU:+-cpu "$QEMU_CPU"} ${QEMU_FLAGS:-} \
-    -bios "$tmp/rom.bin" \
-    -display none -serial file:"$tmp/sci0.txt" -monitor stdio 2>&1 \
+    -bios "$qtmp/rom.bin" \
+    -display none -serial file:"$qtmp/sci0.txt" -monitor stdio 2>&1 \
   | tr -d '\r' > "$tmp/monitor.log" || true
 
 echo "--- SCI0"
