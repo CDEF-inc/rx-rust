@@ -3,6 +3,9 @@
 #
 #   powershell -File scripts/hw/serial-echo.ps1 [-Port COM8] [-Baud 115200]
 #
+# It also checks examples/rx74n-serial-echo on the EK-RX74N's J27, with -Port
+# set to that board's port.
+#
 # Run it while the runner keeps the example running (after the runner
 # detaches nothing comes out of the board yet; docs/NOTES-hal.md):
 #   scripts/hw-build.sh examples                                    (WSL)

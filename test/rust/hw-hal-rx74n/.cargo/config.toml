@@ -1,0 +1,10 @@
+[build]
+target = "rx-none-elf"
+
+[target.rx-none-elf]
+# The RX72M: RXv3 with the FPU and the DFPU.
+rustflags = ["-C", "link-arg=-Tlink.x", "-C", "target-cpu=rxv3"]
+
+[unstable]
+build-std = ["core"]
+build-std-features = ["compiler-builtins-mem"]

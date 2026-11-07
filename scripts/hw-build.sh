@@ -3,8 +3,8 @@
 # the DFPU) into build/hw, for scripts/hw-run.sh to run on the board. With
 # HW_BOARD=rx74n they are for the RX74N (EK-RX74N: RXv3e), in build/hw-rx74n:
 # insns with rxv3e-insns and without cmt, whose registers are elsewhere
-# there, rom, codegen, rust, and the rt tests isr-save, isr-bank, alloc-smoke,
-# float-smoke and hw-pac-rx74n.
+# there, rom, codegen, rust, the rt tests isr-save, isr-bank, alloc-smoke,
+# float-smoke, hw-pac-rx74n and hw-hal-rx74n, and rx74n-serial-echo.
 #
 #   hw-build.sh [insns] [rom] [codegen] [rust] [rt] [examples]
 #                                                   default: all six
@@ -41,12 +41,13 @@ case $board in
     memory_x=rx72m-memory.x
     peripherals=(hw-irq hw-pac hw-hal hw-uart "hw-irq:-relax:-C target-feature=+relax")
     all=(insns rom codegen rust rt examples)
-    insns=(cmt) extra_defs=() ;;
+    insns=(cmt) extra_defs=() examples=(blinky serial-echo) ;;
   rx74n)
     out=$root/build/hw-rx74n cpu=rxv3e v3e=1 ram_ld=rx74n-ram.ld rom_ld=rx74n-rom.ld
-    memory_x=rx74n-memory.x peripherals=(hw-pac-rx74n)
-    all=(insns rom codegen rust rt)
-    insns=(rxv3e-insns) extra_defs=(--defsym ROOT_ONLY=1) ;;
+    memory_x=rx74n-memory.x peripherals=(hw-pac-rx74n hw-hal-rx74n)
+    all=(insns rom codegen rust rt examples)
+    insns=(rxv3e-insns) extra_defs=(--defsym ROOT_ONLY=1)
+    examples=(rx74n-serial-echo) ;;
   *)
     echo "unknown HW_BOARD $board (rx72m, rx74n)" >&2
     exit 2 ;;
@@ -184,8 +185,8 @@ for g in "${groups[@]}"; do
       done ;;
     examples)
       d=$out/examples; mkdir -p "$d"
-      tdir=$(target_dir "$root/build/examples")
-      for crate in blinky serial-echo; do
+      tdir=$(target_dir "$out/examples-target")
+      for crate in "${examples[@]}"; do
         # The crate's .cargo/config.toml has the target, its rustflags and
         # build-std.
         (cd "$root/examples/$crate" &&

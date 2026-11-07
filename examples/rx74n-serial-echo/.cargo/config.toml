@@ -1,0 +1,12 @@
+[build]
+target = "rx-none-elf"
+
+[target.rx-none-elf]
+# The RX74N: RXv3e with the FPU and the DFPU. f32 / f64 are soft-float; add
+# "-C", "target-feature=+flush-denormals" to use the FPU / DFPU (README,
+# "Floating point").
+rustflags = ["-C", "link-arg=-Tlink.x", "-C", "target-cpu=rxv3e"]
+
+[unstable]
+build-std = ["core"]
+build-std-features = ["compiler-builtins-mem"]
