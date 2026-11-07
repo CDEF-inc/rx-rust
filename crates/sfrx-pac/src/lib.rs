@@ -9,10 +9,16 @@
 //!
 //! sfrx lists modules (some with nested modules, such as CAN0/MB0) and their
 //! registers by absolute address, with bit fields. Each top-level module
-//! becomes an SVD peripheral based at its lowest register address; nested
-//! modules' registers (already prefixed, MB0_ID) go into their top-level
-//! module. Registers at the same address (CAN's MCTLn_TX / MCTLn_RX) are
-//! marked as alternates of the first one.
+//! becomes an SVD peripheral based at its lowest register address rounded
+//! down to a multiple of 4; nested modules' registers (already prefixed,
+//! MB0_ID) go into their top-level module. Registers at the same address
+//! (CAN's MCTLn_TX / MCTLn_RX) are marked as alternates of the first one.
+//!
+//! The rounding keeps svd2rust's `#[repr(C)]` register blocks at the
+//! registers' addresses: from an unaligned base (the RX74N's SYSC at
+//! 8701_9006h, the RX72M's MTU1 at 000C_1291h) a register's offset is not a
+//! multiple of its size, and the alignment padding moves it and every
+//! register after it.
 
 use std::collections::BTreeMap;
 use std::env;
@@ -146,7 +152,15 @@ fn sfrx_to_svd(device: &str, text: &str) -> String {
             continue;
         }
         regs.sort_by_key(|r| r.address);
-        let base = regs[0].address;
+        let base = regs[0].address & !3;
+        for r in &regs {
+            assert!(
+                r.address % (r.bits as u64 / 8) == 0,
+                "sfrx-pac: {} at {:#x} is not aligned to its size",
+                r.name,
+                r.address
+            );
+        }
         let end = regs.iter().map(|r| r.address + r.bits as u64 / 8).max().unwrap();
         let name = module.attribute("name").unwrap();
         writeln!(
