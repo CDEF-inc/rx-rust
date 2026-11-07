@@ -1,5 +1,7 @@
 ; RXv3e: the CPU side of the Protect Zone function (RXv3e manual,
-; R01US0745EJ0101: 1.2, 1.3.2, 3 and 5). Run on rxv3e.
+; R01US0745EJ0101: 1.2, 1.3.2, 3 and 5). Run on rxv3e. With ROOT_ONLY (the
+; RX74N board) it stays in the root world: this code is in secure memory
+; there, which the non-secure world cannot fetch from.
 	.include "harness.inc"
 
 ; EXPECT_CR cr, want (mvfc into r9)
@@ -99,6 +101,7 @@ _main:
 	EXPECT	r13, 5
 	EXPECT_CR wid, 0
 
+	.ifndef	ROOT_ONLY
 	; into the non-secure world with trrte (BWID = 2; PSW and PC on the
 	; root stack); FINTV and WPRI of the root world are set to see that
 	; they read as 0 there
@@ -156,14 +159,17 @@ _in_ns:
 	setpsw	i
 	trcall	#1
 	bra.a	_fail			; not reached
+	.endif
 
 _back_in_root:
+	.ifndef	ROOT_ONLY
 	EXPECT_CR wid, 0x80000200	; BWI = 1, BWID = 2, WID = 0
 	EXPECT_REG r0, r10		; ISP_TR
 	mvfc	intb, r9
 	EXPECT	r9, _intb_root
 	mvfc	fintv, r9
 	EXPECT	r9, 0x1234
+	.endif
 	mov.l	#0, r4
 	mvtc	r4, wid
 	mvtc	r4, wpri

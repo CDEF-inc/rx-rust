@@ -1,6 +1,9 @@
 #!/bin/bash
 # Builds the tests for the RX72M (AP-RX72M-0A board: RXv3 with the FPU and
-# the DFPU) into build/hw, for scripts/hw-run.sh to run on the board.
+# the DFPU) into build/hw, for scripts/hw-run.sh to run on the board. With
+# HW_BOARD=rx74n they are for the RX74N (EK-RX74N: RXv3e), in build/hw-rx74n:
+# the groups that run in RAM (insns, codegen, rust), with rxv3e-insns and
+# without cmt, whose registers are elsewhere there.
 #
 #   hw-build.sh [insns] [rom] [codegen] [rust] [rt] [examples]
 #                                                   default: all six
@@ -30,8 +33,21 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 G=$root/gnu/install/bin
 MC=$root/build/llvm/bin/llvm-mc
 T=$root/test/hw
-out=$root/build/hw
-groups=("$@"); [ ${#groups[@]} -gt 0 ] || groups=(insns rom codegen rust rt examples)
+board=${HW_BOARD:-rx72m}
+case $board in
+  rx72m)
+    out=$root/build/hw cpu=rxv3 v3e=0 ram_ld=rx72m-ram.ld
+    all=(insns rom codegen rust rt examples)
+    insns=(cmt) extra_defs=() ;;
+  rx74n)
+    out=$root/build/hw-rx74n cpu=rxv3e v3e=1 ram_ld=rx74n-ram.ld
+    all=(insns codegen rust)
+    insns=(rxv3e-insns) extra_defs=(--defsym ROOT_ONLY=1) ;;
+  *)
+    echo "unknown HW_BOARD $board (rx72m, rx74n)" >&2
+    exit 2 ;;
+esac
+groups=("$@"); [ ${#groups[@]} -gt 0 ] || groups=("${all[@]}")
 GCCFLAGS="-mcpu=rx600 -m64bit-doubles"
 libgcc=$("$G/rx-elf-gcc" $GCCFLAGS -print-libgcc-file-name)
 LD=${RX_LD:-$root/build/llvm/bin/ld.lld}
@@ -61,8 +77,9 @@ target_dir() {
   done
   echo "$1@$rustc_id"
 }
-# The RX72M has the RXv2 and RXv3 instructions, the FPU and the DFPU.
-defs=(--defsym V2=1 --defsym V3=1 --defsym V3E=0 --defsym FPU=1 --defsym DFPU=1)
+# Both boards have the RXv2 and RXv3 instructions, the FPU and the DFPU.
+defs=(--defsym V2=1 --defsym V3=1 --defsym V3E=$v3e --defsym FPU=1 --defsym DFPU=1
+      "${extra_defs[@]}")
 
 # sym ELF: write the runner's symbols next to the ELF
 sym() {
@@ -89,8 +106,8 @@ insn_tests() {
 for g in "${groups[@]}"; do
   case $g in
     insns)
-      insn_tests "$out/insns" start-ram.s rx72m-ram.ld cpu-features fcmp-flags \
-        fpu-status rxv2-fpu dsp-v2 dfpu-insns rxv3-insns mem-insns cmt memex-insns ;;
+      insn_tests "$out/insns" start-ram.s "$ram_ld" cpu-features fcmp-flags \
+        fpu-status rxv2-fpu dsp-v2 dfpu-insns rxv3-insns mem-insns memex-insns         "${insns[@]}" ;;
     rom)
       insn_tests "$out/rom" start-rom.s rx72m-rom.ld rxv2-insns ;;
     codegen)
@@ -107,9 +124,9 @@ for g in "${groups[@]}"; do
         n=$1${3:-}
         "$G/rx-elf-gcc" $GCCFLAGS -O2 -c "$C/$2.c" -o "$d/$2.o"
         for o in 0 2; do
-          "$root/build/llvm/bin/llc" -mtriple=rx-none-elf -mcpu=rxv3 \
+          "$root/build/llvm/bin/llc" -mtriple=rx-none-elf -mcpu=$cpu \
             -mattr=+64bit-doubles${4:+,$4} -O$o -filetype=obj "$C/$1.ll" -o "$d/$n-O$o.o"
-          "$LD" $nowarn -T "$T/rx72m-ram.ld" \
+          "$LD" $nowarn -T "$T/$ram_ld" \
             -o "$d/$n-O$o.elf" "$d/start.o" "$d/$2.o" "$d/$n-O$o.o" "$libgcc"
           sym "$d/$n-O$o.elf"
           echo "built $d/$n-O$o.elf"
@@ -118,18 +135,18 @@ for g in "${groups[@]}"; do
     rust)
       d=$out/rust; mkdir -p "$d"
       crate=$root/test/rust/core-smoke
-      tdir=$(target_dir "$root/build/hw/rust-target")
+      tdir=$(target_dir "$out/rust-target")
       "$MC" -triple=rx -mcpu=rxv3e -filetype=obj "$T/start-ram.s" -o "$d/start.o"
       "$G/rx-elf-gcc" $GCCFLAGS -O2 -c "$crate/main.c" -o "$d/main.o"
       for profile in release dev; do
         (cd "$crate" &&
          RUSTC=$root/rust/build/$host/stage1/bin/rustc RUSTC_BOOTSTRAP=1 \
-         RUSTFLAGS="-C target-cpu=rxv3" PATH=$G:$PATH \
+         RUSTFLAGS="-C target-cpu=$cpu" PATH=$G:$PATH \
          "$root/rust/build/$host/stage0/bin/cargo" build -q --profile "$profile" \
            --target rx-none-elf -Zbuild-std=core \
            -Zbuild-std-features=compiler-builtins-mem --target-dir "$tdir")
         lib=$(ls "$tdir/rx-none-elf/$([ "$profile" = dev ] && echo debug || echo "$profile")"/lib*.a | head -1)
-        "$LD" $nowarn --gc-sections -T "$T/rx72m-ram.ld" \
+        "$LD" $nowarn --gc-sections -T "$T/$ram_ld" \
           -o "$d/core-smoke-$profile.elf" "$d/start.o" "$d/main.o" "$lib" "$libgcc"
         sym "$d/core-smoke-$profile.elf"
         echo "built $d/core-smoke-$profile.elf"

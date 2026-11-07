@@ -1,4 +1,4 @@
-"""Run test ELFs on the RX72M through e2-server-gdb and print the result
+"""Run test ELFs on the board through e2-server-gdb and print the result
 variables (checks, failures, ...) of each. Started by scripts/hw-run.sh.
 
 Usage: run.py PORT SECONDS ELF...   (NAME.sym next to each NAME.elf)
@@ -22,6 +22,9 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from rsp import Rsp, PC, segments, symbols  # noqa: E402
+
+
+BOARD = os.environ.get("HW_BOARD", "rx72m")
 
 
 def launch(r):
@@ -54,7 +57,7 @@ def run(r, elf, seconds):
         # An example: let it run.
         r.cmd("vCont;c")
         time.sleep(seconds)
-        print("[%s/rx72m] ran for %.0f s (no _done)" % (name, seconds))
+        print("[%s/%s] ran for %.0f s (no _done)" % (name, BOARD, seconds))
         r.running = True
         return True
     r.cmd("Z1,%x,1" % syms["done"])
@@ -75,8 +78,8 @@ def run(r, elf, seconds):
          ("finished", "checks", "failures", "first_failure",
           "got_value", "want_value")}
     if v["finished"] != 1:
-        print("[%s/rx72m] did not finish in %.1f s (pc=%08x, checks=%d)"
-              % (name, el, pc, v["checks"]))
+        print("[%s/%s] did not finish in %.1f s (pc=%08x, checks=%d)"
+              % (name, BOARD, el, pc, v["checks"]))
         return False
     first = ""
     if v["failures"]:
@@ -85,8 +88,8 @@ def run(r, elf, seconds):
     # hw-uart: whether CN8's RXD / TXD were found wired together
     if "loopback" in syms:
         first += " loopback=%d" % r.word(syms["loopback"])
-    print("[%s/rx72m] checks=%d failures=%d%s (%.1f s)"
-          % (name, v["checks"], v["failures"], first, el))
+    print("[%s/%s] checks=%d failures=%d%s (%.1f s)"
+          % (name, BOARD, v["checks"], v["failures"], first, el))
     if "faillog" in syms and v["failures"]:
         n = min(v["failures"], 64)
         log = r.read(syms["faillog"], 16 * n)
