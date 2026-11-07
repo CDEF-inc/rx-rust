@@ -21,5 +21,4 @@ critical-section = { version = "1.2", optional = true }
 critical-section = ["dep:critical-section"]
 
 [build-dependencies]
-roxmltree = "0.20"
-svd2rust = { version = "0.37.1", default-features = false }
+sfrx-pac = { path = "../sfrx-pac" }

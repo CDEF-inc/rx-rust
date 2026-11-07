@@ -266,8 +266,7 @@ name = "rx72m-pac"
 version = "0.1.0"
 dependencies = [
  "critical-section",
- "roxmltree",
- "svd2rust",
+ "sfrx-pac",
  "vcell",
 ]
 
@@ -299,6 +298,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "sfrx-pac"
+version = "0.1.0"
+dependencies = [
+ "roxmltree",
+ "svd2rust",
 ]
 
 [[package]]

@@ -1,0 +1,14 @@
+[package]
+name = "sfrx-pac"
+version = "0.1.0"
+edition = "2021"
+description = "Generates a peripheral access crate from e2 studio's sfrx register description, for a PAC's build.rs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/CDEF-inc/rx-rust"
+
+[lib]
+test = false
+
+[dependencies]
+roxmltree = "0.20"
+svd2rust = { version = "0.37.1", default-features = false }
