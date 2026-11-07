@@ -26,6 +26,7 @@
   その中の `src/llvm-project` は CDEF-inc/llvm-project `rx/23.1`（LLVM 23.1.4 `f738f3b0` + RX バックエンド）
 - `crates/rx-rt/` — 起動コード・ベクタ表・リンカスクリプト（M5）
 - `crates/rx72m-pac/`、`crates/rx72m-hal/` — RX72M の PAC（ビルド時に生成）と embedded-hal 実装（NOTES-hal.md）
+- `crates/rx74n-pac/` — RX74N の PAC、`crates/sfrx-pac/` — PAC の生成処理
 - `examples/blinky/` — AP-RX72M-0A の LD1 / LD2 点滅、`examples/serial-echo/` — CN8（SCI2）のエコー
 - `scripts/`, `test/` — ビルド・検証スクリプトとテスト（`test/hw` は実機用）、`docs/` — このファイルと NOTES-*.md
 - `gnu/install/`（`scripts/build-gnu.sh`、リポジトリ外）— 参照用 rx-elf binutils 2.43 / 上流 GCC 14.2 + libgcc（エンコーディング検証・ABI 比較・リンカ）。
@@ -122,8 +123,8 @@
 - [x] AP-RX72M-0A（RX72M、RXv3 + DFPU）を E2 Lite で動かすテスト環境（`scripts/hw-build.sh`、`scripts/hw-run.sh`）。
   命令・codegen・core-smoke・割り込みの 31 本、35,560 チェックがすべて実機で通過（NOTES-hw.md）。
   実機と QEMU の違いは CDEF-inc/qemu で直した（NOTES-qemu.md）
-- [x] EK-RX74N（RXv3e）でも命令・codegen・core-smoke と周辺を使わない rx-rt のテスト 59 本が通過
-  （`HW_BOARD=rx74n`、NOTES-hw.md）。周辺を使うテスト（RX74N の PAC と HAL が要る）と non-secure ワールドの実行はまだ
+- [x] EK-RX74N（RXv3e）でも命令・codegen・core-smoke と rx-rt、rx74n-pac のテスト 61 本が通過
+  （`HW_BOARD=rx74n`、NOTES-hw.md）。RX74N の HAL と non-secure ワールドの実行はまだ
 - [x] rx72m-pac と rx72m-hal: クロック（PLL 240 MHz）、GPIO、MPC、CMT の遅延、SCI2 の UART 送信、rx-rt の critical-section
 - [x] L チカ: `examples/blinky`（embedded-hal で LD1 / LD2 を点滅、コードフラッシュから起動）
 - [x] Rust で書いた RTOS が QEMU と RX72M で動く

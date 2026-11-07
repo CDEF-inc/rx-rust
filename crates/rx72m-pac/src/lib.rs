@@ -3,7 +3,7 @@
 //! The register definitions are not in this repository: build.rs reads
 //! RX72M.sfrx, the register description that Renesas e2 studio installs for
 //! its debugger, turns it into an SVD description and generates the code
-//! with svd2rust (`--target none`) into `OUT_DIR`. See build.rs for where
+//! with svd2rust (`--target none`) into `OUT_DIR`. See sfrx-pac for where
 //! the file is looked for (or set `RX72M_SFRX`).
 //!
 //! The sfrx file has every register as read-write and no reset values, so

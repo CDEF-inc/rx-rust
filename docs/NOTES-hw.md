@@ -73,7 +73,7 @@ RX72M の割り込みで分かったこと:
 
 ## EK-RX74N（RXv3e）
 
-insns、rom、codegen、rust と、周辺を使わない rt のテスト（isr-save、isr-bank、alloc-smoke、float-smoke）を実機の RXv3e で確かめられる。2026-11-07 に全 59 本が通った。
+insns、rom、codegen、rust と rt のテスト（isr-save、isr-bank、alloc-smoke、float-smoke、hw-pac-rx74n）を実機の RXv3e で確かめられる。2026-11-07 に全 61 本が通った。
 
 | | |
 |---|---|
@@ -100,7 +100,9 @@ RX72M との違い:
 - `rxv3e-insns` は `ROOT_ONLY` でアセンブルし、root ワールドの部分だけを実行する（27 チェック）。`trrte` で non-secure ワールドへ移ると、
   セキュアなメモリのコードを実行できず止まる。QEMU にはこの分離がないので全部通る。
 - コード MRAM は R5K574NC で 1 MB（`0xFFF00000`〜）。RAM と同じ手順で書き込める。`test/hw/rx74n-rom.ld`、`rx74n-memory.x` の変数は On-chip RAM のセキュア側に置く。
-- 周辺のアドレスが違うので、`cmt` と rt の hw-irq、hw-pac、hw-hal、hw-uart、examples は実行しない（RX74N の PAC と HAL が要る）。
+- 周辺のアドレスが違うので、`cmt` と rt の hw-irq、hw-hal、hw-uart、examples は実行しない（RX74N の HAL が要る）。
+  hw-pac の代わりに、CMT0 の割り込みと critical-section を rx74n-pac で確かめる test/rust/hw-pac-rx74n がある（11 チェック）。
+  CMI0 はベクタ 28、IPR4、IER3.IEN4 で RX72M と同じだが、CMT のモジュールストップは MSTPCRF.MSTPF15、保護は PRCR_S。
 - 一度、`FFWRXCmd_AuthKey` の JTAG 通信エラーで接続できなくなった（JTAG クロックを下げても同じ）。SW6 を Pin1 ON / Pin2 OFF にして
   J27 を抜き差しすると戻った。どちらが効いたかは切り分けていない。
 

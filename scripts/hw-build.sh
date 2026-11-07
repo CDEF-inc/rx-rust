@@ -3,8 +3,8 @@
 # the DFPU) into build/hw, for scripts/hw-run.sh to run on the board. With
 # HW_BOARD=rx74n they are for the RX74N (EK-RX74N: RXv3e), in build/hw-rx74n:
 # insns with rxv3e-insns and without cmt, whose registers are elsewhere
-# there, rom, codegen, rust, and the rt tests that use no peripherals
-# (isr-save, isr-bank, alloc-smoke, float-smoke).
+# there, rom, codegen, rust, and the rt tests isr-save, isr-bank, alloc-smoke,
+# float-smoke and hw-pac-rx74n.
 #
 #   hw-build.sh [insns] [rom] [codegen] [rust] [rt] [examples]
 #                                                   default: all six
@@ -44,7 +44,7 @@ case $board in
     insns=(cmt) extra_defs=() ;;
   rx74n)
     out=$root/build/hw-rx74n cpu=rxv3e v3e=1 ram_ld=rx74n-ram.ld rom_ld=rx74n-rom.ld
-    memory_x=rx74n-memory.x peripherals=()
+    memory_x=rx74n-memory.x peripherals=(hw-pac-rx74n)
     all=(insns rom codegen rust rt)
     insns=(rxv3e-insns) extra_defs=(--defsym ROOT_ONLY=1) ;;
   *)

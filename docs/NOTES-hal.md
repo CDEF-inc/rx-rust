@@ -33,6 +33,18 @@ sfrx の制約: すべて読み書き可、リセット値なし（`reset()` / `
 確認: test/rust/hw-pac（ボード、scripts/hw-build.sh の rt グループ）が PAC で SYSTEM（PRCR、MSTPCRA）、
 CMT、ICU を操作し、CMT0 の割り込みと critical_section::with を確かめる（11 チェック、release / dev とも通る）。
 
+## PAC（crates/rx74n-pac）
+
+rx72m-pac と同じ作りで、`RX74N.sfrx` から生成する。生成処理は `crates/sfrx-pac` に共通化した（rx72m-pac の出力は変わらない）。
+`RX74N.sfrx` は RX FSP のパックを e² studio に入れると `IoFiles` に置かれる（NOTES-hw.md）。`RX74N_SFRX` でも指定できる。
+
+sfrx にはモジュール 283 個、レジスタ 33,277 個があり、半分は非セキュア側の別名（`_NS`）。リセット後はセキュアなので、`_NS` のモジュールは生成しない。
+それでも生成されるソースは約 47 MB（CANFD が半分以上）で、ビルドに 3 分ほどかかる。
+
+RX72M と名前が違う: SYSTEM は SYSC と MSTPREG に分かれ（`p.sysc.prcr_s()`、`p.mstpreg.mstpcrf()`）、ICU の IER は `ier3` のように 0 埋めがない。
+
+確認: test/rust/hw-pac-rx74n（EK-RX74N、rt グループ、11 チェック、release / dev とも通る）。
+
 ## AP-RX72M-0A の配線（ボードのハードウェアマニュアル v6.0 より）
 
 | 用途 | 端子 | メモ |

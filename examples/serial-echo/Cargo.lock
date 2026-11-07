@@ -277,8 +277,7 @@ name = "rx72m-pac"
 version = "0.1.0"
 dependencies = [
  "critical-section",
- "roxmltree",
- "svd2rust",
+ "sfrx-pac",
  "vcell",
 ]
 
@@ -319,6 +318,14 @@ dependencies = [
  "embedded-io",
  "rx-rt",
  "rx72m-hal",
+]
+
+[[package]]
+name = "sfrx-pac"
+version = "0.1.0"
+dependencies = [
+ "roxmltree",
+ "svd2rust",
 ]
 
 [[package]]
