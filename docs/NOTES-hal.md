@@ -116,7 +116,7 @@ SPLP2 / SPLP のループバック、4 モードの 1 MHz と 30 MHz、アイド
     GTUDDTYC.OBDTY（10b / 11b）で出す（RX72M の MTU のような TGR の工夫は要らない）。新しいデューティは GTCCRB の
     バッファの GTCCRE に書き（GTBER.CCRB = 01b）、周期の終わりに移るので半端なパルスは出ない。
 
-確認: test/rust/hw-pwm-rx74n（rt グループ、21 チェック、release / dev とも通る。2026-11-08）。PLL1 480 MHz（PCLKD
+確認: test/rust/hw-pwm-rx74n（rt グループ、22 チェック、release / dev とも通る。2026-11-08）。PLL1 480 MHz（PCLKD
 120 MHz）で、内容は RX72M の hw-pwm と同じ（PF05 を PIDR で読み、CMT0 の時間で重みを付けて測る）。1 kHz の 25 / 50 /
 75 % は 25.0 / 50.0 / 75.0 %（release）、24.9 / 49.9 / 74.9 %（dev）、100 ms に立ち上がり 100 回。100 kHz の 50 % は
 50.0 % / 48.7 %、10 ms に 1000 回。初めの 1 回ですべて通った。
@@ -183,7 +183,7 @@ SPLP2 / SPLP のループバック、4 モードの 1 MHz と 30 MHz、アイド
     最適化で消えていたためで、ほかのドライバの待ちも同じだった（`core::hint::spin_loop` は RX では何もしない。
     rx-rust#133 で直した）。
 
-確認: test/rust/hw-i2c-rx74n（rt グループ、21 チェック、release / dev とも EK-RX74M で通る。2026-11-08）。
+確認: test/rust/hw-i2c-rx74n（rt グループ、22 チェック、release / dev とも EK-RX74M で通る。2026-11-08）。
 - 設定前の P102 / P103 は High（プルアップ）。I3CCKCR = 05h、I3CCKDIVCR = 04h、MSTPB4、ICCR.ICE、
   ICRCCR = 1_0001h、ICFBR = 3F3F_79B2h、ICBFTR = 141、PmnPFS。
 - 応答しないアドレス 33h への書き込み・読み出し・プローブがどれもアドレスの NACK になり、そのあとバスが空く（BFREE）。
@@ -347,7 +347,7 @@ MOSCWTCR の待ち時間が過ぎたことを示すだけで、発振してい�
     critical-section の中で書き換える。PAC の MTU のまとまりは不規則（MTU0〜2 のベースが同じなど）なので、MTU6 の
     レジスタはアドレス（000C_1A00h〜）で扱う。
 
-確認: test/rust/hw-pwm（ボード、rt グループ、21 チェック、release / dev とも通る。2026-11-08）。PJ1 を PIDR で読む
+確認: test/rust/hw-pwm（ボード、rt グループ、22 チェック、release / dev とも通る。2026-11-08）。PJ1 を PIDR で読む
 ループで測る。CMT0（PCLKB / 8 = 7.5 MHz）の 2 回の読み出しの間の時間を、先に読んだレベルの時間として足す
 （サンプルの数で数えると、dev ではループ 1 回の時間がレベルで違うためデューティが 2〜3 % 低く出た）。
 - `Timing::new`（5 通り）、MPC（PJ1PFS = 01h、PMR）、TCR = 20h、TCR2 = 1、TMDR1 = 2、TGRA = 59999、CST6。

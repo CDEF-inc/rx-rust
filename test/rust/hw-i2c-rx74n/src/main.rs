@@ -6,7 +6,8 @@
 //! bus is free again), and if the EEPROM answers (`eeprom` = 1; on the
 //! EK-RX74N nothing does and those checks are skipped): a 16-byte read
 //! from 0000h with a repeated START, random and current-address reads of
-//! 1, 2 and 4 bytes that match it, the same 16 bytes in Fast mode, and the
+//! 1, 2 and 4 bytes that match it, transactions of two reads and of a read,
+//! a write and a read, the same 16 bytes in Fast mode, and the
 //! time of the 16-byte read in both modes (timed with CMT0 at PCLKB / 8).
 //! Booted from the code MRAM by scripts/hw-run.sh; the results are in
 //! `checks` / `failures` / `first_failure` / `finished`, the measurements
@@ -158,6 +159,20 @@ fn main() -> ! {
             )
             .is_ok();
         check(17, ok && x == all[3..6] && y == all[6..11]);
+        // A read, then a write: the read's last byte already requests the
+        // repeated START for the write. The write only sets the address
+        // (no data bytes, so nothing is programmed).
+        let ok = i2c
+            .transaction(
+                EEPROM,
+                &mut [
+                    Operation::Read(&mut x),
+                    Operation::Write(&[0x00, 0x05]),
+                    Operation::Read(&mut y),
+                ],
+            )
+            .is_ok();
+        check(22, ok && y == all[5..10]);
         // 16 bytes: (2 + 1) x 9 + 16 x 9 = 171 bits at most 100 kHz: at
         // least 1.71 ms (12825 counts), at most 2.5 ms.
         check(18, (12_825..18_750).contains(&t_std));

@@ -279,11 +279,21 @@ impl I2c {
         }
     }
 
-    /// Requests START (or repeated START) and sends the address byte.
-    fn address(&mut self, addr: u8, read: bool, restart: bool) -> Result<(), Error> {
+    /// Requests START (or repeated START) and sends the address byte. A
+    /// read that ended with `then_restart` has already requested the
+    /// repeated START (`requested`), so it is only waited for.
+    fn address(
+        &mut self,
+        addr: u8,
+        read: bool,
+        restart: bool,
+        requested: bool,
+    ) -> Result<(), Error> {
         if restart {
-            clear(START);
-            wr(ICCGR, RS);
+            if !requested {
+                clear(START);
+                wr(ICCGR, RS);
+            }
         } else {
             while rd(ICBSR) & 1 == 0 {
                 if rd(ICSR2) & (AL | TMOF) != 0 {
@@ -394,24 +404,33 @@ impl I2c {
     }
 
     /// Requests a STOP (unless one is already on its way) and waits for it.
-    fn stop(&mut self, requested: bool) {
+    /// A timeout (SCL held low) leaves TMOF set for `recover`.
+    fn stop(&mut self, requested: bool) -> Result<(), Error> {
         if !requested {
             clear(STOP);
             wr(ICCGR, SP);
         }
-        while rd(ICSR2) & (STOP | TMOF) == 0 {}
+        loop {
+            let s = rd(ICSR2);
+            if s & STOP != 0 {
+                break;
+            }
+            if s & TMOF != 0 {
+                return Err(Error::Timeout);
+            }
+        }
         clear(STOP | NACKF | START | TEND);
         wr(ICACKR, ACK);
+        Ok(())
     }
 
-    /// After an error: a STOP if the RI3C is still master, else an
-    /// internal reset of the flags and requests (ICRCR.ISRST).
+    /// After an error: a STOP if the RI3C is still master, else (or if
+    /// that STOP times out) an internal reset of the flags and requests
+    /// (ICRCR.ISRST).
     fn recover(&mut self) {
         let s = rd(ICSR2);
         wr(ICCSCR, 0);
-        if s & (AL | TMOF) == 0 {
-            self.stop(false);
-        } else {
+        if s & (AL | TMOF) != 0 || self.stop(false).is_err() {
             wr(ICRCR, ISRST);
             wr(ICRCR, 0);
         }
@@ -422,7 +441,9 @@ impl I2c {
     fn run(&mut self, addr: u8, ops: &mut [Operation<'_>]) -> Result<(), Error> {
         let mut i = 0;
         let mut started = false;
-        let mut stop_requested = false;
+        // Set when the previous read run requested the STOP or the
+        // repeated START itself.
+        let mut end_requested = false;
         while i < ops.len() {
             let read = matches!(ops[i], Operation::Read(_));
             // The run of operations in the same direction.
@@ -430,24 +451,24 @@ impl I2c {
             while j < ops.len() && matches!(ops[j], Operation::Read(_)) == read {
                 j += 1;
             }
-            self.address(addr, read, started)?;
+            self.address(addr, read, started, end_requested)?;
             if read {
                 let last = j == ops.len();
                 self.read_bytes(&mut ops[i..j], !last)?;
-                stop_requested = last;
+                end_requested = true;
             } else {
                 for (k, op) in ops[i..j].iter().enumerate() {
                     if let Operation::Write(w) = op {
                         self.write_bytes(w, k == 0)?;
                     }
                 }
-                stop_requested = false;
+                end_requested = false;
             }
             started = true;
             i = j;
         }
         if started {
-            self.stop(stop_requested);
+            self.stop(end_requested)?;
         }
         Ok(())
     }
