@@ -159,6 +159,7 @@ for cpu in "${cpus[@]}"; do
   run "$cpu codegen fpu_ieee soft" env OPT=2 bash "$S/run-codegen-test.sh" "$C/fpu_ieee.ll" "$C/fpu_ieee_main.c"
   for p in release dev; do
     run "$cpu rust core-smoke $p" env PROFILE=$p bash "$S/run-rust-test.sh"
+    run "$cpu rust variadic-smoke $p" env PROFILE=$p bash "$S/run-rust-test.sh" "$root/test/rust/variadic-smoke"
     # build/rust-rom/$cpu; isr-cfi checks what isr-save built
     g="rom $cpu $p"
     run -g "$g" "$cpu rust qemu-demo $p" env PROFILE=$p bash "$S/run-rust-rom.sh"

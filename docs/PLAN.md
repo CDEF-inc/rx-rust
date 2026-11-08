@@ -17,7 +17,6 @@
 
 | 項目 | いまの動き | 影響 | issue |
 |---|---|---|---|
-| Rust の可変長関数の定義（`extern "C" fn f(n: c_int, mut args: ...)`） | rustc は LLVM の va_arg に任せる。未試験。LLVM 側の定義は M2 で済み | C から呼ばれる Rust の可変長関数 | — |
 | tidy・UI テスト・platform-support ドキュメント | 未対応 | 上流化する場合だけ必要 | #53 |
 | rx72m-hal の I2C（RIIC） | 未実装。UART 受信・SPI・PWM・ADC は済み（rx74n-hal には I2C がある） | RX72M で I2C を使うとき | #54 |
 | AP-RX72M-0A の単体起動 | E2 Lite を外してリセットすると、コードフラッシュのプログラムが動かない。原因は未特定 | デバッガなしで動かすとき | — |
@@ -120,7 +119,8 @@
 - [x] 配布用ツールチェイン（`scripts/dist-toolchain.sh`、rx-rust #40）。CI の RX ジョブで使う
 - [x] Windows 版の配布用ツールチェイン（`scripts/build-windows.sh`、`scripts/dist-toolchain-windows.sh`、host は x86_64-pc-windows-msvc）
 - [x] `alloc`: `-Zbuild-std=core,alloc` でビルドし、`test/rust/alloc-smoke` が QEMU で通過（rx-rust #52、NOTES-rustc.md）
-- [ ] Rust の可変長関数の定義（`c_variadic`）の確認
+- [x] Rust の可変長関数（`c_variadic`）: 定義・`VaList`・C の可変長関数の呼び出し。`test/rust/variadic-smoke` が
+  QEMU の 4 コアで通過。rustc の変更は不要（2026-11-09、NOTES-rustc.md の「可変長関数」）
 - [ ] tidy / UI テスト / platform-support のドキュメント（上流化する場合）
 
 ### M5 実機 ✅ 2026-10-28（詳細 `NOTES-rt.md`、`NOTES-hw.md`、`NOTES-hal.md`）

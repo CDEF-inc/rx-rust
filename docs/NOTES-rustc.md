@@ -109,6 +109,29 @@ bash scripts/run-rust-test.sh     # -Zbuild-std=core でテスト crate をビ�
   大きいのは書式化と浮動小数点の文字列化（約 15.7 KB。f64 / f32 の `{}` / `{:.3}` を使っているため）、BTreeMap
   （約 5.9 KB）、u32 の sort（2.1 KB）、`to_uppercase`（Unicode 表を含む）。アロケータ自体は約 1.3 KB。
 
+## 可変長関数（2026-11-09）
+- Rust で定義する可変長関数（`unsafe extern "C" fn f(n: c_int, mut ap: ...)`）、`VaList` の `next_arg` / `clone`
+  （va_copy）、C の `va_list` を受け取る Rust の関数、Rust から C の可変長関数を呼ぶことが、RX 向けの変更なしで動く。
+  - rustc は RX の `va_arg` を LLVM の既定の展開に任せる（rustc_codegen_llvm の va_arg.rs）。
+  - `VaList` は次の名前なし引数を指すポインタ（core の既定の `VaListInner`）で、GCC の `va_list` と同じ。
+  - 引数の置き場所（最後の名前付き引数と名前なしの引数はスタック）は LLVM バックエンドが決める（NOTES-codegen.md の
+    「フレームポインタ・動的 alloca・可変長関数」）。
+- 可変長関数の定義には `#![feature(c_variadic_experimental_arch)]` が要る（rustc_target の
+  `supports_c_variadic_definitions` で RX は Unstable）。呼ぶ側と `VaList` は安定機能。
+- `next_arg` で読める型は core の `VaArgSafe`（i32 / u32 / i64 / u64 / isize / usize / f64 / ポインタ）。
+  i8 / i16 / f32 は C の既定の昇格で int / double になるので読めない（GCC と同じ）。構造体も読めない。
+- `test/rust/variadic-smoke`（lib.rs + main.c）: 文字列の書式で型を指定し、Rust が読んだ値を GCC の `va_arg` が
+  読んだ値と比べる。
+  - 読む側は 4 通り: 名前付き 2 個、名前付き 6 個（R1〜R4 からはみ出す）、va_copy で 2 回読む、C の `va_list` を
+    受け取る関数。
+  - 呼ぶ側では、int / long / long long / f64 / size_t / ptrdiff_t / ポインタの混在、名前付き 1 個の和、`VaList` を
+    C の関数に渡す。
+  - Rust から GCC の可変長関数を呼び、i64・f64・ポインタ・構造体（S8 と 3 バイトの S3）を渡す。
+  - 379 チェック。QEMU の rx62n / rxv2 / rxv3 / rxv3e の release / dev と、rxv3 の `+fpu,+dfpu` で全通過。
+  - i64 を 2 つの int として逆順に読む版と、va_copy せずに元を 2 回読む版は失敗する（テストが間違いを見つけることの確認）。
+- `scripts/run-rust-test.sh` は、共有の target ディレクトリにある最初の `lib*.a` をリンクしていた。
+  そのため、core-smoke の後では別のクレートでも core-smoke を走らせていた。いまは Cargo.toml のクレート名で選ぶ。
+
 ## 注意・未対応
 - `scripts/run-rust-test.sh` は、`RX_CPU` が無ければ `-C target-cpu=rxv1` でビルドして QEMU の rx62n で走らせる
   （qemu-demo も .cargo/config.toml で rxv1 を指定）。`RX_CPU=rxv2|rxv3|rxv3e` なら、その CPU 向けにビルドして

@@ -289,6 +289,7 @@ llvm-mc（`-mcpu=rxv3e`）でアセンブルする。
 | fpu.ll（-O0〜-O3） | 3110 | 3110 | 3110 | 3110 |
 | dfpu.ll（-O0〜-O3） | — | — | 4000 | 4000 |
 | core-smoke（release / dev） | 233 | 233 | 233 | 233 |
+| variadic-smoke（release / dev、2026-11-09 に追加） | 379 | 379 | 379 | 379 |
 | qemu-demo | 8 | 8 | 8 | 8 |
 | isr-save | 19 | 22 | 29 | 34 |
 
