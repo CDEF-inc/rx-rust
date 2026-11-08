@@ -33,7 +33,9 @@ export PATH=$G:$PATH
   --target-dir "$target_dir")
 
 dir=$target_dir/rx-none-elf/$([ "$profile" = dev ] && echo debug || echo "$profile")
-lib=$(ls "$dir"/lib*.a | head -1)
+# The crates share the target directory: pick this crate's library.
+name=$(sed -n 's/^name = "\(.*\)"/\1/p' "$crate/Cargo.toml" | head -1)
+lib=$dir/lib${name//-/_}.a
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
