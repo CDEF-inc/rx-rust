@@ -14,6 +14,14 @@ LLDB で RX のプログラム（Rust、C）をデバッグする。QEMU の gdb
     - 汎用番号: sp = r0、fp = r6、flags = psw、引数 = r1〜r4。
   - **関数入口と既定のアンワインド:** CFA = r0 + 4、PC は [CFA − 4]（呼び出しが戻り番地を積む）。
     実際のフレームはコンパイラの `.debug_frame` で解く。
+- `EmulateInstructionRX`（`lldb/source/Plugins/Instruction/RX`、#85）: CFI のない関数のプロローグを命令の
+  エミュレーションで解く（`UnwindAssemblyInstEmulation` が使う）。
+  - 扱う命令: push.l / pushm / pop / popm / pushc / popc、SP の add / sub、フレームポインタ（`add #-n, r0, r6`、
+    `mov.l r0, r6`、`mov.l r6, r0`）、分岐。
+  - 分岐を扱うのは、関数の途中の rts / rtsd の後ろのブロックに、そこへ飛ぶ分岐の状態を渡すため。
+  - `UnwindAssemblyInstEmulation` は、関数の入口で CFA のレジスタが CFA そのものだと仮定していた。RX では
+    CFA = SP + 4 なので、入口の行のオフセットだけ下から始めるように直した（他のターゲットではオフセットが 0）。
+  - テスト: `RXInstEmulationTests`（lldb/unittests/UnwindAssembly/RX）と check-lldb-c.sh の `DEBUG=0`。
   - **呼び出し先保存:** r0 と r6〜r13。
   - **戻り値（`finish`、#84）:**
     - 8 バイト以下のスカラー（整数、ポインタ、soft-float の float / double）は r1（上位は r2）。
@@ -177,6 +185,16 @@ Rust のライブラリを dev でビルドし、run-rust-test.sh と同じく�
 
 run-all-tests.sh は、build/lldb があれば、check-lldb.sh（dev、release、rxv3）、check-lldb-c.sh（-O0、-O2）と
 lit テストを実行する。
+
+`DEBUG=0` は C を `-g` なしでビルドする。C の関数には CFI も DWARF もないので、LLDB は
+`EmulateInstructionRX` でプロローグを解いて遡る（#85、2026-11-09、`OPT=2`）:
+
+- **Rust から、CFI のない C の `main` へ:** `rs_s3` → `_main + 535` → `_start + 10` で終わる。
+  エミュレータのない LLDB では、`_main` の次がでたらめな番地（`0x0001092c`）になっていた。
+- **CFI のない C の関数の中から:** `_c_struct_mix` の `push.l r7; sub #4, r0` の後で止めると、
+  `rs_call_c`（Rust）→ `_main` → `_start` と遡り、`finish` で `rs_call_c` に戻る。
+- DWARF がないので、C の関数名はシンボルの名前（`_` 付き）で出る。ブレークポイントも `-n _c_struct_mix` で
+  置き、入口で止まる（プロローグを飛ばさない）。
 
 まだ試していないもの（#87）:
 
