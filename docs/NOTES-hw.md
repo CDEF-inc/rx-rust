@@ -106,6 +106,24 @@ RX72M との違い:
 - 一度、`FFWRXCmd_AuthKey` の JTAG 通信エラーで接続できなくなった（JTAG クロックを下げても同じ）。SW6 を Pin1 ON / Pin2 OFF にして
   J27 を抜き差しすると戻った。どちらが効いたかは切り分けていない。
 
+## EK-RX74M（RXv3e、RX74N の上位）
+
+2026-11-08 に EK-RX74M（R5K574MCB4AE、ボードのマニュアル R20UT5609EG0100、マイコンのハードウェアマニュアル
+R01UH1055EJ0110）をつないだ。
+
+- RX74M は RX74N に EtherCAT（ESC と DC 系）と Δ-Σ インタフェース（DSMIF0 / 1）を足したもの。e² studio の sfrx で
+  比べると、RX74N のレジスタ 33,261 個はすべて RX74M の同じアドレスにある（RX74M は 50,839 個）。
+- ボードも EK-RX74N とほぼ同じ: 24 MHz の水晶、ユーザー LED は PF05 / P807 / P604（青 / 緑 / 赤）、ユーザースイッチ、
+  J27 の USB シリアル（FT234XD、RSCI12 = P114 / P115）、J9 の 14 ピン（外部の E2 Lite、SW6 は Pin1 ON / Pin2 OFF）。
+  ボード上の EEPROM は EtherCAT 用（U13、CATI2CDATA-A / CATI2CCLK-A = P103 / P102）。
+- e2-server-gdb にはデバイス R5K574MC を渡す（`HW_BOARD=rx74m`、ほかの設定は RX74N と同じ）。E2 Lite でそのまま
+  つながった（RX FSP のパックで RX74MGr のサポートファイルも入っている）。
+- RX74N 向けにビルドしたテストがそのまま動く。`HW_BOARD=rx74m` の hw-build.sh は RX74N と同じものを作り、
+  hw-run.sh は build/hw-rx74n を走らせる。2026-11-08 に insns、rom、codegen、rust、rt の 73 本がすべて通った
+  （rx74n-pac、rx74n-hal の GPIO・クロック（480 / 600 MHz）・SPI・PWM・ADC を含む）。rx74n-pac / rx74n-hal は
+  RX74M でも使える（ESC と DSMIF は扱わない）。
+- RX74M にはデュアルコアの品種（R5K574MC_DUAL）もあるが、EK-RX74M はシングルコアとして扱っている。
+
 ## e2-server-gdb の使い方で分かったこと
 
 GDB は使わず、Python から直接リモートプロトコルを話す。e² studio と同じ手順でないと CPU が走らない。

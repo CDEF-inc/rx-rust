@@ -1,6 +1,7 @@
 #!/bin/bash
 # Runs the tests built by hw-build.sh on an AP-RX72M-0A board, or with
-# HW_BOARD=rx74n on an EK-RX74N, through an E2 Lite. Runs on Windows (Git Bash), with e2 studio installed: starts
+# HW_BOARD=rx74n on an EK-RX74N, or HW_BOARD=rx74m on an EK-RX74M (the RX74N
+# tests, build/hw-rx74n), through an E2 Lite. Runs on Windows (Git Bash), with e2 studio installed: starts
 # e2 studio's e2-server-gdb, runs scripts/hw/run.py on the ELFs and stops
 # the server.
 #
@@ -22,7 +23,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 elfs=("$@")
 if [ ${#elfs[@]} -eq 0 ]; then
   dir=$root/build/hw
-  [ "$board" = rx72m ] || dir=$dir-$board
+  [ "$board" = rx72m ] || dir=$dir-${board/rx74m/rx74n}
   for g in insns rom codegen rust rt; do
     for f in "$dir/$g"/*.elf; do [ -f "$f" ] && elfs+=("$f"); done
   done
