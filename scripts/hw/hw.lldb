@@ -1,0 +1,7 @@
+# LLDB commands for debugging on the board (scripts/hw-lldb.sh):
+#   lldb ELF -s scripts/hw/hw.lldb -o hw-connect
+# hw-connect waits for the bridge. For the next session, `kill` and
+# hw-connect again: the bridge loads the ELF again and resets the board.
+# After rebuilding the ELF, LLDB must read it again too: `target delete`,
+# `target create ELF`, then hw-connect (LLDB keeps a target's symbols).
+command alias hw-connect process connect --plugin gdb-remote listen://127.0.0.1:61235

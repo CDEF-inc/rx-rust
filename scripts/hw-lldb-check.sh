@@ -5,7 +5,8 @@
 # Rust frames, arguments, rustc's Rust formatters (when LLDB has Python),
 # the unwinding from an interrupt handler into code that ran in user mode,
 # a single step into `int #64` (the bridge runs it to the handler, #98),
-# and an interrupt (^C) of the running program.
+# an interrupt (^C) of the running program, and the next sessions after
+# `kill` (the bridge loads the ELF again) and after `detach` (#86).
 #
 #   hw-lldb-check.sh [ELF]   default: build/hw/lldb/lldb-demo.elf (hw-build.sh
 #                            lldb), or build/hw-rx74n/lldb/lldb-demo.elf
@@ -86,7 +87,26 @@ script import time; time.sleep(2)
 script lldb.debugger.SetAsync(False)
 process status
 EOF
-echo kill >> "$tmp/cmds"
+# Session 2 (#86): after `kill` the bridge loads the ELF again and resets,
+# and the breakpoint hits again. Session 3: after `detach` the program
+# runs on (into the user-mode loop), and connecting stops it. The markers
+# split the output by session (`platform shell` runs on this side).
+cat >> "$tmp/cmds" << EOF
+kill
+platform shell echo @@session2
+process connect --plugin gdb-remote listen://127.0.0.1:$port
+bt
+breakpoint set -n scale
+continue
+bt
+breakpoint delete -f
+process detach
+platform shell sleep 2
+platform shell echo @@session3
+process connect --plugin gdb-remote listen://127.0.0.1:$port
+bt
+kill
+EOF
 # LLDB waits for the bridge; the bridge (hw-lldb.sh) connects to it.
 cp "$tmp/cmds" "$root/$run.cmds"
 cat > "$root/$run.run" << EOF
@@ -97,19 +117,22 @@ EOF
 wsl bash "$wroot/$run.run" > "$tmp/out" 2>&1 &
 lldb=$!
 sleep 3
-LLDB_PORT=$port bash "$root/scripts/hw-lldb.sh" "$elf" > "$tmp/bridge" 2>&1
+LLDB_PORT=$port bash "$root/scripts/hw-lldb.sh" --sessions 3 "$elf" > "$tmp/bridge" 2>&1
 wait $lldb
 rc=$?
 log=$root/$run.log
 cat "$tmp/out" > "$log"
+awk -v d="$tmp" 'BEGIN {f = d "/s1"} /^@@session[0-9]$/ {f = d "/s" substr($0, 10)} {print > f}' "$tmp/out"
+touch "$tmp/s1" "$tmp/s2" "$tmp/s3"
 
 status=0
 # timeout(1): 124, or 137 after -k's KILL.
 case $rc in
   124|137) echo "FAIL  LLDB timed out"; status=1 ;;
 esac
+# expect NAME PATTERN [SESSION]   (default: the first session)
 expect() {
-  if grep -q -E -- "$2" "$tmp/out"; then echo "ok    $1"
+  if grep -q -E -- "$2" "$tmp/s${3:-1}"; then echo "ok    $1"
   else echo "FAIL  $1: no /$2/"; status=1; fi
 }
 expect "connected"                   'frame #0: 0x[0-9a-f]+ lldb-demo.elf`_rx_reset'
@@ -138,6 +161,12 @@ expect "step into int #64: handler"  'frame #0: 0x[0-9a-f]+ lldb-demo.elf`_rx_ve
 expect "step into int #64: caller"   'frame #1: 0x[0-9a-f]+ lldb-demo.elf`_lldb_user_loop \+ 14'
 [ $python = yes ] &&
   expect "^C"                        'stop reason = signal SIGINT'
+expect "again: the reset vector"     'frame #0: 0x[0-9a-f]+ lldb-demo.elf`_rx_reset' 2
+# (The formatters, if loaded in session 1, are still loaded.)
+expect "again: breakpoint"           'frame #0: 0x[0-9a-f]+ lldb-demo.elf`lldb_demo::scale\(p=(\(x = 5, y = -2\)|\{x:5, y:-2\}), k=3\) at main\.rs:27' 2
+expect "again: detached"             'Process [0-9]+ detached' 2
+expect "after detach: stopped"       'stop reason = signal SIGINT' 3
+expect "after detach: user loop"     'frame #[0-9]: 0x[0-9a-f]+ lldb-demo.elf`_lldb_user_loop' 3
 if grep -q -E 'Assertion|Stack dump|PLEASE submit' "$tmp/out"; then
   echo "FAIL  LLDB crashed"; status=1
 else
