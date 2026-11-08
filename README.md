@@ -214,6 +214,8 @@ scripts/run-qemu-test.sh cmt rx62n rxv3             # compare match timer (a per
 RX_CPU=rxv2 scripts/run-codegen-test.sh test/codegen/atomic.ll test/codegen/atomic_main.c
 scripts/check-lld.sh                         # lld and GNU ld link the codegen tests alike
 scripts/check-lldb.sh                        # LLDB on test/rust/lldb-demo, through QEMU's gdbstub
+PROFILE=release RX_CPU=rxv3 scripts/check-lldb.sh   # optimized, RXv3 code
+OPT=2 scripts/check-lldb-c.sh                # LLDB on core-smoke: GCC's C (-g) with Rust
 # the tests link with lld (rustc's rust-lld, build/llvm's ld.lld); with GNU ld:
 RX_LD=$PWD/gnu/install/bin/rx-elf-ld scripts/run-codegen-test.sh test/codegen/i32.ll test/codegen/main.c
 RX_CPU=rx62n RUST_EXTRA_FLAGS="-C linker=$PWD/gnu/install/bin/rx-elf-ld" scripts/run-rust-rom.sh

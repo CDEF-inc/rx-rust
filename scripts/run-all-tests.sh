@@ -100,10 +100,15 @@ run "check-fp" bash "$S/check-fp.sh"
 run "check-lld" bash "$S/check-lld.sh"
 run "lld lit" "$root/build/llvm/bin/llvm-lit" -q \
   "$root"/rust/src/llvm-project/lld/test/ELF/rx-*
-# LLDB (build/lldb, from scripts/build-lldb.sh; skipped without it): a debug
-# session on QEMU, and the RX lit test.
+# LLDB (build/lldb, from scripts/build-lldb.sh; skipped without it): debug
+# sessions on QEMU (Rust dev and release, RXv3 code, GCC's C with Rust),
+# and the RX lit test.
 if [ -x "$root/build/lldb/bin/lldb" ]; then
   run "check-lldb" bash "$S/check-lldb.sh"
+  run "check-lldb release" env PROFILE=release bash "$S/check-lldb.sh"
+  run "check-lldb rxv3" env RX_CPU=rxv3 bash "$S/check-lldb.sh"
+  run -g lldb-c "check-lldb-c -O0" env OPT=0 bash "$S/check-lldb-c.sh"
+  run -g lldb-c "check-lldb-c -O2" env OPT=2 bash "$S/check-lldb-c.sh"
   run "lldb lit" "$root/build/lldb/bin/llvm-lit" -q \
     "$root"/rust/src/llvm-project/lldb/test/Shell/Disassemble/TestDisassembleRX.test \
     "$root"/rust/src/llvm-project/clang/test/Preprocessor/init-rx.c \

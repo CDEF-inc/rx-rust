@@ -81,9 +81,57 @@ lldb ELF -o 'gdb-remote 1234'
 - レジスタと逆アセンブル;
 - ウォッチポイント、グローバル変数。
 
-run-all-tests.sh は、build/lldb があればこれと lit テストも実行する。
-release（opt-level "s"）では引数や局所変数が最適化で消える。
 LLDB には Rust のプラグインがないので、型は C の名前で出る（`unsigned int` など）。
+
+`RX_CPU=rxv2|rxv3|rxv3e` で、その CPU 向けにビルドして CDEF-inc/qemu の同じコアで動かす（`scripts/cpu.sh`）。
+4 つのコアすべてで同じ結果になる（2026-11-09）。ただし、QEMU の gdbstub には DFPU のレジスタがない（#81）。
+そのため、DR レジスタに置かれた f64 の変数はまだ試していない。
+
+`PROFILE=release`（opt-level "s"）は、最適化の後に残るものだけを短いセッションで確かめる:
+
+- バックトレースは dev と同じく `_rx_reset` まで遡れる。ただし `outer` の引数は
+  `a=<unavailable>, b=<unavailable>` になる。`a + b` を計算した後は、DWARF の位置リストが途切れているため。
+- `finish` で戻った先は、インライン展開された `<u32>::wrapping_add` の中である。LLDB はそれを
+  `[inlined]` の付いた別のフレームとして出し、その引数（`self=9, rhs=5`）も出す。
+- `rets.rs` の関数のうち、`ret_pair16`、`ret_reordered`、`ret_pair_u8_u16`、`ret_s8` は、`#[inline(never)]` なのに
+  呼び出し元（`run`）の中に展開されて残らない。DWARF にもその関数がないので、名前でブレークできない。
+  そのため、release のセッションは `ret_s2`、`ret_u64`、`ret_f64` だけで `finish` する。
+
+### GCC の C（`scripts/check-lldb-c.sh`）
+
+test/rust/core-smoke の main.c を GCC（`-g -O0` または `-O2`、`-mcpu=rx600 -m64bit-doubles`）で、
+Rust のライブラリを dev でビルドし、run-rust-test.sh と同じくリンクして、QEMU で動かす。
+`OPT=0|2` で GCC の最適化を選ぶ。次を確かめる:
+
+- **言語をまたぐバックトレース:** C の関数（`c_struct_mix`）→ それを呼ぶ Rust（`rs_call_c`）→ C の `main` →
+  `_start`。`_start`（rx-start.s）には CFI がないが、そこでバックトレースは終わる。
+- **C から呼ばれた Rust の関数（`rs_s3`）:** 3 バイトの構造体の引数を表示でき、C の呼び出し元での `finish`
+  の戻り値が出る。
+- **GCC の DWARF:** レジスタ番号は LLVM と同じ（r1〜r4 の引数、r2:r3 の構造体、r1 の戻り値が正しく出る）。
+  GCC の `.debug_frame`（CIE バージョン 3）でも遡れる。
+- **C の ABI の `finish`:** int（r1）と double（r1:r2）。
+
+わかっている問題が 2 つある。どちらもテストでは避けていて、直ってはいない:
+
+- **`-O0`: 1 行に書いた関数でブレークすると、プロローグの前で止まる。** たとえば
+  `double c_double(double x) { return x * 0.5; }` である。行番号表に、プロローグの後の行が別にないので、
+  LLDB はプロローグを飛ばせない。そこではまだ引数がスタックに書かれていないので、`x` はでたらめな値になる。
+  避けるには、`next` か `si` でプロローグを越えてから見る。GDB は命令を解析してプロローグを飛ばす。
+- **`-O2`: スタックで渡された構造体の引数の場所を、GCC が誤って出す。** たとえば `c_struct_mix` の `a`
+  （3 バイト）である。
+  - GCC は場所を `DW_OP_breg7`（r7 + 0）と書く。r7 は GCC の rx の引数ポインタ（`ARG_POINTER_REGNUM`）で、
+    コードでは SP に置き換わっているが、デバッグ情報だけ置き換わっていない。
+  - そのため LLDB は r7 の指す番地を読んで、でたらめな値を出す。GCC 14.2 の不具合である（GDB でも同じになるはずだが、確かめていない）。
+  - レジスタで渡された引数は正しく出る。
+
+run-all-tests.sh は、build/lldb があれば、check-lldb.sh（dev、release、rxv3）、check-lldb-c.sh（-O0、-O2）と
+lit テストを実行する。
+
+まだ試していないもの（#87）:
+
+- DR レジスタに置かれた値（QEMU の gdbstub に DFPU のレジスタがない、#81）;
+- 実機での LLDB のセッションを `hw-run.sh` のように自動で回すこと;
+- LLDB の gdb-remote の API テスト（Python が要る、#83）。
 
 ## 実機（e2-server-gdb）
 
