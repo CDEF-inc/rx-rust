@@ -149,11 +149,12 @@ fn spin_us(cpuclk: u32, us: u32) {
     spin(cpuclk.div_ceil(1_000_000) * us);
 }
 
-/// A loop of `n` iterations, each at least one CPUCLK0 cycle.
-fn spin(mut n: u32) {
-    while n > 0 {
-        core::hint::spin_loop();
-        n -= 1;
+/// A loop of `n` iterations, each at least one CPUCLK0 cycle. core::hint::spin_loop is nothing on RX, so a loop of only that is
+/// removed by the optimizer; the volatile read keeps each iteration.
+fn spin(n: u32) {
+    let keep = 0u8;
+    for _ in 0..n {
+        unsafe { read_volatile(&keep) };
     }
 }
 

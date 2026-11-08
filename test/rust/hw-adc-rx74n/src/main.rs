@@ -64,10 +64,12 @@ fn wr32(a: usize, v: u32) {
 }
 
 /// Waits at least `us` microseconds at CPUCLK0 480 MHz (at least one
-/// cycle per loop; ICLK is 240 MHz, but the CPU runs at CPUCLK0).
+/// cycle per loop; ICLK is 240 MHz, but the CPU runs at CPUCLK0). The
+/// volatile read keeps the loop (core::hint::spin_loop is nothing on RX).
 fn wait_us(us: u32) {
+    let keep = 0u8;
     for _ in 0..us * 480 {
-        core::hint::spin_loop();
+        unsafe { read_volatile(&keep) };
     }
 }
 
