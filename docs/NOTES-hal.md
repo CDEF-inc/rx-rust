@@ -121,6 +121,53 @@ SPLP2 / SPLP のループバック、4 モードの 1 MHz と 30 MHz、アイド
 75 % は 25.0 / 50.0 / 75.0 %（release）、24.9 / 49.9 / 74.9 %（dev）、100 ms に立ち上がり 100 回。100 kHz の 50 % は
 50.0 % / 48.7 %、10 ms に 1000 回。初めの 1 回ですべて通った。
 
+- `adc`: `Adc::adc16h(p.adc_b, &clocks)`。16 ビット A/D 変換器 ADC16H（PAC では ADC_B、MSTPCRD.MSTPD21）の
+  ユニット 0 を SAR モードで 1 回ずつ変換する。RX72M の S12AD とは別物（ハードウェアマニュアル 60 章、14000 行）:
+  - 変換クロック ADCLK は 25〜60 MHz で、PCLKA が 120 MHz 以上だと PCLKA を源にできない（表 67.52 の注 2）。
+    クロック発生回路の ADCCLK（ADCCKCR / ADCCKDIVCR、PRCR_S.PRC0、9 章の切り替え手順: ADCCKSREQ → ADCCKSRDY を
+    待つ → 分周と源 → ADCCKSREQ を戻す → ADCCKSRDY が消えるのを待つ）を PLL1P の 60 MHz 以下になる最小の分周
+    （1、2、4、6、8、10、16、32）にし、ADCLKCR = 0（ADCCLK / 1）、ADCLKENR、ADCLKSR を待つ。PLL1 480 MHz で /8、
+    600 MHz で /10、どちらも 60 MHz。PLL1 が止まっていれば panic。
+  - 変換の前に自己キャリブレーションが要る（表 60.18）。使わないユニット 1・2 は ADUSLPCR1 / 2 でスリープにして
+    （スリープのユニットはキャリブレーションしない）、ユニット 0 を ADCALSTR = 3（内部回路、ゲインとオフセット）で
+    キャリブレーションし、ADCALENDSR を待って ADERSR.ADERF0 を見る（エラーなら panic）。ADCALSTCR.CALADCST は
+    ADCNVSTR と同じ値にする。
+  - 変換は「アナログチャネル → 仮想チャネル（ADCHCRn）→ スキャングループ → ユニット」の表を通す。読むたびに
+    スキャングループ 0（ユニット 0、SAR シングルスキャン、ADSGCR0 と ADMDR はリセット値）の仮想チャネル 0 を
+    変換したいものにし、ADSTR0 で起動して ADSCANENDSR を待つ。結果は AN 端子なら ADDRn（アナログチャネルの番号）、
+    内部の信号源なら ADEXDRn（n = CNVCS − 60h）で、bit 31 の ERR は `ConversionError` にする。
+  - SAR の結果は 12 ビット（それ以上は保証されない）なので、ADDOPCRC で 12 ビットの符号なし（ADPRC = 10b、
+    SIGNSEL = 1。SAR では自己診断以外 SIGNSEL = 1 にする決まり）にする。リセット値のサンプリング（2 ステート）、
+    逐次変換時間（ADCNVSTR、3 ステート）、SIGNSEL（0）はどれも SAR では使えない。逐次変換時間は 100 ns 以上
+    （表 67.116: 100〜200 ns、60 MHz で 6）、サンプリングテーブル 0（AN 端子と自己診断）は 1 us、テーブル 1（内部の
+    信号源: 4.15 us 以上、D/A の出力は 2 us 以上）は 5 us。`set_sampling_states` でテーブル 0 を変えられる
+    （1 ADCLK + 40 ns 未満と 1023 超は panic）。
+  - `self_diagnosis(DiagVoltage::Zero / Negative / Positive)`: CNVCS 60h を差動・16 ビット符号付きで変換し、
+    ADSGDCR0.DIAGVAL（100b / 101b / 110b）の理想値は 0000h / 8000h / 7FFFh。
+  - `read_internal_reference()`: ADREFCR.VDE、CNVCS 65h（0.77〜0.84 V）。`read_da(n)`: D/A 変換器 n の内部出力
+    （CNVCS 68h / 69h、DACR0.DAOUTDIS = 1 で動かしておく）。D/A のドライバはまだなく、テストがレジスタを直接書く。
+  - `TemperatureSensor::new(p.temps)`（MSTPCRD.MSTPD22）: 図 62.3 の手順（TSCR.TSEN、30 us、TSOE、CNVCS 64h）。
+    校正値は TSCDR（Tj = 125 °C）と TSCDR2（−40 °C、どちらも AVCC0 = 3.3 V での 12 ビットの値）の 2 点で、
+    `read_millicelsius` はその 2 点を結ぶ直線で温度にする（傾きの符号や典型値を使わない）。
+  - `gpio` に `into_analog()`（PmnPFS.ASEL = bit 15）を足した。ADC が使う P400〜P407（AN000〜AN007、
+    `AnalogCapable`）だけにあり、ほかのモードへの変更は ASEL を消す。ユニット 1・2 の AN008〜AN035 はまだ使えない。
+  - ビジーループの待ち（立ち上がりの 2 us、温度センサの 30 us、スキャンの終わりから次の起動までの 6 PCLKA）は CPU の
+    クロック CPUCLK0 から回数を決める。RX74N では CPU は ICLK ではなく CPUCLK0 で動く（480 MHz の設定で ICLK の 2 倍、
+    分周しだいでもっと）ので、ICLK で数えると待ちが足りない（rx-rust#131 のレビューで指摘された）。
+  - レジスタはセキュア側のアドレス（8743_8000h〜）で扱う。マニュアルの要約はサブエージェントに作らせ、
+    アドレスとビットは行番号つきで照合した（表 60.62 の手順 3 は ADSYCR.ADSYDISm の 1 / 0 が逆に書かれている）。
+
+確認: test/rust/hw-adc-rx74n（rt グループ、19 チェック、release / dev とも通る。2026-11-08、初めの 1 回で通った）。
+配線なしで確かめる。PLL1 480 MHz、ADCLK 60 MHz。
+- ADCCKCR = 05h、ADCCKDIVCR = 04h、MSTPD21、ユニット 1・2 のスリープ、ADCLKSR、ADCNVSTR = 06_0606h、
+  ADSSTR0 = 300 / 60、キャリブレーションのエラーなし。
+- 自己診断: 0001h / 8009h / 7FFFh（dev の 0 は FFFDh = −3）。
+- 内部基準電圧: 992（VREFH0 = 3.3 V として 0.799 V、典型 0.80 V）。
+- 温度センサ: TSCDR = 1382、TSCDR2 = 830（傾き 3.35 カウント / °C = 2.70 mV/°C、表 67.130 の典型 2.7）、変換値
+  1051 で 26.1 °C。
+- DA0 の内部出力を 400h / 800h / C00h にすると 400h / 800h / C00h（dev は 801h / C01h）。
+- P400 の `into_analog`（ASEL、PMR / PDR / PCR = 0）と `read`、`set_sampling_states(120)`、`into_input` で ASEL が消える。
+
 確認: test/rust/hw-hal-rx74n（rt グループ、10 チェック、release / dev とも通る。LED が順に光る）。
 test/rust/hw-clock-rx74n（rt グループ、20 チェック、480 MHz と `--cfg clock600` の 600 MHz、release / dev とも通る）は
 設定後のレジスタに加えて、CAC でクロックを測る。メインクロック対 MOCO / 8192 は 23580（MOCO が 4% 速い）、

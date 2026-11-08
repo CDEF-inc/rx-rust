@@ -9,14 +9,17 @@
 //! - [`serial`]: RSCI12 as a UART (`embedded-io` `Read` / `Write`).
 //! - [`spi`]: RSPIA0 as an SPI master (`SpiBus`).
 //! - [`pwm`]: GPTW8 PWM on PF05 (the LED LED1) as `SetDutyCycle`.
+//! - [`adc`]: the 16-bit A/D converter (unit 0, SAR) and the temperature
+//!   sensor.
 //!
 //! Everything runs in the root world, as a reset leaves it (a Flat-Project
 //! in the hardware manual's terms), and uses the registers' secure
 //! addresses. Register access goes through [`pac`] (rx74n-pac, generated
 //! from e2 studio's RX74N.sfrx) where its types fit, and directly by address
-//! for the uniform port registers, RSPIA0 and GPTW8. Read-modify-write of
-//! shared registers runs in a critical section; the application provides
-//! the implementation (rx-rt's `critical-section` feature).
+//! for the uniform port registers, RSPIA0, GPTW8 and ADC16H.
+//! Read-modify-write of shared registers runs in a critical section; the
+//! application provides the implementation (rx-rt's `critical-section`
+//! feature).
 
 #![no_std]
 
@@ -24,6 +27,7 @@ pub use embedded_hal;
 pub use embedded_io;
 pub use rx74n_pac as pac;
 
+pub mod adc;
 pub mod clock;
 pub mod delay;
 pub mod gpio;

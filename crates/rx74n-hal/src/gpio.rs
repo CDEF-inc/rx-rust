@@ -29,6 +29,7 @@ const PWPR_S: *mut u8 = 0x87c0_0d14_usize as _;
 const PFS_PODR: u32 = 1 << 0;
 const PFS_PDR: u32 = 1 << 2;
 const PFS_PCR: u32 = 1 << 4;
+const PFS_ASEL: u32 = 1 << 15;
 const PFS_PMR: u32 = 1 << 16;
 const PFS_PSEL_SHIFT: u32 = 24;
 const PFS_PSEL: u32 = 0x7f << PFS_PSEL_SHIFT;
@@ -41,6 +42,13 @@ pub struct PullUpInput;
 pub struct Output;
 /// A peripheral function (PMR = 1, the function chosen by PSEL).
 pub struct Function;
+/// An analog input (PMR = 0, PDR = 0, PCR = 0, ASEL = 1). The pin is not
+/// read through PIDR then.
+pub struct Analog;
+
+/// Implemented (for `()`) for the pins whose analog input the drivers in
+/// this crate use: P400-P407 (AN000-AN007, the A/D converter's unit 0).
+pub trait AnalogCapable<const P: usize, const N: u8> {}
 
 /// Pin `N` of port `P` (port numbers as in the register addresses: 0-9,
 /// 0x0A-0x10 for A-G).
@@ -81,7 +89,7 @@ impl<const P: usize, const N: u8, MODE> Pin<P, N, MODE> {
     /// Push-pull output, starting at `high`.
     pub fn into_output(self, high: bool) -> Pin<P, N, Output> {
         update_pfs(P, N, |v| {
-            let v = v & !(PFS_PMR | PFS_PCR | PFS_PODR);
+            let v = v & !(PFS_PMR | PFS_PCR | PFS_PODR | PFS_ASEL);
             v | PFS_PDR | if high { PFS_PODR } else { 0 }
         });
         Pin::new()
@@ -94,13 +102,13 @@ impl<const P: usize, const N: u8, MODE> Pin<P, N, MODE> {
 
     /// Input without the pull-up.
     pub fn into_input(self) -> Pin<P, N, Input> {
-        update_pfs(P, N, |v| v & !(PFS_PMR | PFS_PDR | PFS_PCR));
+        update_pfs(P, N, |v| v & !(PFS_PMR | PFS_PDR | PFS_PCR | PFS_ASEL));
         Pin::new()
     }
 
     /// Input with the internal pull-up.
     pub fn into_pull_up_input(self) -> Pin<P, N, PullUpInput> {
-        update_pfs(P, N, |v| v & !(PFS_PMR | PFS_PDR) | PFS_PCR);
+        update_pfs(P, N, |v| v & !(PFS_PMR | PFS_PDR | PFS_ASEL) | PFS_PCR);
         Pin::new()
     }
 
@@ -109,9 +117,23 @@ impl<const P: usize, const N: u8, MODE> Pin<P, N, MODE> {
     /// in this crate set their own pins.
     pub fn into_function(self, psel: u8) -> Pin<P, N, Function> {
         assert!(psel < 128);
-        update_pfs(P, N, |v| v & !PFS_PMR);
+        update_pfs(P, N, |v| v & !(PFS_PMR | PFS_ASEL));
         update_pfs(P, N, |v| v & !PFS_PSEL | (psel as u32) << PFS_PSEL_SHIFT);
         update_pfs(P, N, |v| v | PFS_PMR);
+        Pin::new()
+    }
+}
+
+impl<const P: usize, const N: u8, MODE> Pin<P, N, MODE>
+where
+    (): AnalogCapable<P, N>,
+{
+    /// An analog input: PMR = 0, PDR = 0, PCR = 0, then ASEL = 1, as the I/O
+    /// ports chapter asks for analog pins. The other mode changes clear
+    /// ASEL again.
+    pub fn into_analog(self) -> Pin<P, N, Analog> {
+        update_pfs(P, N, |v| v & !(PFS_PMR | PFS_PDR | PFS_PCR));
+        update_pfs(P, N, |v| v | PFS_ASEL);
         Pin::new()
     }
 }
@@ -398,3 +420,13 @@ parts! {
     pg14: 0x10, 14;
     pg15: 0x10, 15;
 }
+
+// AN000-AN007
+impl AnalogCapable<0x04, 0> for () {}
+impl AnalogCapable<0x04, 1> for () {}
+impl AnalogCapable<0x04, 2> for () {}
+impl AnalogCapable<0x04, 3> for () {}
+impl AnalogCapable<0x04, 4> for () {}
+impl AnalogCapable<0x04, 5> for () {}
+impl AnalogCapable<0x04, 6> for () {}
+impl AnalogCapable<0x04, 7> for () {}
