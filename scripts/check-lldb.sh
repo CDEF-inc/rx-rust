@@ -89,6 +89,10 @@ else
     "continue" "finish" "continue" "finish"
     "continue" "thread return 7" "register read r1"
     "continue" "finish" "continue" "finish" "continue" "finish"
+    "breakpoint set -n seen" "continue" "up" "frame variable"
+    'frame variable some.$variants$.$variant$1.value.__0'
+    "frame variable -Z 2 slice.data_ptr" "frame variable *point_ref"
+    "frame variable *add_k._ref__k"
     "expr lldb_demo::outer(1, 2)"
   )
 fi
@@ -162,6 +166,27 @@ expect "thread return"               'r1 = 0x00000007'
 expect "expression"                  '\(int\) \$[0-9]+ = 4'
 expect "expression on a struct field" '\(int\) \$[0-9]+ = 10'
 expect "a call: a clean error"       "error: Can't evaluate the expression"
+# types.rs (#83): what the C type system makes of Rust's types. Enums
+# with data show every variant and the discriminant; `frame variable`
+# reaches into them (`expr` does not: clang asserts, on any target).
+expect "C-like enum"                 '\(lldb_demo::types::Color\) color = Green'
+expect "Option<u32>"                 '\(core::option::Option<u32>\) some = \{'
+expect "Option<u32>: the Some value" '\(unsigned int\) some\.\$variants\$\.\$variant\$1\.value\.__0 = 7'
+expect "Result<u32, i8>"             '\(core::result::Result<u32, i8>\) err = \{'
+expect "enum with data: a variant"   'value = \(w = .\\x04., h = .\\t.\)'
+expect "&str"                        '\(&str\) name = \(data_ptr = "rx-rust", length = 7\)'
+expect "slice"                       '\(&\[u16\]\) slice = \{'
+expect "slice: elements"             '\(unsigned short \*\) slice\.data_ptr = 0x[0-9a-f]+ \{'
+expect "slice: an element"           '\[1\] = 30'
+expect "u8 array"                    '\(unsigned char\[4\]\) bytes = "RX72"'
+expect "reference"                   '\(lldb_demo::Point \*\) point_ref = 0x[0-9a-f]+'
+expect "reference: the value"        '\(lldb_demo::Point\) \*point_ref = \(x = 11, y = -12\)'
+expect "generic struct"              '\(lldb_demo::types::Wrapper<short>\) wrapped = \(inner = -5, tag = .\\x02.\)'
+expect "char"                        '\(char32_t\) ch = U\+03BB'
+expect "bool"                        '\(bool\) flag = true'
+expect "tuple"                       '\(\(u8, i32\)\) tuple = \(__0 = .\\x01., __1 = -1\)'
+expect "closure"                     '\(lldb_demo::types::run::\{closure_env#0\}\) add_k = \{'
+expect "closure: a capture"          '\(unsigned int\) \*add_k\._ref__k = 3'
 fi
 # build-lldb.sh links libxml2, so LLDB reads QEMU's target.xml (#82).
 if grep -q 'does not have XML parsing enabled' "$tmp/out"; then

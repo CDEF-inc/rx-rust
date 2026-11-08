@@ -79,9 +79,34 @@ lldb ELF -o 'gdb-remote 1234'
   (u16, u16)、(u8, u16)、`Option<u32>`、u64、f64。
   12 バイトの構造体（メモリ経由）では値が出ないこと。`thread return 7` で r1 = 7;
 - レジスタと逆アセンブル;
-- ウォッチポイント、グローバル変数。
+- ウォッチポイント、グローバル変数;
+- `src/types.rs` の局所変数で、Rust の型がどう出るか（下の「Rust の型」）。
 
-LLDB には Rust のプラグインがないので、型は C の名前で出る（`unsigned int` など）。
+### Rust の型（#83、2026-11-09）
+
+LLDB には Rust のプラグインがない。Rust の DWARF を clang の型システム（C / C++）で読むので、次のように出る。
+`rust-lldb` の表示整形（rustc の `src/etc` の Python スクリプト）は、LLDB を Python なしでビルドしているので
+使えない。
+
+| 型 | 表示 | 読み方 |
+|---|---|---|
+| 整数、`char`、`bool` | C の名前（`unsigned int`、`short`、`char32_t`、`bool`）。`u8` / `i8` は文字（`'\x02'`） | — |
+| 構造体、タプル、ジェネリクス | `(lldb_demo::Point) point = (x = 11, y = -12)`、`((u8, i32)) tuple = (__0 = '\x01', __1 = -1)`。型引数も C の名前（`Wrapper<short>`） | — |
+| C 風の enum | `(lldb_demo::types::Color) color = Green` | — |
+| データ付きの enum（`Option`、`Result`、`Shape`） | すべての variant が `$variants$` の下に並び、それぞれに同じ `$discr$`（判別値）が付く | `$discr$` で有効な variant を選び、`frame variable some.$variants$.$variant$1.value.__0` |
+| `&str` | `(data_ptr = "rx-rust", length = 7)` | — |
+| スライス | `data_ptr` と `length` だけで、要素は出ない | `frame variable -Z 2 slice.data_ptr`、`parray 2 slice.data_ptr` |
+| 配列 | `([0] = 10, ...)`。`[u8; N]` は文字列（`"RX72"`） | — |
+| 参照 | ポインタ（`(lldb_demo::Point *) point_ref = 0x...`） | `frame variable *point_ref`、`point_ref->x` |
+| クロージャ | 捕まえた変数への参照（`{closure_env#0}` の `_ref__k`） | `frame variable *add_k._ref__k` |
+
+- `expr` で enum の variant の中を指すと（`expr some.$variants$.$variant$1.value.__0`）、LLDB が落ちる。clang の
+  アサーション（`missing temporary materialization conversion`）による。
+  - x86_64 の Rust のプログラムでも同じなので、RX 特有ではない。
+  - build/lldb はアサーション付きでビルドしているので、落ちる。
+  - `frame variable` は clang の式評価を通らないので、同じ式で読める。
+- Python の表示整形を使うには、LLDB を Python 付きでビルドし（`python3-dev` と swig が要る）、`src/etc` を配布物に
+  入れる必要がある。まだしていない（#83）。
 
 `RX_CPU=rxv2|rxv3|rxv3e` で、その CPU 向けにビルドして CDEF-inc/qemu の同じコアで動かす（`scripts/cpu.sh`）。
 4 つのコアすべてで同じ結果になる（2026-11-09）。ただし、QEMU の gdbstub には DFPU のレジスタがない（#81）。

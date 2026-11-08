@@ -49,6 +49,7 @@ fn main() -> ! {
         write_volatile(&raw mut finished, 1);
     }
     rets::run();
+    types::run();
     loop {
         rx_rt::interrupt::wait();
     }
@@ -61,3 +62,4 @@ fn panic(_: &PanicInfo) -> ! {
 
 // After the rest, so that the line numbers above (check-lldb.sh) stay.
 mod rets;
+mod types;
