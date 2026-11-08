@@ -77,7 +77,7 @@ if [ ! -f "$out/build.ninja" ] || [ "$0" -nt "$out/build.ninja" ]; then
     -DLLDB_ENABLE_LZMA=OFF \
     > "$out/cmake.log" 2>&1 || { tail -30 "$out/cmake.log"; exit 1; }
 fi
-# clang, lldb-test and the LLVM test tools are for the lit tests that
-# run-all-tests.sh runs.
-ninja -C "$out" lldb clang lldb-test FileCheck count not yaml2obj llvm-config > "$out/ninja.log" 2>&1 || { grep -E -B2 -A8 'error|FAILED' "$out/ninja.log" | head -80; exit 1; }
+# clang, lldb-test, the LLVM test tools and RXInstEmulationTests are for the
+# tests that run-all-tests.sh runs.
+ninja -C "$out" lldb clang lldb-test FileCheck count not yaml2obj llvm-config RXInstEmulationTests > "$out/ninja.log" 2>&1 || { grep -E -B2 -A8 'error|FAILED' "$out/ninja.log" | head -80; exit 1; }
 "$out/bin/lldb" --version
