@@ -43,7 +43,7 @@ first_failure、got、want）と実行時間を表示し、最後に `== N passe
 | rom | rxv2-insns（EXTB を書き換えるので RAM 版の起動処理と両立しない） | コードフラッシュ、リセットベクタから起動 |
 | codegen | test/codegen の i32、m3、struct、atomic、fpu、dfpu、mem、mulh、frame、jt（`llc -mcpu=rxv3`、-O0 と -O2）と GCC でコンパイルした C ドライバ | RAM |
 | rust | test/rust/core-smoke（`-C target-cpu=rxv3`、release と dev） | RAM |
-| rt | rx-rt のアプリケーション: test/rust/isr-save（ソフトウェア割り込みで FPSW・A0/A1・DR0/DR1・DPSW/DCMR の退避を確かめる）、test/rust/isr-bank（レジスタバンクの割り込み入口）と test/rust/hw-irq（CMT0/CMT1 の割り込み、`interrupt::free`、IPL によるマスク、多重割り込み）、test/rust/hw-pac（rx72m-pac と rx-rt の critical-section）、test/rust/hw-hal（rx72m-hal のクロックと GPIO、LED が点滅する）、test/rust/hw-uart（DelayNs、MPC、SCI2。docs/NOTES-hal.md）、test/rust/hw-spi（RSPI2 の SPI、内部ループバック）、test/rust/hw-adc（A/D 変換器の自己診断、内部基準電圧、温度センサ）。`-C target-cpu=rxv3`、release と dev | コードフラッシュ（test/hw/rx72m-memory.x）、rx-rt の `_rx_reset` からリセット起動 |
+| rt | rx-rt のアプリケーション: test/rust/isr-save（ソフトウェア割り込みで FPSW・A0/A1・DR0/DR1・DPSW/DCMR の退避を確かめる）、test/rust/isr-bank（レジスタバンクの割り込み入口）と test/rust/hw-irq（CMT0/CMT1 の割り込み、`interrupt::free`、IPL によるマスク、多重割り込み）、test/rust/hw-pac（rx72m-pac と rx-rt の critical-section）、test/rust/hw-hal（rx72m-hal のクロックと GPIO、LED が点滅する）、test/rust/hw-uart（DelayNs、MPC、SCI2。docs/NOTES-hal.md）、test/rust/hw-spi（RSPI2 の SPI、内部ループバック）、test/rust/hw-adc（A/D 変換器の自己診断、内部基準電圧、温度センサ）、test/rust/hw-pwm（MTU6 の PWM を LD2 の端子で測る）。`-C target-cpu=rxv3`、release と dev | コードフラッシュ（test/hw/rx72m-memory.x）、rx-rt の `_rx_reset` からリセット起動 |
 
 dsp-v1（RXv1 の DSP）と rxv3e-insns は RX72M の ISA と合わないので実行しない。
 
@@ -100,7 +100,7 @@ RX72M との違い:
 - `rxv3e-insns` は `ROOT_ONLY` でアセンブルし、root ワールドの部分だけを実行する（27 チェック）。`trrte` で non-secure ワールドへ移ると、
   セキュアなメモリのコードを実行できず止まる。QEMU にはこの分離がないので全部通る。
 - コード MRAM は R5K574NC で 1 MB（`0xFFF00000`〜）。RAM と同じ手順で書き込める。`test/hw/rx74n-rom.ld`、`rx74n-memory.x` の変数は On-chip RAM のセキュア側に置く。
-- 周辺のアドレスが違うので、`cmt` と rt の hw-irq、hw-hal、hw-uart、hw-spi、hw-adc、RX72M の examples は実行しない。
+- 周辺のアドレスが違うので、`cmt` と rt の hw-irq、hw-hal、hw-uart、hw-spi、hw-adc、hw-pwm、RX72M の examples は実行しない。
   hw-pac の代わりに、CMT0 の割り込みと critical-section を rx74n-pac で確かめる test/rust/hw-pac-rx74n がある（11 チェック）。
   CMI0 はベクタ 28、IPR4、IER3.IEN4 で RX72M と同じだが、CMT のモジュールストップは MSTPCRF.MSTPF15、保護は PRCR_S。
 - 一度、`FFWRXCmd_AuthKey` の JTAG 通信エラーで接続できなくなった（JTAG クロックを下げても同じ）。SW6 を Pin1 ON / Pin2 OFF にして

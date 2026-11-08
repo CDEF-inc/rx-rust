@@ -17,8 +17,8 @@
 #   rust     test/rust/core-smoke (target-cpu=rxv3,  -> build/hw/rust
 #            release / dev), in RAM
 #   rt       rx-rt applications, test/rust/isr-save,    -> build/hw/rt
-#            isr-bank, hw-irq, hw-pac, hw-hal, hw-uart, hw-spi, hw-adc, alloc-smoke,
-#            float-smoke (also with +flush-denormals: float-smoke-fd)
+#            isr-bank, hw-irq, hw-pac, hw-hal, hw-uart, hw-spi, hw-adc, hw-pwm,
+#            alloc-smoke, float-smoke (also with +flush-denormals: float-smoke-fd)
 #            (target-cpu=rxv3, release / dev), in the code flash with
 #            test/hw/rx72m-memory.x, booted from the reset vector
 #   examples examples/* (blinky, serial-echo; release), in the code  -> build/hw/examples
@@ -41,7 +41,7 @@ case $board in
   rx72m)
     out=$root/build/hw cpu=rxv3 v3e=0 ram_ld=rx72m-ram.ld rom_ld=rx72m-rom.ld
     memory_x=rx72m-memory.x
-    peripherals=(hw-irq hw-pac hw-hal hw-uart hw-spi hw-adc
+    peripherals=(hw-irq hw-pac hw-hal hw-uart hw-spi hw-adc hw-pwm
                  "hw-irq:-relax:-C target-feature=+relax")
     all=(insns rom codegen rust rt examples)
     insns=(cmt) extra_defs=() examples=(blinky serial-echo) ;;
