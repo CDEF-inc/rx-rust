@@ -85,9 +85,11 @@ def run(r, elf, seconds):
     if v["failures"]:
         first = " first=%d got=%#x want=%#x" % (
             v["first_failure"], v["got_value"], v["want_value"])
-    # hw-uart: whether CN8's RXD / TXD were found wired together
-    if "loopback" in syms:
-        first += " loopback=%d" % r.word(syms["loopback"])
+    # hw-uart / hw-spi: whether a loopback was found wired; hw-i2c-rx74n:
+    # whether the EEPROM answered
+    for k in ("loopback", "eeprom"):
+        if k in syms:
+            first += " %s=%d" % (k, r.word(syms[k]))
     print("[%s/%s] checks=%d failures=%d%s (%.1f s)"
           % (name, BOARD, v["checks"], v["failures"], first, el))
     if "faillog" in syms and v["failures"]:

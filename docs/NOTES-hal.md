@@ -116,7 +116,7 @@ SPLP2 / SPLP のループバック、4 モードの 1 MHz と 30 MHz、アイド
     GTUDDTYC.OBDTY（10b / 11b）で出す（RX72M の MTU のような TGR の工夫は要らない）。新しいデューティは GTCCRB の
     バッファの GTCCRE に書き（GTBER.CCRB = 01b）、周期の終わりに移るので半端なパルスは出ない。
 
-確認: test/rust/hw-pwm-rx74n（rt グループ、21 チェック、release / dev とも通る。2026-11-08）。PLL1 480 MHz（PCLKD
+確認: test/rust/hw-pwm-rx74n（rt グループ、22 チェック、release / dev とも通る。2026-11-08）。PLL1 480 MHz（PCLKD
 120 MHz）で、内容は RX72M の hw-pwm と同じ（PF05 を PIDR で読み、CMT0 の時間で重みを付けて測る）。1 kHz の 25 / 50 /
 75 % は 25.0 / 50.0 / 75.0 %（release）、24.9 / 49.9 / 74.9 %（dev）、100 ms に立ち上がり 100 回。100 kHz の 50 % は
 50.0 % / 48.7 %、10 ms に 1000 回。初めの 1 回ですべて通った。
@@ -156,6 +156,42 @@ SPLP2 / SPLP のループバック、4 モードの 1 MHz と 30 MHz、アイド
     分周しだいでもっと）ので、ICLK で数えると待ちが足りない（rx-rust#131 のレビューで指摘された）。
   - レジスタはセキュア側のアドレス（8743_8000h〜）で扱う。マニュアルの要約はサブエージェントに作らせ、
     アドレスとビットは行番号つきで照合した（表 60.62 の手順 3 は ADSYCR.ADSYDISm の 1 / 0 が逆に書かれている）。
+
+- `i2c`: `I2c::ri3c0(p.ri3c0, pins.p102, pins.p103, Speed::Standard, &clocks)`。RX74N / RX74M に RIIC はないので、
+  I3C バスインタフェース RI3C のチャネル 0（MSTPCRB.MSTPB4）を I2C で使う。端子は P102 = SCL00-A / P103 = SDA00-A
+  （PSEL 11h、表 22.5）。EK-RX74M ではここに EtherCAT 用の EEPROM（U13、32 kbit、アドレス 50h）とプルアップが
+  あり、EK-RX74N では空いている。embedded-hal の `I2c`（7 ビットアドレス、`transaction`）。
+  - RI3C の I3C プロトコルモードはコマンドと応答のキューで動き、その legacy I2C は Fast-mode 以上だけ。I2C プロトコル
+    モード（ICMR.OMS = 1、リセット値）は RIIC と同じくバイトごと（44.4.8）: ICCGR の ST / RS / SP、1 バイトの ICDR、
+    ICCSR の TDRE / RDRF と ICSR2 の START / STOP / NACKF / TEND / AL / TMOF をポーリングする。ICSR2 と ICCSR の
+    フラグは ICSER / ICCSER で検出を許可しないと立たない（リセット値は 0）。
+  - バスのクロックは I3CCLK。クロック発生回路の I3CCKCR / I3CCKDIVCR（PRCR_S.PRC0、ADCCLK と同じ切り替え手順）で
+    PLL1P を 60 MHz 以下にする（480 MHz で /8）。リセット値は MOCO。SCL の High / Low（ICFBR、I3CCLK / 2^CKS の
+    クロック数 + ディジタルフィルタの 2）は計算で決め、I2C の規格の最小値に余裕を持たせる: Standard は 4.1 / 6.0 us
+    （100 kHz 以下）、Fast は 0.7 / 1.8 us（400 kHz 以下）。マニュアルの表 44.4 の例は High が規格の最小値をわずかに
+    下回る。ICBFTR はバスフリー時間（4.7 / 1.3 us）、ICICR はアナログとディジタル 2 段のフィルタ、SCL が止まれば
+    ICTOR のタイムアウト（65536 クロック）で終わる。
+  - 書き込み: TDRE はバイトがシフトレジスタに移るとすぐ立つので、前のバイトの ACK を待たずに次を書く。NACK のときは
+    書いてあるバイトについて TDRE が立たない（44.5.5.2）ので、NACK を見つけた時点の TDRE で、NACK されたのが最後に
+    書いたバイトか（TDRE = 1）、その前（TDRE = 0、1 バイト目ならアドレス）かを決める。アドレスだけの書き込み（プローブ）
+    は完了のフラグがない（TEND はアドレスを除く）ので、SCL 10 周期待ってから NACKF を見る。
+  - 読み出し: ICCSCR.WAITRE で 1 バイトごとに SCL を止め、ICDR を読むと次のバイトが始まる。最後のバイトを始める
+    読み出しの前に ICACKR で NACK にし、最後のバイトを読む前に SP（または次の操作の RS）を出す。長さ 0 の読み出しは
+    1 バイト読んで捨てる。エラーのあとはマスタのままなら STOP、そうでなければ ICRCR.ISRST で状態を戻す。
+  - レジスタはセキュア側のアドレス（8745_F000h〜）で扱う。マニュアルの要約はサブエージェントに作らせた。
+  - 初めの版は、アドレスの NACK をデータの NACK と取り違え、プローブの NACK を見落とした。後者は待ちのループが
+    最適化で消えていたためで、ほかのドライバの待ちも同じだった（`core::hint::spin_loop` は RX では何もしない。
+    rx-rust#133 で直した）。
+
+確認: test/rust/hw-i2c-rx74n（rt グループ、22 チェック、release / dev とも EK-RX74M で通る。2026-11-08）。
+- 設定前の P102 / P103 は High（プルアップ）。I3CCKCR = 05h、I3CCKDIVCR = 04h、MSTPB4、ICCR.ICE、
+  ICRCCR = 1_0001h、ICFBR = 3F3F_79B2h、ICBFTR = 141、PmnPFS。
+- 応答しないアドレス 33h への書き込み・読み出し・プローブがどれもアドレスの NACK になり、そのあとバスが空く（BFREE）。
+- EEPROM（50h）が応答すれば（`eeprom=1`）: 0000h からの 16 バイト（アドレス 2 バイトの書き込み、反復スタート、読み出し）、
+  1 / 2 / 4 バイトのランダムリードとカレントアドレスリードが一致、読み出し 2 つの transaction、Fast mode で同じ 16 バイト。
+  16 バイトの読み出しは 100 kHz で 1.93 ms、400 kHz で 0.52 ms（171 ビット: それぞれ 88 kHz、330 kHz 相当）。
+- EEPROM の中身は全部 FFh（未書き込み）なので、一致の確認はデータとしては弱い。書き込みは、ボードの EtherCAT の
+  設定を書き換えないよう試していない。EK-RX74N（EEPROM なし）では `eeprom=0` で、そのチェックを飛ばす（未確認）。
 
 確認: test/rust/hw-adc-rx74n（rt グループ、19 チェック、release / dev とも通る。2026-11-08、初めの 1 回で通った）。
 配線なしで確かめる。PLL1 480 MHz、ADCLK 60 MHz。
@@ -311,7 +347,7 @@ MOSCWTCR の待ち時間が過ぎたことを示すだけで、発振してい�
     critical-section の中で書き換える。PAC の MTU のまとまりは不規則（MTU0〜2 のベースが同じなど）なので、MTU6 の
     レジスタはアドレス（000C_1A00h〜）で扱う。
 
-確認: test/rust/hw-pwm（ボード、rt グループ、21 チェック、release / dev とも通る。2026-11-08）。PJ1 を PIDR で読む
+確認: test/rust/hw-pwm（ボード、rt グループ、22 チェック、release / dev とも通る。2026-11-08）。PJ1 を PIDR で読む
 ループで測る。CMT0（PCLKB / 8 = 7.5 MHz）の 2 回の読み出しの間の時間を、先に読んだレベルの時間として足す
 （サンプルの数で数えると、dev ではループ 1 回の時間がレベルで違うためデューティが 2〜3 % 低く出た）。
 - `Timing::new`（5 通り）、MPC（PJ1PFS = 01h、PMR）、TCR = 20h、TCR2 = 1、TMDR1 = 2、TGRA = 59999、CST6。
