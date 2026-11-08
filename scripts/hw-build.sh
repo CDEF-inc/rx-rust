@@ -5,7 +5,8 @@
 # insns with rxv3e-insns and without cmt, whose registers are elsewhere
 # there, rom, codegen, rust, the rt tests isr-save, isr-bank, alloc-smoke,
 # float-smoke, hw-pac-rx74n, hw-hal-rx74n, hw-clock-rx74n (480 and 600 MHz),
-# hw-spi-rx74n, hw-pwm-rx74n and hw-adc-rx74n, and rx74n-serial-echo.
+# hw-spi-rx74n, hw-pwm-rx74n, hw-adc-rx74n and hw-i2c-rx74n, and
+# rx74n-serial-echo.
 # HW_BOARD=rx74m builds the same: the RX74M (EK-RX74M) has every RX74N
 # register at the same address and runs these tests as they are.
 #
@@ -51,7 +52,7 @@ case $board in
   rx74n)
     out=$root/build/hw-rx74n cpu=rxv3e v3e=1 ram_ld=rx74n-ram.ld rom_ld=rx74n-rom.ld
     memory_x=rx74n-memory.x peripherals=(hw-pac-rx74n hw-hal-rx74n hw-clock-rx74n hw-spi-rx74n hw-pwm-rx74n
-                 hw-adc-rx74n
+                 hw-adc-rx74n hw-i2c-rx74n
                  "hw-clock-rx74n:-600:--cfg clock600")
     all=(insns rom codegen rust rt examples)
     insns=(rxv3e-insns) extra_defs=(--defsym ROOT_ONLY=1)
@@ -96,7 +97,7 @@ defs=(--defsym V2=1 --defsym V3=1 --defsym V3E=$v3e --defsym FPU=1 --defsym DFPU
 
 # sym ELF: write the runner's symbols next to the ELF
 sym() {
-  "$G/rx-elf-nm" "$1" | grep -E ' _(start|rx_reset|done|checks|failures|first_failure|got_value|want_value|exit_code|finished|faillog|loopback)$' > "${1%.elf}.sym"
+  "$G/rx-elf-nm" "$1" | grep -E ' _(start|rx_reset|done|checks|failures|first_failure|got_value|want_value|exit_code|finished|faillog|loopback|eeprom)$' > "${1%.elf}.sym"
 }
 
 # insn_tests DIR START LDSCRIPT NAME...: instruction tests from test/qemu
