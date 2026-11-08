@@ -60,6 +60,7 @@ REGS = [("r%d" % i, i, 32) for i in range(16)] + [
     ("acc0", 0x19, 128), ("acc1", 0x1a, 128), ("extb", 0x1b, 32),
 ]
 BITS = {n: b for _, n, b in REGS}
+INTB = 0x14
 
 TYPES = {"r0": "data_ptr", "pc": "code_ptr", "bpc": "code_ptr",
          "psw": "psw_flags", "bpsw": "psw_flags", "fpsw": "fpsw_flags"}
@@ -148,6 +149,8 @@ class Bridge:
         self.inbuf = b""
         self.eof = False
         self.cond = threading.Condition()
+        # LLDB's breakpoints (Z0 / Z1), which step() must leave alone.
+        self.breakpoints = set()
 
     # --- the server
 
@@ -182,6 +185,45 @@ class Bridge:
         self.stop = "T%sthread:1;%02x:%s;%s" % (sig, PC, pc, extra.lstrip(";"))
         if not self.stop.endswith(";"):
             self.stop += ";"
+        return self.stop
+
+    def step(self):
+        """A single step. The server leaves a garbage PC after stepping an
+        instruction that enters an exception (#98), so for `int #n` and
+        `brk` run to the handler instead: temporary hardware breakpoints on
+        the handler (from the vector table at INTB) and, in case the
+        exception does not come, on the next instruction."""
+        pc = self.r.getreg(PC)
+        code = self.r.read(pc, 3)
+        if code[:2] == b"\x75\x60":    # int #imm
+            vector, size = code[2], 3
+        elif code[:1] == b"\x00":      # brk: trap 0
+            vector, size = 0, 1
+        else:
+            return self.resume(step=True)
+        handler = self.r.word(self.r.getreg(INTB) + 4 * vector)
+        placed = []
+        try:
+            for a in {handler, pc + size} - self.breakpoints:
+                rep = self.r.cmd("Z1,%x,1" % a)[0]
+                if rep != "OK":
+                    # No free hardware breakpoint, say: running would not
+                    # stop at the handler, or not at all. Stay, and say so.
+                    msg = ("bridge: cannot step %s at 0x%x: no hardware "
+                           "breakpoint at 0x%x (%s); delete a breakpoint\n"
+                           % ("brk" if size == 1 else "int #%d" % vector,
+                              pc, a, rep or "not supported"))
+                    log(msg.rstrip())
+                    self.send("O" + msg.encode("latin-1").hex())
+                    break
+                placed.append(a)
+            else:
+                self.resume(step=False)
+        finally:
+            for a in placed:
+                self.r.cmd("z1,%x,1" % a)
+        # A step, not a breakpoint of LLDB's.
+        self.stop = "T05thread:1;%02x:%s;" % (PC, self.getreg(PC))
         return self.stop
 
     def lldb_interrupted(self):
@@ -313,7 +355,16 @@ class Bridge:
             return "OK"
         if p[0] in "Zz" and p[1:2] in ("2", "3", "4"):
             return ""
-        if p[0] in "mMZz":
+        if p[0] in "Zz" and p[1:2] in ("0", "1"):
+            rep = r.cmd(p)[0]
+            if rep == "OK":
+                addr = int(p.split(",")[1], 16)
+                if p[0] == "Z":
+                    self.breakpoints.add(addr)
+                else:
+                    self.breakpoints.discard(addr)
+            return rep
+        if p[0] in "mM":
             return r.cmd(p)[0]
         if p.startswith("qRcmd,"):
             rep, out = r.cmd(p)
@@ -326,7 +377,7 @@ class Bridge:
                 r.setreg(PC, int(addr, 16))
             return self.resume(step=False)
         if p[0] in "sS" or p.startswith("vCont;s") or p.startswith("vCont;S"):
-            return self.resume(step=True)
+            return self.step()
         if p.startswith("D"):
             r.cmd("D;1")
             self.send("OK")

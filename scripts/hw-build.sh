@@ -10,8 +10,8 @@
 # HW_BOARD=rx74m builds the same: the RX74M (EK-RX74M) has every RX74N
 # register at the same address and runs these tests as they are.
 #
-#   hw-build.sh [insns] [rom] [codegen] [rust] [rt] [examples]
-#                                                   default: all six
+#   hw-build.sh [insns] [rom] [codegen] [rust] [rt] [examples] [lldb]
+#                                                   default: all seven
 #
 #   insns    test/qemu instruction tests, in RAM       -> build/hw/insns
 #   rom      rxv2-insns, in the code flash (it moves   -> build/hw/rom
@@ -28,6 +28,8 @@
 #            flash. They run until stopped; hw-run.sh runs one for
 #            HW_TIMEOUT seconds and leaves it running (not part of its
 #            default list)
+#   lldb     test/rust/lldb-demo (dev), in the code flash -> build/hw/lldb
+#            (MRAM), for scripts/hw-lldb-check.sh (not hw-run.sh's)
 #
 # Each NAME.elf gets a NAME.sym with the symbols the runner needs. The
 # start-up code, harness and linker scripts are in test/hw. RX_LD picks the
@@ -47,14 +49,14 @@ case $board in
     memory_x=rx72m-memory.x
     peripherals=(hw-irq hw-pac hw-hal hw-uart hw-spi hw-adc hw-pwm
                  "hw-irq:-relax:-C target-feature=+relax")
-    all=(insns rom codegen rust rt examples)
+    all=(insns rom codegen rust rt examples lldb)
     insns=(cmt) extra_defs=() examples=(blinky serial-echo) ;;
   rx74n)
     out=$root/build/hw-rx74n cpu=rxv3e v3e=1 ram_ld=rx74n-ram.ld rom_ld=rx74n-rom.ld
     memory_x=rx74n-memory.x peripherals=(hw-pac-rx74n hw-hal-rx74n hw-clock-rx74n hw-spi-rx74n hw-pwm-rx74n
                  hw-adc-rx74n hw-i2c-rx74n
                  "hw-clock-rx74n:-600:--cfg clock600")
-    all=(insns rom codegen rust rt examples)
+    all=(insns rom codegen rust rt examples lldb)
     insns=(rxv3e-insns) extra_defs=(--defsym ROOT_ONLY=1)
     examples=(rx74n-serial-echo) ;;
   *)
@@ -207,8 +209,19 @@ for g in "${groups[@]}"; do
         sym "$d/$crate.elf"
         echo "built $d/$crate.elf"
       done ;;
+    lldb)
+      d=$out/lldb; mkdir -p "$d"
+      tdir=$(target_dir "$out/lldb-target")
+      # RUSTFLAGS replaces the crate's rustflags (for QEMU's rx62n).
+      (cd "$root/test/rust/lldb-demo" &&
+       RUSTC=$root/rust/build/$host/stage1/bin/rustc RUSTC_BOOTSTRAP=1 \
+       RUSTFLAGS="-C link-arg=-Tlink.x -C target-cpu=$cpu $linker_flag" \
+       RX_MEMORY_X=$T/$memory_x PATH=$G:$PATH \
+       "$root/rust/build/$host/stage0/bin/cargo" build -q --target-dir "$tdir")
+      cp "$tdir/rx-none-elf/debug/lldb-demo" "$d/lldb-demo.elf"
+      echo "built $d/lldb-demo.elf" ;;
     *)
-      echo "unknown group $g (insns, rom, codegen, rust, rt, examples)" >&2
+      echo "unknown group $g (insns, rom, codegen, rust, rt, examples, lldb)" >&2
       exit 2 ;;
   esac
 done
