@@ -15,7 +15,7 @@ and Rust tests pass on all of them (see [`docs/NOTES-hw.md`](docs/NOTES-hw.md)):
 | Renesas EK-RX74M | RX74M (R5K574MCB4AE), the RX74N plus EtherCAT | RXv3e |
 
 Each MCU family has a PAC and an embedded-hal 1.0 HAL with clocks, GPIO, a
-delay, a UART, SPI, PWM and an ADC.
+delay, a UART, SPI, PWM and an ADC; the RX74N HAL also has I2C.
 
 | Component | Where | State |
 |---|---|---|
@@ -25,7 +25,7 @@ delay, a UART, SPI, PWM and an ADC.
 | rustc `rx-none-elf` target, callconv, `asm!` | [CDEF-inc/rust](https://github.com/CDEF-inc/rust/tree/rx-none-elf) `rx-none-elf` | `core` and `alloc` build; tier 3 |
 | Startup code, vector tables, linker script | [`crates/rx-rt`](crates/rx-rt) | boots from the reset vector and takes interrupts (peripheral, software, nested, register banks) on QEMU and the boards; `critical-section` implementation |
 | RX72M HAL (embedded-hal 1.0) | [`crates/rx72m-hal`](crates/rx72m-hal) | clocks (PLL 240 MHz), GPIO and pin functions, `DelayNs` (CMT2), SCI2 UART (`embedded-io`), SPI (RSPI2), ADC (S12AD: self-diagnosis, internal reference, temperature sensor), PWM (MTU6); checked on the AP-RX72M-0A (see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
-| RX74N HAL (embedded-hal 1.0) | [`crates/rx74n-hal`](crates/rx74n-hal) | clocks (PLL 480 or 600 MHz), GPIO and pin functions, `DelayNs` (CMT2), RSCI12 UART (`embedded-io`), SPI (RSPIA0), ADC (ADC16H), PWM (GPTW8); checked on the EK-RX74N and the EK-RX74M |
+| RX74N HAL (embedded-hal 1.0) | [`crates/rx74n-hal`](crates/rx74n-hal) | clocks (PLL 480 or 600 MHz), GPIO and pin functions, `DelayNs` (CMT2), RSCI12 UART (`embedded-io`), SPI (RSPIA0), ADC (ADC16H), PWM (GPTW8), I2C (RI3C0 in I2C mode; read from the EK-RX74M's EEPROM); checked on the EK-RX74N and the EK-RX74M |
 | Peripheral access crates | [`crates/rx72m-pac`](crates/rx72m-pac), [`crates/rx74n-pac`](crates/rx74n-pac), [`crates/sfrx-pac`](crates/sfrx-pac) | generated at build time with svd2rust from e² studio's `RX72M.sfrx` / `RX74N.sfrx` (not redistributed); `sfrx-pac` is the shared generator (see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
 | QEMU with RXv2 / RXv3 / RXv3e CPU models | [CDEF-inc/qemu](https://github.com/CDEF-inc/qemu/tree/rx/v11.1) `rx/v11.1` | RXv2 / RXv3 / RXv3e instructions, DFPU, Protect Zone (CPU side); instruction tests checked against the RX72M and the RX74N |
 | Build and test scripts, tests | [`scripts`](scripts), [`test`](test) | QEMU and the boards |
@@ -62,7 +62,7 @@ What works:
   secure addresses).
 
 Not yet:
-`std`, unwinding (panics abort), more peripheral drivers (I2C, DMA,
+`std`, unwinding (panics abort), more peripheral drivers (I2C on the RX72M, DMA,
 interrupt-driven and async drivers; #54), the EtherCAT and Δ-Σ peripherals
 of the RX74M, and parts of LLDB (watchpoints and the DFPU registers on the
 board, calling functions in expressions, Rust type names: #79-#87).
@@ -77,7 +77,7 @@ crates/sfrx-pac/   PAC generator (sfrx -> SVD -> svd2rust) for the PACs' build.r
 crates/rx72m-pac/  RX72M PAC, generated at build time from e² studio's RX72M.sfrx
 crates/rx72m-hal/  RX72M HAL: clocks, GPIO, delay, UART, SPI, ADC, PWM
 crates/rx74n-pac/  RX74N PAC (also for the RX74M), from RX74N.sfrx
-crates/rx74n-hal/  RX74N HAL: clocks, GPIO, delay, UART, SPI, ADC, PWM
+crates/rx74n-hal/  RX74N HAL: clocks, GPIO, delay, UART, SPI, ADC, PWM, I2C
 examples/       board examples: blinky, serial-echo (AP-RX72M-0A), rx74n-serial-echo
 scripts/        build and test scripts
 test/mc/        assembler tests, compared with GNU as
@@ -88,7 +88,7 @@ test/rust/      Rust tests: core-smoke (with a C driver), qemu-demo, alloc-smoke
                 float-smoke, isr-save, isr-bank, lldb-demo, hw-irq (also on the board);
                 board only: hw-pac, hw-hal, hw-uart, hw-spi, hw-adc, hw-pwm (RX72M) and
                 hw-pac-rx74n, hw-hal-rx74n, hw-clock-rx74n, hw-spi-rx74n, hw-adc-rx74n,
-                hw-pwm-rx74n (RX74N / RX74M)
+                hw-pwm-rx74n, hw-i2c-rx74n (RX74N / RX74M)
 docs/           design notes and plan (in Japanese)
 ```
 
