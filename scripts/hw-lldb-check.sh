@@ -35,6 +35,16 @@ int=$(printf '0x%x' $((0x$loop + 11)))
 port=${LLDB_PORT:-61235}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+# wsl.exe loses the arguments after a `bash -c` script, so what runs in WSL
+# is a file.
+run=$dir/lldb/hw-lldb-check
+# The formatters and the ^C (which needs LLDB's asynchronous mode, set from
+# Python) need an LLDB with Python (build-lldb.sh LLDB_PYTHON=1).
+cat > "$root/$run.probe" << EOF
+"$wroot/build/lldb/bin/lldb" -b -o 'script print("python" + "-ok")'
+EOF
+python=no
+wsl bash "$wroot/$run.probe" 2>&1 | grep -q '^python-ok' && python=yes
 cat > "$tmp/cmds" << EOF
 settings set use-color false
 settings set interpreter.stop-command-source-on-error false
@@ -46,9 +56,12 @@ frame variable
 breakpoint set -n seen
 continue
 up
-script print("python" + "-ok")
+EOF
+[ $python = yes ] && cat >> "$tmp/cmds" << EOF
 command script import $wroot/rust/src/etc/lldb_lookup.py
 frame variable some rect name slice
+EOF
+cat >> "$tmp/cmds" << EOF
 breakpoint delete -f
 breakpoint set -n trap
 continue
@@ -62,6 +75,9 @@ continue
 si
 bt
 breakpoint delete -f
+EOF
+# Without Python `process continue` would not come back: the program loops.
+[ $python = yes ] && cat >> "$tmp/cmds" << EOF
 script lldb.debugger.SetAsync(True)
 process continue
 script import time; time.sleep(2)
@@ -69,25 +85,29 @@ process interrupt
 script import time; time.sleep(2)
 script lldb.debugger.SetAsync(False)
 process status
-kill
 EOF
-# LLDB waits for the bridge; the bridge (hw-lldb.sh) connects to it. wsl.exe
-# loses the arguments after a `bash -c` script, so the WSL side is a file.
-cp "$tmp/cmds" "$root/$dir/lldb/hw-lldb-check.cmds"
-cat > "$root/$dir/lldb/hw-lldb-check.run" << EOF
+echo kill >> "$tmp/cmds"
+# LLDB waits for the bridge; the bridge (hw-lldb.sh) connects to it.
+cp "$tmp/cmds" "$root/$run.cmds"
+cat > "$root/$run.run" << EOF
 args=()
-while IFS= read -r c; do args+=(-o "\$c"); done < "$wroot/$dir/lldb/hw-lldb-check.cmds"
+while IFS= read -r c; do args+=(-o "\$c"); done < "$wroot/$run.cmds"
 timeout -k 10 300 "$wroot/build/lldb/bin/lldb" -b -x "$welf" "\${args[@]}"
 EOF
-wsl bash "$wroot/$dir/lldb/hw-lldb-check.run" > "$tmp/out" 2>&1 &
+wsl bash "$wroot/$run.run" > "$tmp/out" 2>&1 &
 lldb=$!
 sleep 3
 LLDB_PORT=$port bash "$root/scripts/hw-lldb.sh" "$elf" > "$tmp/bridge" 2>&1
 wait $lldb
-log=$root/$dir/lldb/hw-lldb-check.log
+rc=$?
+log=$root/$run.log
 cat "$tmp/out" > "$log"
 
 status=0
+# timeout(1): 124, or 137 after -k's KILL.
+case $rc in
+  124|137) echo "FAIL  LLDB timed out"; status=1 ;;
+esac
 expect() {
   if grep -q -E -- "$2" "$tmp/out"; then echo "ok    $1"
   else echo "FAIL  $1: no /$2/"; status=1; fi
@@ -99,7 +119,7 @@ expect "backtrace: outer"            'frame #2: 0x[0-9a-f]+ lldb-demo.elf`lldb_d
 expect "backtrace: main"             'frame #3: 0x[0-9a-f]+ lldb-demo.elf`main at main\.rs:46'
 expect "backtrace: the reset vector" 'frame #5: 0x[0-9a-f]+ lldb-demo.elf`_rx_reset'
 expect "struct argument"             '\(lldb_demo::Point\) p = \(x = 5, y = -2\)'
-if grep -q '^python-ok' "$tmp/out"; then
+if [ $python = yes ]; then
   expect "formatter: Option"         '\(core::option::Option<u32>\) some = Some\(7\)'
   expect "formatter: enum"           '\(lldb_demo::types::Shape\) rect = Rect\{w:4, h:9\}'
   expect "formatter: &str"           '\(&str\) name = "rx-rust"'
@@ -116,7 +136,7 @@ expect "interrupt: SP = USP"         "^ +r0 = ${usp:-none} "
 expect "step into int #64"           'stop reason = instruction step into'
 expect "step into int #64: handler"  'frame #0: 0x[0-9a-f]+ lldb-demo.elf`_rx_vector_64$'
 expect "step into int #64: caller"   'frame #1: 0x[0-9a-f]+ lldb-demo.elf`_lldb_user_loop \+ 14'
-grep -q '^python-ok' "$tmp/out" &&
+[ $python = yes ] &&
   expect "^C"                        'stop reason = signal SIGINT'
 if grep -q -E 'Assertion|Stack dump|PLEASE submit' "$tmp/out"; then
   echo "FAIL  LLDB crashed"; status=1

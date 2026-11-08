@@ -202,13 +202,25 @@ class Bridge:
         else:
             return self.resume(step=True)
         handler = self.r.word(self.r.getreg(INTB) + 4 * vector)
-        temporary = [a for a in {handler, pc + size} if a not in self.breakpoints]
-        for a in temporary:
-            self.r.cmd("Z1,%x,1" % a)
+        placed = []
         try:
-            self.resume(step=False)
+            for a in {handler, pc + size} - self.breakpoints:
+                rep = self.r.cmd("Z1,%x,1" % a)[0]
+                if rep != "OK":
+                    # No free hardware breakpoint, say: running would not
+                    # stop at the handler, or not at all. Stay, and say so.
+                    msg = ("bridge: cannot step %s at 0x%x: no hardware "
+                           "breakpoint at 0x%x (%s); delete a breakpoint\n"
+                           % ("brk" if size == 1 else "int #%d" % vector,
+                              pc, a, rep or "not supported"))
+                    log(msg.rstrip())
+                    self.send("O" + msg.encode("latin-1").hex())
+                    break
+                placed.append(a)
+            else:
+                self.resume(step=False)
         finally:
-            for a in temporary:
+            for a in placed:
                 self.r.cmd("z1,%x,1" % a)
         # A step, not a breakpoint of LLDB's.
         self.stop = "T05thread:1;%02x:%s;" % (PC, self.getreg(PC))
