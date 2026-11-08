@@ -1,5 +1,5 @@
-# Starting and stopping e2 studio's e2-server-gdb for the AP-RX72M-0A or the
-# EK-RX74N, for scripts/hw-run.sh and scripts/hw-lldb.sh (sourced; Git Bash on
+# Starting and stopping e2 studio's e2-server-gdb for the AP-RX72M-0A, the
+# EK-RX74N or the EK-RX74M, for scripts/hw-run.sh and scripts/hw-lldb.sh (sourced; Git Bash on
 # Windows).
 #
 # Environment:
@@ -8,7 +8,7 @@
 #   E2_PYTHON     Python 3 (default: the one bundled with e2 studio under
 #                 C:/Renesas/e2_studio, else python3)
 #   HW_PORT       the server's GDB port (61234)
-#   HW_BOARD      rx72m (default) or rx74n
+#   HW_BOARD      rx72m (default), rx74n or rx74m
 dc=${E2_DEBUGCOMP:-$(ls -d "$HOME"/.eclipse/com.renesas.platform_*/DebugComp/RX 2>/dev/null | head -1)}
 py=${E2_PYTHON:-$(ls /c/Renesas/e2_studio/eclipse/plugins/com.renesas.python3.*/bin/python.exe 2>/dev/null | head -1)}
 py=${py:-python3}
@@ -31,7 +31,8 @@ start_server() {
   case $board in
   rx72m) device=R5F572MN hoco=0 clock=12.0000 regset=1 hook=0x7fb40 ;;
   rx74n) device=R5K574NC hoco=1 clock=24.0000 regset=0 hook=0x1000 ;;
-  *) echo "unknown HW_BOARD $board (rx72m, rx74n)" >&2; exit 2 ;;
+  rx74m) device=R5K574MC hoco=1 clock=24.0000 regset=0 hook=0x1000 ;;
+  *) echo "unknown HW_BOARD $board (rx72m, rx74n, rx74m)" >&2; exit 2 ;;
   esac
   (cd "$dc" && exec ./e2-server-gdb.exe -g E2LITE -t $device -uConnectionTimeout= 30 \
     -uClockSrcHoco= $hoco -uInputClock= $clock -uAllowClockSourceInternal= 1 \

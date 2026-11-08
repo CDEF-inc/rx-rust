@@ -6,6 +6,8 @@
 # there, rom, codegen, rust, the rt tests isr-save, isr-bank, alloc-smoke,
 # float-smoke, hw-pac-rx74n, hw-hal-rx74n, hw-clock-rx74n (480 and 600 MHz),
 # hw-spi-rx74n, hw-pwm-rx74n and hw-adc-rx74n, and rx74n-serial-echo.
+# HW_BOARD=rx74m builds the same: the RX74M (EK-RX74M) has every RX74N
+# register at the same address and runs these tests as they are.
 #
 #   hw-build.sh [insns] [rom] [codegen] [rust] [rt] [examples]
 #                                                   default: all six
@@ -37,6 +39,7 @@ G=$root/gnu/install/bin
 MC=$root/build/llvm/bin/llvm-mc
 T=$root/test/hw
 board=${HW_BOARD:-rx72m}
+[ "$board" = rx74m ] && board=rx74n
 case $board in
   rx72m)
     out=$root/build/hw cpu=rxv3 v3e=0 ram_ld=rx72m-ram.ld rom_ld=rx72m-rom.ld
@@ -54,7 +57,7 @@ case $board in
     insns=(rxv3e-insns) extra_defs=(--defsym ROOT_ONLY=1)
     examples=(rx74n-serial-echo) ;;
   *)
-    echo "unknown HW_BOARD $board (rx72m, rx74n)" >&2
+    echo "unknown HW_BOARD $board (rx72m, rx74n, rx74m)" >&2
     exit 2 ;;
 esac
 groups=("$@"); [ ${#groups[@]} -gt 0 ] || groups=("${all[@]}")
