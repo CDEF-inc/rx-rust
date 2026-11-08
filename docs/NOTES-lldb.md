@@ -63,6 +63,10 @@ LLDB で RX のプログラム（Rust、C）をデバッグする。QEMU の gdb
 - LLDB は clang を必要とするので、build/llvm とは別のディレクトリにしている。テストのたびに
   build/llvm をビルドし直しても、clang までは作らずに済む。
 - Python と Lua のスクリプト機能はなし。`JOBS` でコンパイルの並列数を変えられる（既定 6）。
+- `LLDB_PYTHON=1` で Python を有効にする（rustc の表示整形のため、#83）。`python3-dev` と swig が要る。
+  - その lldb はビルドしたマシンの libpython3.x が要るので、手元で使うだけにする。
+  - `dist-toolchain.sh` は、Python 付きの build/lldb を詰めるのを断る。
+  - 配布物と CI の LLDB は Python なしのまま。CI では表示整形のテストを飛ばす。
 - libxml2（2.13.9）をソースから静的ライブラリとしてビルドし、LLDB にリンクする（#82）。
   - 目的: GDB サーバーの `target.xml` とメモリマップ（`qXfer:memory-map`）を読むため。
   - ICU・lzma・zlib なしでビルドするので、配布物の lldb が必要とするライブラリは増えない。
@@ -120,8 +124,8 @@ rx-rt の `_rx_isr_common` の CFI で、LLDB はハンドラから割り込ま�
 ### Rust の型（#83、2026-11-09）
 
 LLDB には Rust のプラグインがない。Rust の DWARF を clang の型システム（C / C++）で読むので、次のように出る。
-`rust-lldb` の表示整形（rustc の `src/etc` の Python スクリプト）は、LLDB を Python なしでビルドしているので
-使えない。
+表は Python なしの LLDB でのもの。Python 付きの LLDB（`LLDB_PYTHON=1`）なら、rustc の表示整形（`src/etc` の
+Python スクリプト。`rust-lldb` が読み込む）が使える（下の「表示整形」）。
 
 | 型 | 表示 | 読み方 |
 |---|---|---|
@@ -140,8 +144,26 @@ LLDB には Rust のプラグインがない。Rust の DWARF を clang の型�
   - x86_64 の Rust のプログラムでも同じなので、RX 特有ではない。
   - build/lldb はアサーション付きでビルドしているので、落ちる。
   - `frame variable` は clang の式評価を通らないので、同じ式で読める。
-- Python の表示整形を使うには、LLDB を Python 付きでビルドし（`python3-dev` と swig が要る）、`src/etc` を配布物に
-  入れる必要がある。まだしていない（#83）。
+
+#### 表示整形（2026-11-09）
+
+Python 付きの LLDB で `command script import rust/src/etc/lldb_lookup.py`（`rust-lldb` がすること）を実行すると、
+上の型が次のように出る（QEMU と EK-RX74M で同じ）:
+
+| 型 | 表示 |
+|---|---|
+| `Option` / `Result` | `Some(7)`、`None`、`Ok(100)`、`Err(-3)` |
+| データ付きの enum | `Circle(300)`、`Rect{w:4, h:9}`（フィールドも子として出る） |
+| `&str` | `"rx-rust"`（文字も子として出る） |
+| スライス | `size=2 { [0] = 20, [1] = 30 }` |
+| 参照 | `0x... {x:11, y:-12}`（指す先の値） |
+| 構造体、タプル | `{x:11, y:-12}`、`(1, -1)` |
+
+- PSW などのレジスタのフィールドの表示も `{IPL:0, ..., U:1, ...}` の形に変わる。
+- check-lldb.sh は、LLDB に Python があればこれも確かめる（10 項目）。なければ飛ばす。
+- 配布物には `lib/rustlib/etc` に `lldb_lookup.py`、`lldb_providers.py`、`rust_types.py` を、`bin/` に
+  `rust-lldb` を入れる。配布物の lldb には Python がないので、`rust-lldb` は Python 付きの lldb
+  （`RUST_LLDB` か PATH）と組み合わせて使う。
 
 `RX_CPU=rxv2|rxv3|rxv3e` で、その CPU 向けにビルドして CDEF-inc/qemu の同じコアで動かす（`scripts/cpu.sh`）。
 4 つのコアすべてで同じ結果になる（2026-11-09）。ただし、QEMU の gdbstub には DFPU のレジスタがない（#81）。
