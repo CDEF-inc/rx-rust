@@ -168,13 +168,13 @@ fn wr16(a: usize, v: u16) {
     unsafe { write_volatile(a as *mut u16, v) }
 }
 
-/// Waits at least `us` microseconds (a loop of at least one ICLK cycle
-/// per iteration).
+/// Waits at least `us` microseconds: a loop of at least one ICLK cycle
+/// per iteration. core::hint::spin_loop is nothing on RX, so a loop of only that is
+/// removed by the optimizer; the volatile read keeps each iteration.
 fn spin_us(iclk: u32, us: u32) {
-    let mut n = iclk / 1_000_000 * us;
-    while n > 0 {
-        core::hint::spin_loop();
-        n -= 1;
+    let keep = 0u8;
+    for _ in 0..iclk / 1_000_000 * us {
+        unsafe { read_volatile(&keep) };
     }
 }
 

@@ -156,11 +156,13 @@ impl Serial {
         sci.smr().write(|w| unsafe { w.cks().bits(s.cks) });
         sci.semr().write(|w| w.abcs().bit(s.abcs).bgdm().bit(s.bgdm));
         sci.brr().write(|w| unsafe { w.bits(s.brr) });
-        // Wait at least one bit time before enabling (as the manual asks).
-        let mut n = clocks.iclk / s.baud;
-        while n > 0 {
-            core::hint::spin_loop();
-            n -= 1;
+        // Wait at least one bit time before enabling (as the manual asks):
+        // a loop of at least one ICLK cycle per iteration, kept by a
+        // volatile read (core::hint::spin_loop is nothing on RX, and a loop
+        // of only that is removed by the optimizer).
+        let keep = 0u8;
+        for _ in 0..clocks.iclk / s.baud {
+            unsafe { core::ptr::read_volatile(&keep) };
         }
         // TE with TIE in the same write raises TXI (TDR empty).
         unsafe {
