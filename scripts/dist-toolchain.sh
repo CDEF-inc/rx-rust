@@ -13,9 +13,10 @@
 # The archive holds NAME/ with
 #   bin/       rustc, cargo, ld.lld, llvm-{objcopy,objdump,nm,size,readelf,
 #              readobj,ar,strip,strings,addr2line,symbolizer} and the same
-#              as rx-elf-* (symbolic links), qemu-system-rx, lldb
+#              as rx-elf-* (symbolic links), qemu-system-rx, lldb, rust-lldb
 #   lib/       librustc_driver, liblldb, rustlib/x86_64-unknown-linux-gnu (the host
 #              std, for build scripts and proc macros; bin/rust-lld),
+#              rustlib/etc (rustc's LLDB formatters, for rust-lldb),
 #              rustlib/src/rust/library (core etc. for -Zbuild-std) and the
 #              shared libraries qemu-system-rx needs beyond glibc (glib,
 #              pixman, ...; its RUNPATH points here)
@@ -83,6 +84,11 @@ done
 # LLDB (build/lldb): lldb finds liblldb through its RUNPATH, $ORIGIN/../lib.
 lldb=$root/build/lldb
 if [ -x "$lldb/bin/lldb" ]; then
+  if ldd "$lldb/lib/liblldb.so" | grep -q libpython; then
+    echo "build/lldb has Python (LLDB_PYTHON=1), which needs this machine's libpython:" >&2
+    echo "build it again without LLDB_PYTHON for the archive" >&2
+    exit 2
+  fi
   cp "$lldb/bin/lldb" "$d/bin/"
   so=$(readlink "$lldb/lib/liblldb.so")              # liblldb.so.23.1
   strip -o "$d/lib/$(readlink -f "$lldb/lib/liblldb.so" | xargs basename)" \
@@ -91,6 +97,13 @@ if [ -x "$lldb/bin/lldb" ]; then
 else
   echo "no build/lldb/bin/lldb (scripts/build-lldb.sh): the archive has no LLDB" >&2
 fi
+# rustc's Rust formatters for LLDB and rust-lldb, which loads them from
+# $(rustc --print sysroot)/lib/rustlib/etc (#83). They need an LLDB with
+# Python, which the archive's is not: one built here with LLDB_PYTHON=1, or
+# the system's.
+mkdir -p "$d/lib/rustlib/etc"
+cp "$root"/rust/src/etc/{lldb_lookup.py,lldb_providers.py,rust_types.py} "$d/lib/rustlib/etc/"
+cp "$root/rust/src/etc/rust-lldb" "$d/bin/"
 
 # Every binary must run with the base system libraries and what the archive
 # brings: a library from the build machine (libxml2, libedit, ... picked up

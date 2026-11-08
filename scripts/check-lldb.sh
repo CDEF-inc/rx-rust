@@ -58,6 +58,14 @@ done
 # no log was kept), so it gets a time limit and the output so far is
 # checked and shown.
 lldb_timeout=${LLDB_TIMEOUT:-120}
+# An LLDB with Python (build-lldb.sh LLDB_PYTHON=1) also shows types.rs's
+# locals through rustc's formatters (src/etc, what rust-lldb loads).
+formatters=()
+if "$LLDB" -b -x -o 'script print("python" + "-ok")' 2>&1 | grep -q '^python-ok'; then
+  python=1
+  formatters=("command script import $root/rust/src/etc/lldb_lookup.py"
+              "frame variable some none ok err circle rect name slice point_ref tuple")
+fi
 if [ "$profile" = release ]; then
   # opt-level "s": the session stops only where the code is still there
   # (some rets.rs functions are folded into their caller).
@@ -93,6 +101,7 @@ else
     'frame variable some.$variants$.$variant$1.value.__0'
     "frame variable -Z 2 slice.data_ptr" "frame variable *point_ref"
     "frame variable *add_k._ref__k"
+    "${formatters[@]}"
     "breakpoint set -n trap" "continue" "bt" "register read usp"
     "frame select 2" "register read psw r0" "frame select 0"
     "expr lldb_demo::outer(1, 2)"
@@ -189,13 +198,28 @@ expect "bool"                        '\(bool\) flag = true'
 expect "tuple"                       '\(\(u8, i32\)\) tuple = \(__0 = .\\x01., __1 = -1\)'
 expect "closure"                     '\(lldb_demo::types::run::\{closure_env#0\}\) add_k = \{'
 expect "closure: a capture"          '\(unsigned int\) \*add_k\._ref__k = 3'
+if [ -n "${python:-}" ]; then
+  expect "formatter: Some"           '\(core::option::Option<u32>\) some = Some\(7\)'
+  expect "formatter: None"           '\(core::option::Option<u32>\) none = None'
+  expect "formatter: Ok"             '\(core::result::Result<u32, i8>\) ok = Ok\(100\)'
+  expect "formatter: Err"            '\(core::result::Result<u32, i8>\) err = Err\(-3\)'
+  expect "formatter: tuple variant"  '\(lldb_demo::types::Shape\) circle = Circle\(300\)'
+  expect "formatter: struct variant" '\(lldb_demo::types::Shape\) rect = Rect\{w:4, h:9\}'
+  expect "formatter: &str"           '\(&str\) name = "rx-rust"'
+  expect "formatter: slice"          '\(&\[u16\]\) slice = size=2'
+  expect "formatter: reference"      '\(lldb_demo::Point \*\) point_ref = 0x[0-9a-f]+ \{x:11, y:-12\}'
+  expect "formatter: tuple"          '\(\(u8, i32\)\) tuple = \(1, -1\)'
+else
+  echo "skip  formatters: LLDB has no Python (build-lldb.sh LLDB_PYTHON=1)"
+fi
 # user.rs (#85): from the handler through _rx_isr_common into code that
 # ran in user mode. Its SP is USP (saved by the interrupt entry), not the
 # CFA, and its PSW has U = 1.
 expect "interrupt: handler"          'frame #0: 0x[0-9a-f]+ lldb-demo`lldb_demo::user::trap at user\.rs'
 expect "interrupt: the entry"        'frame #1: 0x[0-9a-f]+ lldb-demo`_rx_isr_common \+ [0-9]+'
 expect "interrupt: interrupted code" 'frame #2: 0x[0-9a-f]+ lldb-demo`_lldb_user_loop \+ [0-9]+'
-expect "interrupt: PSW.U = 1"        '= \(IPL = 0, PM = 0, U = 1,'
+# rustc's formatters, when loaded, also print the fields as `U:1`.
+expect "interrupt: PSW.U = 1"        '= \(IPL = 0, PM = 0, U = 1,|PM:0, :0, U:1,'
 usp=$(grep -o -E '^ +usp = 0x[0-9a-f]+' "$tmp/out" | head -1 | awk '{print $3}')
 expect "interrupt: SP = USP"         "^ +r0 = ${usp:-none} "
 fi

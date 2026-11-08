@@ -9,6 +9,11 @@
 # here from source as a static library without its own optional
 # dependencies (ICU, lzma, zlib). JOBS is the compile parallelism
 # (default 6).
+#
+# LLDB_PYTHON=1 turns Python scripting on, for rustc's Rust formatters
+# (#83): it needs python3-dev and swig, and lldb then needs this machine's
+# libpython3.x, so such a build is for this machine only (dist-toolchain.sh
+# refuses to pack it).
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 src=$root/rust/src/llvm-project/llvm
@@ -52,15 +57,17 @@ if [ ! -f "$xml/lib/libxml2.a" ]; then
 fi
 
 # Configure again when this script has changed (e.g. a build directory
-# configured before libxml2 was turned on).
-if [ ! -f "$out/build.ninja" ] || [ "$0" -nt "$out/build.ninja" ]; then
+# configured before libxml2 was turned on), or LLDB_PYTHON has.
+python=OFF; [ "${LLDB_PYTHON:-0}" = 1 ] && python=ON
+if [ ! -f "$out/build.ninja" ] || [ "$0" -nt "$out/build.ninja" ] ||
+   ! grep -q "^LLDB_ENABLE_PYTHON:BOOL=$python\$" "$out/CMakeCache.txt"; then
   cmake -G Ninja -S "$src" -B "$out" \
     -DCMAKE_BUILD_TYPE=Release \
     -DLLVM_ENABLE_ASSERTIONS=ON \
     -DLLVM_TARGETS_TO_BUILD=X86 \
     -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=RX \
     -DLLVM_ENABLE_PROJECTS="clang;lldb" \
-    -DLLDB_ENABLE_PYTHON=OFF \
+    -DLLDB_ENABLE_PYTHON=$python \
     -DLLDB_ENABLE_LUA=OFF \
     -DLLVM_CCACHE_BUILD=ON \
     -DLLVM_PARALLEL_COMPILE_JOBS=${JOBS:-6} \
