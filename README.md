@@ -3,23 +3,32 @@
 A Rust toolchain for Renesas RX microcontrollers: an LLVM backend for RX and
 an `rx-none-elf` target for rustc, compatible with the GCC (`rx-elf`) ABI.
 
-Status: experimental. Rust programs (`core`, `-Zbuild-std`) build, link with
-lld (the default) or GNU ld and run on QEMU (RXv1, RXv2, RXv3 and RXv3e cores of CDEF-inc/qemu)
-and on a real RX72M (RXv3 with the double-precision FPU, on an
-AP-RX72M-0A board): the instruction, codegen and Rust tests pass on both
-(see [`docs/NOTES-hw.md`](docs/NOTES-hw.md)).
+Status: experimental. Rust programs (`core`, `alloc`, `-Zbuild-std`) build,
+link with lld (the default) or GNU ld and run on QEMU (RXv1, RXv2, RXv3 and
+RXv3e cores of CDEF-inc/qemu) and on three boards. The instruction, codegen
+and Rust tests pass on all of them (see [`docs/NOTES-hw.md`](docs/NOTES-hw.md)):
+
+| Board | MCU | Core |
+|---|---|---|
+| Alpha Project AP-RX72M-0A | RX72M (R5F572MNDDFC) | RXv3, single- and double-precision FPU |
+| Renesas EK-RX74N | RX74N (R5K574NCB4AE) | RXv3e |
+| Renesas EK-RX74M | RX74M (R5K574MCB4AE), the RX74N plus EtherCAT | RXv3e |
+
+Each MCU family has a PAC and an embedded-hal 1.0 HAL with clocks, GPIO, a
+delay, a UART, SPI, PWM and an ADC; the RX74N HAL also has I2C.
 
 | Component | Where | State |
 |---|---|---|
 | LLVM RX backend (MC layer, CodeGen) | [CDEF-inc/llvm-project](https://github.com/CDEF-inc/llvm-project/tree/rx/23.1) `rx/23.1` | RXv1 / RXv2 / RXv3 / RXv3e instructions, FPU, DSP, DFPU; object files match GNU as (and Renesas CC-RX where GNU as is wrong) |
 | lld RX target | same, `lld/ELF/Arch/RX.cpp` | links like GNU ld (same relocations, e_flags and layout); `rx-none-elf`'s default linker (`rust-lld`), GNU ld with `-C linker=rx-elf-ld` (see [`docs/NOTES-lld.md`](docs/NOTES-lld.md)) |
 | LLDB RX support | same, `lldb/source/Plugins/ABI/RX` (and a clang `RXTargetInfo` for its type system) | breakpoints, backtraces (from the compiler's CFI), variables, stepping on QEMU's gdbstub and, through a bridge to e2-server-gdb, on the RX72M; see [`docs/NOTES-lldb.md`](docs/NOTES-lldb.md) |
-| rustc `rx-none-elf` target, callconv, `asm!` | [CDEF-inc/rust](https://github.com/CDEF-inc/rust/tree/rx-none-elf) `rx-none-elf` | `core` builds; tier 3 |
-| Startup code, vector tables, linker script | [`crates/rx-rt`](crates/rx-rt) | boots from the reset vector and takes interrupts (peripheral, software, nested) on QEMU and the RX72M; `critical-section` implementation |
-| RX72M HAL (embedded-hal 1.0) | [`crates/rx72m-hal`](crates/rx72m-hal) | clocks (PLL 240 MHz), GPIO and pin functions, `DelayNs` (CMT2), SCI2 UART (`embedded-io`); checked on the AP-RX72M-0A, except UART receiving (not yet checked, see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
-| RX72M peripheral access crate | [`crates/rx72m-pac`](crates/rx72m-pac) | generated at build time with svd2rust from e² studio's `RX72M.sfrx` (not redistributed; see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
-| QEMU with RXv2 / RXv3 / RXv3e CPU models | [CDEF-inc/qemu](https://github.com/CDEF-inc/qemu/tree/rx/v11.1) `rx/v11.1` | RXv2 / RXv3 / RXv3e instructions, DFPU, Protect Zone (CPU side); instruction tests checked against an RX72M |
-| Build and test scripts, tests | [`scripts`](scripts), [`test`](test) | QEMU and the RX72M board |
+| rustc `rx-none-elf` target, callconv, `asm!` | [CDEF-inc/rust](https://github.com/CDEF-inc/rust/tree/rx-none-elf) `rx-none-elf` | `core` and `alloc` build; tier 3 |
+| Startup code, vector tables, linker script | [`crates/rx-rt`](crates/rx-rt) | boots from the reset vector and takes interrupts (peripheral, software, nested, register banks) on QEMU and the boards; `critical-section` implementation |
+| RX72M HAL (embedded-hal 1.0) | [`crates/rx72m-hal`](crates/rx72m-hal) | clocks (PLL 240 MHz), GPIO and pin functions, `DelayNs` (CMT2), SCI2 UART (`embedded-io`), SPI (RSPI2), ADC (S12AD: self-diagnosis, internal reference, temperature sensor), PWM (MTU6); checked on the AP-RX72M-0A (see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
+| RX74N HAL (embedded-hal 1.0) | [`crates/rx74n-hal`](crates/rx74n-hal) | clocks (PLL 480 or 600 MHz), GPIO and pin functions, `DelayNs` (CMT2), RSCI12 UART (`embedded-io`), SPI (RSPIA0), ADC (ADC16H), PWM (GPTW8), I2C (RI3C0 in I2C mode; read from the EK-RX74M's EEPROM); checked on the EK-RX74N and the EK-RX74M |
+| Peripheral access crates | [`crates/rx72m-pac`](crates/rx72m-pac), [`crates/rx74n-pac`](crates/rx74n-pac), [`crates/sfrx-pac`](crates/sfrx-pac) | generated at build time with svd2rust from e² studio's `RX72M.sfrx` / `RX74N.sfrx` (not redistributed); `sfrx-pac` is the shared generator (see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
+| QEMU with RXv2 / RXv3 / RXv3e CPU models | [CDEF-inc/qemu](https://github.com/CDEF-inc/qemu/tree/rx/v11.1) `rx/v11.1` | RXv2 / RXv3 / RXv3e instructions, DFPU, Protect Zone (CPU side); instruction tests checked against the RX72M and the RX74N |
+| Build and test scripts, tests | [`scripts`](scripts), [`test`](test) | QEMU and the boards |
 
 What works:
 
@@ -47,30 +56,39 @@ What works:
   GNU binutils (lld and the LLVM binary tools);
 - debugging with LLDB, on QEMU and on the RX72M: breakpoints, backtraces,
   variables, stepping (`scripts/check-lldb.sh`); e² studio's GDB also reads
-  the debug info.
+  the debug info;
+- on the RXv3e (RX74N / RX74M), the Protect Zone instructions and the secure
+  / non-secure address aliases (the programs run in the root world, at the
+  secure addresses).
 
 Not yet:
-`std`, unwinding (panics abort), most peripheral drivers (the HAL has
-clocks, GPIO, delay and a UART; #54), and parts of LLDB (watchpoints and the
-DFPU registers on the board, calling functions in expressions, Rust type
-names: #79-#87).
+`std`, unwinding (panics abort), more peripheral drivers (I2C on the RX72M, DMA,
+interrupt-driven and async drivers; #54), the EtherCAT and Δ-Σ peripherals
+of the RX74M, and parts of LLDB (watchpoints and the DFPU registers on the
+board, calling functions in expressions, Rust type names: #79-#87).
 
 ## Layout
 
 ```
 rust/           submodule: CDEF-inc/rust (rx-none-elf), which has
                 src/llvm-project -> CDEF-inc/llvm-project (rx/23.1)
-crates/rx-rt/   runtime: reset handler, vector tables, link.x
+crates/rx-rt/      runtime: reset handler, vector tables, link.x
+crates/sfrx-pac/   PAC generator (sfrx -> SVD -> svd2rust) for the PACs' build.rs
 crates/rx72m-pac/  RX72M PAC, generated at build time from e² studio's RX72M.sfrx
-crates/rx72m-hal/  RX72M HAL: clocks, GPIO, delay, UART (embedded-hal 1.0, embedded-io)
+crates/rx72m-hal/  RX72M HAL: clocks, GPIO, delay, UART, SPI, ADC, PWM
+crates/rx74n-pac/  RX74N PAC (also for the RX74M), from RX74N.sfrx
+crates/rx74n-hal/  RX74N HAL: clocks, GPIO, delay, UART, SPI, ADC, PWM, I2C
+examples/       board examples: blinky, serial-echo (AP-RX72M-0A), rx74n-serial-echo
 scripts/        build and test scripts
 test/mc/        assembler tests, compared with GNU as
 test/codegen/   LLVM IR + C tests run on QEMU (Rust/LLVM <-> GCC calls)
-test/qemu/      instruction tests for the QEMU CPU models (also run on the board)
-test/hw/        start-up code, harness and linker scripts for the RX72M board
-test/rust/      Rust tests: core-smoke (with a C driver), qemu-demo, isr-save, isr-bank,
-                hw-irq (also on the board), hw-pac, hw-hal, hw-uart, hw-spi, hw-adc and
-                hw-pwm (board only)
+test/qemu/      instruction tests for the QEMU CPU models (also run on the boards)
+test/hw/        start-up code, harness and linker scripts for the boards
+test/rust/      Rust tests: core-smoke (with a C driver), qemu-demo, alloc-smoke,
+                float-smoke, isr-save, isr-bank, lldb-demo, hw-irq (also on the board);
+                board only: hw-pac, hw-hal, hw-uart, hw-spi, hw-adc, hw-pwm (RX72M) and
+                hw-pac-rx74n, hw-hal-rx74n, hw-clock-rx74n, hw-spi-rx74n, hw-adc-rx74n,
+                hw-pwm-rx74n, hw-i2c-rx74n (RX74N / RX74M)
 docs/           design notes and plan (in Japanese)
 ```
 
@@ -203,17 +221,31 @@ RX_CPU=rx62n RUST_EXTRA_FLAGS="-C linker=$PWD/gnu/install/bin/rx-elf-ld" scripts
 
 ### On the board
 
-The instruction tests (RXv3 parts), the codegen tests (`llc -mcpu=rxv3`,
--O0 and -O2), core-smoke (`target-cpu=rxv3`) and the rx-rt interrupt tests
-(isr-save, isr-bank, and hw-irq with CMT interrupts, booted from the code flash) also
-run on an AP-RX72M-0A board through an E2 Lite and the GDB server of
-Renesas e² studio, on Windows. The board needs JSW3 = SGL and JSW2 = SCI.
-[`docs/NOTES-hw.md`](docs/NOTES-hw.md) has the setup, the server's
-quirks and the last results.
+The board tests run through an E2 Lite and the GDB server of Renesas e²
+studio, on Windows. They cover:
+
+- the instruction tests (the parts the core has);
+- the codegen tests (`llc -mcpu=rxv3` or `rxv3e`, -O0 and -O2);
+- core-smoke;
+- the rx-rt, PAC and HAL tests (the `rt` group), booted from the code flash
+  or MRAM.
+
+`HW_BOARD` picks the board: `rx72m` (the default), `rx74n` or `rx74m`. The
+RX74M runs the RX74N builds (`build/hw-rx74n`).
+
+| Board | Set-up |
+|---|---|
+| AP-RX72M-0A | JSW3 = SGL, JSW2 = SCI |
+| EK-RX74N / EK-RX74M | the E2 Lite on J9, SW6 pin 1 ON and pin 2 OFF, power from J27's USB; e² studio needs the RX FSP packs for the RX74N / RX74M |
+
+[`docs/NOTES-hw.md`](docs/NOTES-hw.md) has the setup, the server's quirks
+and the last results.
 
 ```sh
-scripts/hw-build.sh       # in WSL: build the tests into build/hw
-scripts/hw-run.sh         # in Git Bash on Windows: run them on the board
+scripts/hw-build.sh                    # in WSL: build the tests into build/hw
+scripts/hw-run.sh                      # in Git Bash on Windows: run them on the board
+HW_BOARD=rx74n scripts/hw-build.sh     # the RX74N tests, into build/hw-rx74n
+HW_BOARD=rx74m scripts/hw-run.sh       # run them on an EK-RX74M
 ```
 
 They link with lld; `RX_LD=$PWD/gnu/install/bin/rx-elf-ld scripts/hw-build.sh`
@@ -268,12 +300,25 @@ So far it has only been checked with the debugger attached: after the
 runner detaches, nothing comes out of the serial port
 ([`docs/NOTES-hal.md`](docs/NOTES-hal.md)).
 
+[`examples/rx74n-serial-echo`](examples/rx74n-serial-echo) does the same on
+an EK-RX74N or EK-RX74M, on the USB serial port J27 (RSCI12, CPUCLK0
+600 MHz). It needs no adapter:
+
+```sh
+HW_BOARD=rx74n scripts/hw-build.sh examples                                   # in WSL
+HW_BOARD=rx74n HW_TIMEOUT=60 scripts/hw-run.sh build/hw-rx74n/examples/rx74n-serial-echo.elf  # in Git Bash
+powershell -File scripts/hw/serial-echo.ps1 -Port COM9                        # meanwhile
+```
+
 ## Writing a program
 
 See [`test/rust/qemu-demo`](test/rust/qemu-demo): a `#![no_main]` binary that
 depends on `rx-rt`, provides `memory.x`, and builds with
-`-Zbuild-std=core` and `-C link-arg=-Tlink.x`. The target and its ABI are
-described in
+`-Zbuild-std=core` and `-C link-arg=-Tlink.x`. For a board, the examples
+add a HAL (`rx72m-hal` or `rx74n-hal`, which re-exports its PAC as `pac`)
+and build for `target-cpu=rxv3` or `rxv3e`; the PACs need e² studio's
+`.sfrx` files (see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)). The target and
+its ABI are described in
 [`src/doc/rustc/src/platform-support/rx-none-elf.md`](https://github.com/CDEF-inc/rust/blob/rx-none-elf/src/doc/rustc/src/platform-support/rx-none-elf.md).
 
 ### Floating point
