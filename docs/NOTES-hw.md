@@ -73,7 +73,7 @@ RX72M の割り込みで分かったこと:
 
 ## EK-RX74N（RXv3e）
 
-insns、rom、codegen、rust と rt のテスト（isr-save、isr-bank、alloc-smoke、float-smoke、hw-pac-rx74n、hw-hal-rx74n、hw-clock-rx74n、hw-spi-rx74n）を実機の RXv3e で確かめられる。2026-11-07 に全 67 本が通った。examples の rx74n-serial-echo も J27 の USB シリアルで確かめた。
+insns、rom、codegen、rust と rt のテスト（isr-save、isr-bank、alloc-smoke、float-smoke、hw-pac-rx74n、hw-hal-rx74n、hw-clock-rx74n、hw-spi-rx74n、hw-pwm-rx74n）を実機の RXv3e で確かめられる。2026-11-07 に全 67 本が通った。examples の rx74n-serial-echo も J27 の USB シリアルで確かめた。
 
 | | |
 |---|---|

@@ -104,6 +104,23 @@ RX72M と名前が違う: SYSTEM は SYSC と MSTPREG に分かれ（`p.sysc.prc
 SPLP2 / SPLP のループバック、4 モードの 1 MHz と 30 MHz、アイドル時の RSPCK と MOSI、転送時間）。64 バイトは 1 MHz で
 5046 カウント（673 us）、500 kHz で 10068 カウント（比 2.00）。D11 と D12 をつなぐと外部ループバックも確かめる。
 
+- `pwm`: `Pwm::gptw8(p.gptw8, pins.pf05, 1_000, &clocks)`。GPTW8 をノコギリ波 PWM モード 1 にし、PF05 = GTIOC8B
+  （PSEL 03h、表 22.25）から出す。PF05 はユーザー LED の LED1（緑）なので、RX72M の LD2 と同じく端子で測れる。
+  `SetDutyCycle`。RX74N に MTU はなく、32 ビットの GPTW（GPTW0〜15）を使う。
+  - カウントの基準（GTCLK）は PCLKD。リセット後の GTCLKCR.BPEN = 0 は非同期の GPTCLK（`clock` は設定しない）を
+    選ぶので、GPTW のモジュールストップ（MSTPCRE.MSTPE31、全チャネル共通）を解除する前に BPEN = 1 にする（解除の
+    あとは変えられない）。プリスケーラは GTCR.TPCS（GTCLK / 2^0〜2^10）のうち、周期が 65535 カウント以下に収まる最小のもの
+    （`SetDutyCycle` の u16 に合わせる）。
+  - GTCNT は 0 から GTPR まで数えて戻るので周期は GTPR + 1。GTIOR.GTIOB = 01001b（初期は Low、周期の終わりで High、
+    GTCCRB のマッチで Low、表 24.4）で、周期の初めから GTCCRB カウント High。デューティ 0 と最大は
+    GTUDDTYC.OBDTY（10b / 11b）で出す（RX72M の MTU のような TGR の工夫は要らない）。新しいデューティは GTCCRB の
+    バッファの GTCCRE に書き（GTBER.CCRB = 01b）、周期の終わりに移るので半端なパルスは出ない。
+
+確認: test/rust/hw-pwm-rx74n（rt グループ、21 チェック、release / dev とも通る。2026-11-08）。PLL1 480 MHz（PCLKD
+120 MHz）で、内容は RX72M の hw-pwm と同じ（PF05 を PIDR で読み、CMT0 の時間で重みを付けて測る）。1 kHz の 25 / 50 /
+75 % は 25.0 / 50.0 / 75.0 %（release）、24.9 / 49.9 / 74.9 %（dev）、100 ms に立ち上がり 100 回。100 kHz の 50 % は
+50.0 % / 48.7 %、10 ms に 1000 回。初めの 1 回ですべて通った。
+
 確認: test/rust/hw-hal-rx74n（rt グループ、10 チェック、release / dev とも通る。LED が順に光る）。
 test/rust/hw-clock-rx74n（rt グループ、20 チェック、480 MHz と `--cfg clock600` の 600 MHz、release / dev とも通る）は
 設定後のレジスタに加えて、CAC でクロックを測る。メインクロック対 MOCO / 8192 は 23580（MOCO が 4% 速い）、
