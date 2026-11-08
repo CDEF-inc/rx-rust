@@ -11,15 +11,19 @@
   C シンボルに `_` を付ける（M2、NOTES-codegen.md の「シンボル名」）。
 - リポジトリ: https://github.com/CDEF-inc/rx-rust（作業場所: WSL Ubuntu `/work/rx_rust_toolchain/rx-rust`）
 
-## 残っていること（2026-11-01 時点）
-各マイルストーンの `[ ]` のまとめ。2026-10-31 に llc とテストで確かめた。issue #1（RXv2 / RXv3 対応）は
-2026-11-01 に閉じ、残りはそれぞれ別の issue にした。
+## 残っていること（2026-11-09 時点）
+各マイルストーンの `[ ]` と、開いている issue のまとめ。issue #1（RXv2 / RXv3 対応）は 2026-11-01 に閉じ、
+残りはそれぞれ別の issue にした。
 
 | 項目 | いまの動き | 影響 | issue |
 |---|---|---|---|
-| `alloc` | 未試験 | ヒープを使う crate | #52 |
+| Rust の可変長関数の定義（`extern "C" fn f(n: c_int, mut args: ...)`） | rustc は LLVM の va_arg に任せる。未試験。LLVM 側の定義は M2 で済み | C から呼ばれる Rust の可変長関数 | — |
 | tidy・UI テスト・platform-support ドキュメント | 未対応 | 上流化する場合だけ必要 | #53 |
-| 周辺機能（UART 受信、SPI / I2C / PWM / ADC） | rx72m-hal に未実装 | NOTES-hal.md の「予定」 | #54 |
+| rx72m-hal の I2C（RIIC） | 未実装。UART 受信・SPI・PWM・ADC は済み（rx74n-hal には I2C がある） | RX72M で I2C を使うとき | #54 |
+| AP-RX72M-0A の単体起動 | E2 Lite を外してリセットすると、コードフラッシュのプログラムが動かない。原因は未特定 | デバッガなしで動かすとき | — |
+| EK-RX74N の non-secure ワールド | 実機では未実行（QEMU では動く） | TrustZone 相当の分離を使うとき | — |
+| LLDB | ウォッチポイントが最初の実行の前しか効かない（#80）、DFPU レジスタ（#81）、Rust の型の表示（#83）、CFI のない関数・割り込みをまたぐ巻き戻し（#85）、RX72M でのセッションの回し方（#86）、試験の範囲（#87） | デバッグ | #80、#81、#83、#85、#86、#87 |
+| 実機デバッグの環境 | 例外の中へステップ実行すると PC がおかしくなる（#98）。WSL の interop が無効なので hw-run.sh / hw-lldb.sh に Git Bash が要る（#99） | 実機での試験とデバッグ | #98、#99 |
 
 ## ディレクトリ
 - `rust/` — サブモジュール CDEF-inc/rust `rx-none-elf`（rust-lang/rust `7189d39d9ce` + RX）。
@@ -98,7 +102,7 @@
 - [x] float / double はソフトフロート（libgcc soft-fp、-m64bit-doubles multilib）。RuntimeLibcalls.td に RX を登録
 - [x] GCC との相互呼び出しテスト（m3.ll + m3_main.c、3957 チェック全通過、-O0〜-O3）
 - [x] 構造体の値渡し（整数パーツ / byval）・戻り（レジスタ / R15 sret、R1 にアドレス返却）。struct.ll + struct_main.c 142 チェック全通過
-- [ ] LLVM 側の可変長関数定義（va_start / va_arg）。可変長関数を呼ぶ側は上の規則で動く
+- [x] LLVM 側の可変長関数定義（va_start / va_arg）。M2 で対応（rx-rust #51、`test/codegen/va.ll`）
 - [x] 単精度 FPU（`+fpu`、rxv2 以上の既定）: nnan+ninf かつ非正規化数環境が preserve-sign の演算だけ
   fadd/fsub/fmul/fdiv/fsqrt/fcmp、int→float は itof/utof、それ以外はソフトフロート（issue #1）。
   fpu.ll 3110 チェック、core-smoke も `+fpu` で通過
@@ -115,7 +119,8 @@
 - [x] RX の target feature（rxv2 / rxv3 / rxv3e / fpu / dfpu、rust #4）とインライン asm（`asm!`、M5、`test/codegen/inline-asm.ll`）
 - [x] 配布用ツールチェイン（`scripts/dist-toolchain.sh`、rx-rust #40）。CI の RX ジョブで使う
 - [x] Windows 版の配布用ツールチェイン（`scripts/build-windows.sh`、`scripts/dist-toolchain-windows.sh`、host は x86_64-pc-windows-msvc）
-- [ ] `alloc` の確認
+- [x] `alloc`: `-Zbuild-std=core,alloc` でビルドし、`test/rust/alloc-smoke` が QEMU で通過（rx-rust #52、NOTES-rustc.md）
+- [ ] Rust の可変長関数の定義（`c_variadic`）の確認
 - [ ] tidy / UI テスト / platform-support のドキュメント（上流化する場合）
 
 ### M5 実機 ✅ 2026-10-28（詳細 `NOTES-rt.md`、`NOTES-hw.md`、`NOTES-hal.md`）
@@ -133,4 +138,6 @@
 - [x] Rust で書いた RTOS が QEMU と RX72M で動く
 - [x] UART の受信と相手機器との通信: `examples/serial-echo`（USB シリアル変換で 4096 バイトとブレークまで。
   デバッガをつないだ状態、NOTES-hal.md）
-- [ ] SPI / I2C / PWM / ADC（NOTES-hal.md の「予定」）
+- [x] rx72m-hal の SPI（RSPI）・PWM（MTU）・ADC（S12AD）、rx74n-hal の SPI・PWM・ADC・I2C（2026-11-08、NOTES-hal.md）
+- [ ] rx72m-hal の I2C（RIIC）（NOTES-hal.md の「予定」）
+- [ ] AP-RX72M-0A で、E2 Lite を外してリセットしたときにコードフラッシュから起動すること
