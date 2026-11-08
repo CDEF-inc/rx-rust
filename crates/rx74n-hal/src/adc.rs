@@ -143,10 +143,14 @@ fn wr32(a: usize, v: u32) {
     unsafe { write_volatile(a as *mut u32, v) }
 }
 
-/// Waits at least `us` microseconds (a loop of at least one ICLK cycle
-/// per iteration).
-fn spin_us(iclk: u32, us: u32) {
-    let mut n = iclk / 1_000_000 * us;
+/// Waits at least `us` microseconds: a loop of at least one cycle of the
+/// CPU's clock CPUCLK0 per iteration (not ICLK, which may be slower).
+fn spin_us(cpuclk: u32, us: u32) {
+    spin(cpuclk.div_ceil(1_000_000) * us);
+}
+
+/// A loop of `n` iterations, each at least one CPUCLK0 cycle.
+fn spin(mut n: u32) {
     while n > 0 {
         core::hint::spin_loop();
         n -= 1;
@@ -157,7 +161,10 @@ fn spin_us(iclk: u32, us: u32) {
 pub struct Adc {
     _adc: pac::AdcB,
     adclk: u32,
-    iclk: u32,
+    /// CPUCLK0 in Hz, for the waits.
+    cpuclk: u32,
+    /// CPUCLK0 cycles for 6 PCLKA cycles, the gap after a scan.
+    scan_gap: u32,
     /// Sampling states of table 0 (the AN pins, the self-diagnosis) and
     /// table 1 (the internal sources).
     sst0: u32,
@@ -194,7 +201,8 @@ impl Adc {
         let mut adc = Adc {
             _adc: adc,
             adclk,
-            iclk: clocks.iclk,
+            cpuclk: clocks.cpuclk,
+            scan_gap: 6 * clocks.cpuclk.div_ceil(clocks.pclka),
             sst0: 0,
             sst1: adclk.div_ceil(1_000_000) * 5,
         };
@@ -203,7 +211,7 @@ impl Adc {
         // values: unit 0, SAR single scan).
         wr32(ADSGER, 1);
         // A/D start-up time, 2 us.
-        spin_us(clocks.iclk, 2);
+        spin_us(clocks.cpuclk, 2);
 
         // Calibration: internal circuit, then gain and offset.
         wr32(ADCALSTCR, cst << 16 | adc.sst0);
@@ -253,9 +261,7 @@ impl Adc {
         while rd32(ADSCANENDSR) & 1 == 0 {}
         wr32(ADSCANENDSCR, 1);
         // The next start comes at least 6 PCLKA cycles after the end.
-        for _ in 0..8 {
-            core::hint::spin_loop();
-        }
+        spin(self.scan_gap);
         rd32(result)
     }
 
@@ -282,7 +288,7 @@ impl Adc {
     pub fn read_internal_reference(&mut self) -> Result<u16, ConversionError> {
         wr32(ADREFCR, 1);
         // No settling time is given; wait as long as the sampling.
-        spin_us(self.iclk, 5);
+        spin_us(self.cpuclk, 5);
         let r = self.convert(CNVCS_REFERENCE, false, 1, FORMAT_12_UNSIGNED, ADEXDR0 + 4 * 5);
         wr32(ADREFCR, 0);
         data(r)
@@ -349,7 +355,7 @@ impl TemperatureSensor {
     /// again.
     pub fn read_raw(&mut self, adc: &mut Adc) -> Result<u16, ConversionError> {
         unsafe { write_volatile(TSCR, TSEN) };
-        spin_us(adc.iclk, 30);
+        spin_us(adc.cpuclk, 30);
         unsafe { write_volatile(TSCR, TSEN | TSOE) };
         let r = adc.convert(CNVCS_TEMPERATURE, false, 1, FORMAT_12_UNSIGNED, ADEXDR0 + 4 * 4);
         unsafe {

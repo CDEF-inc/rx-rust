@@ -63,9 +63,10 @@ fn wr32(a: usize, v: u32) {
     unsafe { write_volatile(a as *mut u32, v) }
 }
 
-/// Waits about `us` microseconds at ICLK 240 MHz (a few cycles per loop).
+/// Waits at least `us` microseconds at CPUCLK0 480 MHz (at least one
+/// cycle per loop; ICLK is 240 MHz, but the CPU runs at CPUCLK0).
 fn wait_us(us: u32) {
-    for _ in 0..us * 240 {
+    for _ in 0..us * 480 {
         core::hint::spin_loop();
     }
 }
