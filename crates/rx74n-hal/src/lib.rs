@@ -7,14 +7,15 @@
 //!   and the pin functions.
 //! - [`delay`]: `DelayNs` on CMT2.
 //! - [`serial`]: RSCI12 as a UART (`embedded-io` `Read` / `Write`).
+//! - [`spi`]: RSPIA0 as an SPI master (`SpiBus`).
 //!
 //! Everything runs in the root world, as a reset leaves it (a Flat-Project
 //! in the hardware manual's terms), and uses the registers' secure
 //! addresses. Register access goes through [`pac`] (rx74n-pac, generated
-//! from e2 studio's RX74N.sfrx) where its types fit, and through the uniform
-//! port register layout for GPIO. Read-modify-write of shared registers runs
-//! in a critical section; the application provides the implementation
-//! (rx-rt's `critical-section` feature).
+//! from e2 studio's RX74N.sfrx) where its types fit, and directly by address
+//! for the uniform port registers and RSPIA0. Read-modify-write of shared
+//! registers runs in a critical section; the application provides the
+//! implementation (rx-rt's `critical-section` feature).
 
 #![no_std]
 
@@ -27,3 +28,4 @@ pub mod delay;
 pub mod gpio;
 mod mstp;
 pub mod serial;
+pub mod spi;
