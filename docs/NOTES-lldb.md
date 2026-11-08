@@ -80,7 +80,33 @@ lldb ELF -o 'gdb-remote 1234'
   12 バイトの構造体（メモリ経由）では値が出ないこと。`thread return 7` で r1 = 7;
 - レジスタと逆アセンブル;
 - ウォッチポイント、グローバル変数;
-- `src/types.rs` の局所変数で、Rust の型がどう出るか（下の「Rust の型」）。
+- `src/types.rs` の局所変数で、Rust の型がどう出るか（下の「Rust の型」）;
+- `src/user.rs` の割り込みハンドラから、ユーザーモードで割り込まれたコードまで遡れること（下の「割り込みをまたぐ
+  バックトレース」）。lldb-demo は最後にこのループに入って戻らない。
+
+### 割り込みをまたぐバックトレース（#85、2026-11-09）
+
+rx-rt の `_rx_isr_common` の CFI で、LLDB はハンドラから割り込まれたコードまで遡れる。QEMU で次を確かめた:
+
+- **ソフトウェア割り込み（isr-save、rxv1、dev）:**
+  - `soft` → `_rx_isr_common` → `main`（`int #65` の行）→ `rx_rt::start` → `_rx_reset`;
+  - `main` のフレームの PSW は、割り込まれたときの値（スタックに積まれた PSW）;
+  - `finish` を繰り返すと、ハンドラから `_rx_isr_common`、そこから `rte` で `main` に戻る。
+- **CMT の割り込み（hw-irq、rxv3、dev）:**
+  - `cmi1` → `_rx_isr_common` → `main` の `interrupt::wait()`（インライン展開されたフレーム）。PSW は I = 1、
+    IPL = 0;
+  - **入れ子:** `cmi0` の中で割り込みを許可したところに `cmi1` が入ると、`cmi1` → `_rx_isr_common` → `cmi0` →
+    `_rx_isr_common` → `main` → `_rx_reset` と遡る。`cmi0` のフレームの PSW は IPL = 1、I = 1。
+- **ユーザーモード（lldb-demo の `user.rs`、check-lldb.sh で毎回確かめる）:**
+  - USP に切り替えて `int #64` を繰り返すループで、ハンドラ `trap` → `_rx_isr_common` → `_lldb_user_loop`;
+  - ループのフレームの r0 は USP の値、PSW は U = 1。CFI の式（PSW.U が 1 なら退避した USP、0 なら CFA）が、
+    U = 1 の側で評価されている;
+  - ループの戻り番地は ISP 側にあり、DWARF では ISP を指せない。そのため、ループの CFI は PC を undefined にして、
+    そこでバックトレースを終える。
+- 割り込まれたフレームの PC は、次に実行する命令の番地である。LLDB は呼び出し元のフレームの行を PC − 1 で引くので、
+  直前の命令の行が出る。`int` なら `int` の行、`setpsw i` の直後に入った割り込みなら `interrupt::enable` の行になる。
+- `_rx_isr_common` 自身のフレームの PSW は「unavailable」になる。どこにも退避していないため。
+- 実機では、まだ確かめていない。
 
 ### Rust の型（#83、2026-11-09）
 

@@ -93,6 +93,8 @@ else
     'frame variable some.$variants$.$variant$1.value.__0'
     "frame variable -Z 2 slice.data_ptr" "frame variable *point_ref"
     "frame variable *add_k._ref__k"
+    "breakpoint set -n trap" "continue" "bt" "register read usp"
+    "frame select 2" "register read psw r0" "frame select 0"
     "expr lldb_demo::outer(1, 2)"
   )
 fi
@@ -187,6 +189,15 @@ expect "bool"                        '\(bool\) flag = true'
 expect "tuple"                       '\(\(u8, i32\)\) tuple = \(__0 = .\\x01., __1 = -1\)'
 expect "closure"                     '\(lldb_demo::types::run::\{closure_env#0\}\) add_k = \{'
 expect "closure: a capture"          '\(unsigned int\) \*add_k\._ref__k = 3'
+# user.rs (#85): from the handler through _rx_isr_common into code that
+# ran in user mode. Its SP is USP (saved by the interrupt entry), not the
+# CFA, and its PSW has U = 1.
+expect "interrupt: handler"          'frame #0: 0x[0-9a-f]+ lldb-demo`lldb_demo::user::trap at user\.rs'
+expect "interrupt: the entry"        'frame #1: 0x[0-9a-f]+ lldb-demo`_rx_isr_common \+ [0-9]+'
+expect "interrupt: interrupted code" 'frame #2: 0x[0-9a-f]+ lldb-demo`_lldb_user_loop \+ [0-9]+'
+expect "interrupt: PSW.U = 1"        '= \(IPL = 0, PM = 0, U = 1,'
+usp=$(grep -o -E '^ +usp = 0x[0-9a-f]+' "$tmp/out" | head -1 | awk '{print $3}')
+expect "interrupt: SP = USP"         "^ +r0 = ${usp:-none} "
 fi
 # build-lldb.sh links libxml2, so LLDB reads QEMU's target.xml (#82).
 if grep -q 'does not have XML parsing enabled' "$tmp/out"; then
