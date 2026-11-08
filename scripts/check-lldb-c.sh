@@ -1,0 +1,123 @@
+#!/bin/bash
+# Debugs C code built by GCC (-g) together with Rust, with LLDB on QEMU:
+# test/rust/core-smoke's main.c (GCC) and its Rust staticlib (dev), linked
+# like run-rust-test.sh does. Checks the backtraces across the languages
+# (C -> Rust -> C), GCC's arguments and locals (structs among them), and
+# `finish` on C functions (C's ABI) and on a Rust one called from C.
+#
+#   check-lldb-c.sh        OPT=0|2 (GCC's -O, default 0); LLDB_TIMEOUT
+#                          seconds for the LLDB session (120)
+#
+# Two known gaps (docs/NOTES-lldb.md):
+# - -O0: a breakpoint on a function written on one line stops before its
+#   prologue, where GCC's locations of the arguments are not valid yet
+#   (c_double's x);
+# - -O2: GCC describes a struct argument passed on the stack as
+#   DW_OP_breg7 (its argument pointer, r7, which is eliminated in the code),
+#   so LLDB reads garbage (c_struct_mix's a).
+set -u
+root=$(cd "$(dirname "$0")/.." && pwd)
+host=x86_64-unknown-linux-gnu
+opt=${OPT:-0}
+G=$root/gnu/install/bin
+LLDB=$root/build/lldb/bin/lldb
+[ -x "$LLDB" ] || { echo "no $LLDB; run scripts/build-lldb.sh" >&2; exit 2; }
+if [ -z "${QEMU:-}" ]; then
+  QEMU=$root/../qemu/build/qemu-system-rx
+  [ -x "$QEMU" ] || QEMU=qemu-system-rx
+fi
+crate=$root/test/rust/core-smoke
+target_dir=$root/build/lldb-c
+(cd "$crate" && RUSTC=$root/rust/build/$host/stage1/bin/rustc RUSTC_BOOTSTRAP=1 \
+  RUSTFLAGS="-C target-cpu=rxv1" "$root/rust/build/$host/stage0/bin/cargo" build -q \
+  --profile dev --target rx-none-elf -Zbuild-std=core \
+  -Zbuild-std-features=compiler-builtins-mem --target-dir "$target_dir") || exit 1
+
+tmp=$(mktemp -d)
+trap 'kill $qemu 2>/dev/null; rm -rf "$tmp"' EXIT
+GCCFLAGS="-mcpu=rx600 -m64bit-doubles"
+libgcc=$("$G/rx-elf-gcc" $GCCFLAGS -print-libgcc-file-name)
+elf=$target_dir/core-smoke-O$opt.elf
+"$G/rx-elf-as" -o "$tmp/start.o" "$root/scripts/rx-start.s"
+"$G/rx-elf-gcc" $GCCFLAGS -g -O"$opt" -c "$crate/main.c" -o "$tmp/main.o" || exit 1
+"$root/build/llvm/bin/ld.lld" -T "$root/scripts/rx-qemu.ld" --gc-sections -o "$elf" \
+  "$tmp/start.o" "$tmp/main.o" "$target_dir/rx-none-elf/debug/librx_core_smoke.a" \
+  "$libgcc" || exit 1
+
+# run-rust-test.sh's way: the ELF is loaded into the SDRAM and runs from
+# its entry (_start); the ROM is empty.
+head -c 16 /dev/zero > "$tmp/bios.bin"
+port=$((20000 + $$ % 20000))
+"$QEMU" -M gdbsim-r5f562n8 -bios "$tmp/bios.bin" -display none -serial none \
+  -monitor none -device loader,file="$elf",cpu-num=0 -S -gdb tcp:127.0.0.1:$port &
+qemu=$!
+for _ in $(seq 50); do
+  ss -ltn "sport = :$port" | grep -q LISTEN && break
+  sleep 0.2
+done
+
+# main.c runs its checks for k = 0, 1, 300, ...: stop in the k = 300 round.
+cmds=(
+  "breakpoint set -n rs_s3 -c 'y == 300'" "continue" "bt" "frame variable" "finish"
+  "breakpoint set -n rs_call_c -c 'k == 300'" "continue" "bt"
+  "breakpoint set -n c_struct_mix" "continue" "bt" "frame variable" "finish"
+  "up" "frame variable k"
+  "breakpoint set -n c_double" "continue" "frame variable" "finish"
+)
+args=()
+for c in "${cmds[@]}" kill; do args+=(-o "$c"); done
+lldb_timeout=${LLDB_TIMEOUT:-120}
+timeout -k 10 "$lldb_timeout" "$LLDB" -b -x -o "settings set use-color false" \
+  -o "target create $elf" -o "gdb-remote 127.0.0.1:$port" \
+  "${args[@]}" > "$tmp/out" 2>&1
+lldb_status=$?
+log=$target_dir/check-lldb-c-O$opt.log
+cat "$tmp/out" > "$log"
+
+status=0
+if [ $lldb_status = 124 ] || [ $lldb_status = 137 ]; then
+  echo "FAIL  LLDB did not finish in $lldb_timeout s"; status=1
+else
+  echo "ok    LLDB finished"
+fi
+expect() {
+  if grep -q -E -- "$2" "$tmp/out"; then echo "ok    $1"
+  else echo "FAIL  $1: no /$2/"; status=1; fi
+}
+f='frame #[0-9]+: 0x[0-9a-f]+ core-smoke-O[02]\.elf`'
+# Rust called from C: its arguments, and `finish` in the C caller.
+expect "Rust from C: backtrace"       "#0: 0x[0-9a-f]+ [^ ]*\`rs_s3\\(s=.*, y=300\\) at lib\\.rs:63"
+expect "Rust from C: the C caller"    "${f}main at main\\.c:71"
+expect "Rust from C: argument"        '\(int\) y = 300'
+expect "Rust from C: struct argument" '\(rx_core_smoke::S3\) s = \(c = ",\\t\\U00000001"\)'
+expect "Rust from C: finish"          'Return value: \(int\) \$[0-9]+ = 600'
+# C called from Rust called from C.
+expect "backtrace: c_struct_mix"      "${f}c_struct_mix\\(a=.*, b=\\(a = 300, b = 3\\), c=300\\) at main\\.c:(29|30)"
+expect "backtrace: rs_call_c"         "${f}rs_call_c\\(k=300\\) at lib\\.rs:86"
+expect "backtrace: main"              "#2: 0x[0-9a-f]+ [^ ]*\`main at main\\.c:82"
+expect "backtrace: _start"            "#3: 0x[0-9a-f]+ [^ ]*\`_start \\+ 10"
+if grep -q 'frame #4' "$tmp/out"; then
+  echo "FAIL  backtrace: goes on after _start"; status=1
+else
+  echo "ok    backtrace: ends at _start"
+fi
+expect "C struct argument in registers" '\(s8\) b = \(a = 300, b = 3\)'
+if [ "$opt" = 0 ]; then
+  expect "C struct argument on the stack" '\(s3\) a = \(c = ",\\a\\U00000001"\)'
+elif grep -q -F '(s3) a = (c = ",\a\U00000001")' "$tmp/out"; then
+  echo "note  c_struct_mix's a is right at -O2 now: update this script and NOTES-lldb.md"
+fi
+expect "finish: C int"                'Return value: \(int\) \$[0-9]+ = 301111'
+expect "up: C local"                  '\(int\) k = 300'
+[ "$opt" = 0 ] || expect "C double argument" '\(double\) x = 300'
+expect "finish: C double"             'Return value: \(double\) \$[0-9]+ = 150'
+if grep -q -E 'Assertion|Stack dump|PLEASE submit' "$tmp/out"; then
+  echo "FAIL  LLDB crashed"; status=1
+else
+  echo "ok    LLDB did not crash"
+fi
+if [ $status != 0 ]; then
+  echo "   (LLDB output in ${log#$root/}:)"
+  cat "$log"
+fi
+exit $status

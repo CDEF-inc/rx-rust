@@ -79,11 +79,110 @@ lldb ELF -o 'gdb-remote 1234'
   (u16, u16)、(u8, u16)、`Option<u32>`、u64、f64。
   12 バイトの構造体（メモリ経由）では値が出ないこと。`thread return 7` で r1 = 7;
 - レジスタと逆アセンブル;
-- ウォッチポイント、グローバル変数。
+- ウォッチポイント、グローバル変数;
+- `src/types.rs` の局所変数で、Rust の型がどう出るか（下の「Rust の型」）;
+- `src/user.rs` の割り込みハンドラから、ユーザーモードで割り込まれたコードまで遡れること（下の「割り込みをまたぐ
+  バックトレース」）。lldb-demo は最後にこのループに入って戻らない。
 
-run-all-tests.sh は、build/lldb があればこれと lit テストも実行する。
-release（opt-level "s"）では引数や局所変数が最適化で消える。
-LLDB には Rust のプラグインがないので、型は C の名前で出る（`unsigned int` など）。
+### 割り込みをまたぐバックトレース（#85、2026-11-09）
+
+rx-rt の `_rx_isr_common` の CFI で、LLDB はハンドラから割り込まれたコードまで遡れる。QEMU で次を確かめた:
+
+- **ソフトウェア割り込み（isr-save、rxv1、dev）:**
+  - `soft` → `_rx_isr_common` → `main`（`int #65` の行）→ `rx_rt::start` → `_rx_reset`;
+  - `main` のフレームの PSW は、割り込まれたときの値（スタックに積まれた PSW）;
+  - `finish` を繰り返すと、ハンドラから `_rx_isr_common`、そこから `rte` で `main` に戻る。
+- **CMT の割り込み（hw-irq、rxv3、dev）:**
+  - `cmi1` → `_rx_isr_common` → `main` の `interrupt::wait()`（インライン展開されたフレーム）。PSW は I = 1、
+    IPL = 0;
+  - **入れ子:** `cmi0` の中で割り込みを許可したところに `cmi1` が入ると、`cmi1` → `_rx_isr_common` → `cmi0` →
+    `_rx_isr_common` → `main` → `_rx_reset` と遡る。`cmi0` のフレームの PSW は IPL = 1、I = 1。
+- **ユーザーモード（lldb-demo の `user.rs`、check-lldb.sh で毎回確かめる）:**
+  - USP に切り替えて `int #64` を繰り返すループで、ハンドラ `trap` → `_rx_isr_common` → `_lldb_user_loop`;
+  - ループのフレームの r0 は USP の値、PSW は U = 1。CFI の式（PSW.U が 1 なら退避した USP、0 なら CFA）が、
+    U = 1 の側で評価されている;
+  - ループの戻り番地は ISP 側にあり、DWARF では ISP を指せない。そのため、ループの CFI は PC を undefined にして、
+    そこでバックトレースを終える。
+- 割り込まれたフレームの PC は、次に実行する命令の番地である。LLDB は呼び出し元のフレームの行を PC − 1 で引くので、
+  直前の命令の行が出る。`int` なら `int` の行、`setpsw i` の直後に入った割り込みなら `interrupt::enable` の行になる。
+- `_rx_isr_common` 自身のフレームの PSW は「unavailable」になる。どこにも退避していないため。
+- 実機では、まだ確かめていない。
+
+### Rust の型（#83、2026-11-09）
+
+LLDB には Rust のプラグインがない。Rust の DWARF を clang の型システム（C / C++）で読むので、次のように出る。
+`rust-lldb` の表示整形（rustc の `src/etc` の Python スクリプト）は、LLDB を Python なしでビルドしているので
+使えない。
+
+| 型 | 表示 | 読み方 |
+|---|---|---|
+| 整数、`char`、`bool` | C の名前（`unsigned int`、`short`、`char32_t`、`bool`）。`u8` / `i8` は文字（`'\x02'`） | — |
+| 構造体、タプル、ジェネリクス | `(lldb_demo::Point) point = (x = 11, y = -12)`、`((u8, i32)) tuple = (__0 = '\x01', __1 = -1)`。型引数も C の名前（`Wrapper<short>`） | — |
+| C 風の enum | `(lldb_demo::types::Color) color = Green` | — |
+| データ付きの enum（`Option`、`Result`、`Shape`） | すべての variant が `$variants$` の下に並び、それぞれに同じ `$discr$`（判別値）が付く | `$discr$` で有効な variant を選び、`frame variable some.$variants$.$variant$1.value.__0` |
+| `&str` | `(data_ptr = "rx-rust", length = 7)` | — |
+| スライス | `data_ptr` と `length` だけで、要素は出ない | `frame variable -Z 2 slice.data_ptr`、`parray 2 slice.data_ptr` |
+| 配列 | `([0] = 10, ...)`。`[u8; N]` は文字列（`"RX72"`） | — |
+| 参照 | ポインタ（`(lldb_demo::Point *) point_ref = 0x...`） | `frame variable *point_ref`、`point_ref->x` |
+| クロージャ | 捕まえた変数への参照（`{closure_env#0}` の `_ref__k`） | `frame variable *add_k._ref__k` |
+
+- `expr` で enum の variant の中を指すと（`expr some.$variants$.$variant$1.value.__0`）、LLDB が落ちる。clang の
+  アサーション（`missing temporary materialization conversion`）による。
+  - x86_64 の Rust のプログラムでも同じなので、RX 特有ではない。
+  - build/lldb はアサーション付きでビルドしているので、落ちる。
+  - `frame variable` は clang の式評価を通らないので、同じ式で読める。
+- Python の表示整形を使うには、LLDB を Python 付きでビルドし（`python3-dev` と swig が要る）、`src/etc` を配布物に
+  入れる必要がある。まだしていない（#83）。
+
+`RX_CPU=rxv2|rxv3|rxv3e` で、その CPU 向けにビルドして CDEF-inc/qemu の同じコアで動かす（`scripts/cpu.sh`）。
+4 つのコアすべてで同じ結果になる（2026-11-09）。ただし、QEMU の gdbstub には DFPU のレジスタがない（#81）。
+そのため、DR レジスタに置かれた f64 の変数はまだ試していない。
+
+`PROFILE=release`（opt-level "s"）は、最適化の後に残るものだけを短いセッションで確かめる:
+
+- バックトレースは dev と同じく `_rx_reset` まで遡れる。ただし `outer` の引数は
+  `a=<unavailable>, b=<unavailable>` になる。`a + b` を計算した後は、DWARF の位置リストが途切れているため。
+- `finish` で戻った先は、インライン展開された `<u32>::wrapping_add` の中である。LLDB はそれを
+  `[inlined]` の付いた別のフレームとして出し、その引数（`self=9, rhs=5`）も出す。
+- `rets.rs` の関数のうち、`ret_pair16`、`ret_reordered`、`ret_pair_u8_u16`、`ret_s8` は、`#[inline(never)]` なのに
+  呼び出し元（`run`）の中に展開されて残らない。DWARF にもその関数がないので、名前でブレークできない。
+  そのため、release のセッションは `ret_s2`、`ret_u64`、`ret_f64` だけで `finish` する。
+
+### GCC の C（`scripts/check-lldb-c.sh`）
+
+test/rust/core-smoke の main.c を GCC（`-g -O0` または `-O2`、`-mcpu=rx600 -m64bit-doubles`）で、
+Rust のライブラリを dev でビルドし、run-rust-test.sh と同じくリンクして、QEMU で動かす。
+`OPT=0|2` で GCC の最適化を選ぶ。次を確かめる:
+
+- **言語をまたぐバックトレース:** C の関数（`c_struct_mix`）→ それを呼ぶ Rust（`rs_call_c`）→ C の `main` →
+  `_start`。`_start`（rx-start.s）には CFI がないが、そこでバックトレースは終わる。
+- **C から呼ばれた Rust の関数（`rs_s3`）:** 3 バイトの構造体の引数を表示でき、C の呼び出し元での `finish`
+  の戻り値が出る。
+- **GCC の DWARF:** レジスタ番号は LLVM と同じ（r1〜r4 の引数、r2:r3 の構造体、r1 の戻り値が正しく出る）。
+  GCC の `.debug_frame`（CIE バージョン 3）でも遡れる。
+- **C の ABI の `finish`:** int（r1）と double（r1:r2）。
+
+わかっている問題が 2 つある。どちらもテストでは避けていて、直ってはいない:
+
+- **`-O0`: 1 行に書いた関数でブレークすると、プロローグの前で止まる。** たとえば
+  `double c_double(double x) { return x * 0.5; }` である。行番号表に、プロローグの後の行が別にないので、
+  LLDB はプロローグを飛ばせない。そこではまだ引数がスタックに書かれていないので、`x` はでたらめな値になる。
+  避けるには、`next` か `si` でプロローグを越えてから見る。GDB は命令を解析してプロローグを飛ばす。
+- **`-O2`: スタックで渡された構造体の引数の場所を、GCC が誤って出す。** たとえば `c_struct_mix` の `a`
+  （3 バイト）である。
+  - GCC は場所を `DW_OP_breg7`（r7 + 0）と書く。r7 は GCC の rx の引数ポインタ（`ARG_POINTER_REGNUM`）で、
+    コードでは SP に置き換わっているが、デバッグ情報だけ置き換わっていない。
+  - そのため LLDB は r7 の指す番地を読んで、でたらめな値を出す。GCC 14.2 の不具合である（GDB でも同じになるはずだが、確かめていない）。
+  - レジスタで渡された引数は正しく出る。
+
+run-all-tests.sh は、build/lldb があれば、check-lldb.sh（dev、release、rxv3）、check-lldb-c.sh（-O0、-O2）と
+lit テストを実行する。
+
+まだ試していないもの（#87）:
+
+- DR レジスタに置かれた値（QEMU の gdbstub に DFPU のレジスタがない、#81）;
+- 実機での LLDB のセッションを `hw-run.sh` のように自動で回すこと;
+- LLDB の gdb-remote の API テスト（Python が要る、#83）。
 
 ## 実機（e2-server-gdb）
 

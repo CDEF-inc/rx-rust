@@ -1,10 +1,10 @@
 //! A program for scripts/check-lldb.sh to debug: calls that are not inlined,
-//! with arguments, locals, a struct and a return value, three frames deep
-//! below main. Runs on QEMU's RX62N (booted from the reset vector) and on
-//! the RX72M.
+//! with arguments, locals, a struct and a return value, three frames deep below
+//! main. Runs on QEMU's RX62N (booted from the reset vector) and on the RX72M.
 
 #![no_std]
 #![no_main]
+#![feature(asm_experimental_arch)]
 #![allow(non_upper_case_globals)]
 
 use core::hint::black_box;
@@ -49,9 +49,8 @@ fn main() -> ! {
         write_volatile(&raw mut finished, 1);
     }
     rets::run();
-    loop {
-        rx_rt::interrupt::wait();
-    }
+    types::run();
+    user::run()
 }
 
 #[panic_handler]
@@ -61,3 +60,5 @@ fn panic(_: &PanicInfo) -> ! {
 
 // After the rest, so that the line numbers above (check-lldb.sh) stay.
 mod rets;
+mod types;
+mod user;
