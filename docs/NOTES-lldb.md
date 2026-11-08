@@ -161,7 +161,13 @@ LLDB では次のときにシングルステップになる:
   `breakpoint set -a <番地>` で、ハンドラの入口に置く。
   - 番地は、割り込みならベクタ表（INTB + 4 × 番号）、例外なら固定ベクタ表または例外ベクタ表（EXTB）から読める。
     たとえば `int #64` なら `memory read -s4 -fx -c1 '$intb + 256'` である（QEMU で確かめた）。
-  - rx-rt のハンドラは `_rx_isr_common` を通るので、そこに置けば、どの割り込みでも止まる。
+  - rx-rt の入口は、ハンドラの登録のしかたで、通る場所が違う:
+    - `rx_rt::interrupt!(n, handler)` のハンドラは、どれも `_rx_isr_common` を通る。そこに置けば、
+      この形のどの割り込みでも止まる;
+    - レジスタバンクを使うハンドラ（`interrupt!(n, handler, bank = b)`、RXv3）は `_rx_isr_common` を通らず、
+      `_rx_isr_bank_call` を通る（test/rust/isr-bank のベクタ 65 と 66）。そちらに置く;
+    - どちらの形でも、ベクタごとの入口 `_rx_vector_<番号>`（たとえば `_rx_vector_65`）に置けば、その割り込みで
+      止まる。
 - **命令の後で止める:** 1 回だけ効くブレークポイントを置いて `continue` する。ハンドラが戻ってきたところで止まる。
   - 次の行に置く: `breakpoint set -o true -l <行番号>`;
   - 次の命令に置く: `breakpoint set -o true -a <番地>`。番地は `disassemble -c 2 --pc` で見る。命令の途中の番地に
