@@ -88,6 +88,21 @@ RX72M と名前が違う: SYSTEM は SYSC と MSTPREG に分かれ（`p.sysc.prc
 - `serial`: RSCI12。RX72M の SCI とは別の周辺で、レジスタは 32 ビット。SSR の RDRF / TDRE をそのままポーリングできる
   （RX72M のように IR を見なくてよい）。エラーは SSCR で消す。FIFO は使わない。
   8 MHz で 115200 bps を出すにはビットレート補正が要る（ABCS = BGDM = 1、BRR = 7、MDDR = 236、115234 bps、+0.03%）。
+- `spi`: `Spi::rspia0(p.rspia0, pins.pa05, pins.pa06, pins.pa07, MODE_0, 1_000_000, &clocks)`。RSPIA0
+  （MSTPCRB.MSTPB19）を Arduino コネクタ J13 の PA05 = RSPCK0-B（D13）/ PA06 = MOSI0-B（D11）/ PA07 = MISO0-B（D12）
+  でマスタにし、`SpiBus<u8>` を実装する。PSEL は 10h（ハードウェアマニュアル表 22.20。テキストに起こした表の段がずれて
+  いて、最初 1Fh（CLKOUT の行）と読み違えた）。API とテストは rx72m-hal の `spi` と同じ（クロック同期式の 3 線、SPCMD0、
+  8 ビット、MSB ファースト、`set_loopback`、`free`）。RX72M の RSPI との違い:
+  - 制御レジスタは 32 ビット（SPCR、SPCMDm）、送受信は 4 段の FIFO。SPSR.SPTEF / SPRF は FIFO のしきい値で立ち、
+    SPSCLR に 1 を書く（か DTC / DMAC）まで消えないので、FIFO の段数（SPTFSR.FREE、SPRFSR.FILL）を見る。
+  - 動作クロック（TCLK）は SPICLK か PCLKA。`clock` は SPICLK を設定しないので、SPCR.SYNDIS = 1 で PCLKA にして
+    同期化回路を飛ばす（47.3.19。8 ビットのフレームは PCLKA : TCLK = 1:1 で使える、表 47.17）。
+  - SPDR はどの幅でも LSB 詰めで読み書きできるので、バイトで扱う。次アクセス遅延の既定は 1 RSPCK + 5 TCLK。
+
+確認: test/rust/hw-spi-rx74n（rt グループ、29 チェック、release / dev とも通る。2026-11-08）。PLL1 480 MHz
+（PCLKA 120 MHz）で、内容は RX72M の hw-spi と同じ（ビットレートの選び方、PmnPFS、SPCR = C100_0001h、
+SPLP2 / SPLP のループバック、4 モードの 1 MHz と 30 MHz、アイドル時の RSPCK と MOSI、転送時間）。64 バイトは 1 MHz で
+5046 カウント（673 us）、500 kHz で 10068 カウント（比 2.00）。D11 と D12 をつなぐと外部ループバックも確かめる。
 
 確認: test/rust/hw-hal-rx74n（rt グループ、10 チェック、release / dev とも通る。LED が順に光る）。
 test/rust/hw-clock-rx74n（rt グループ、20 チェック、480 MHz と `--cfg clock600` の 600 MHz、release / dev とも通る）は
