@@ -66,7 +66,7 @@ LLDB で RX のプログラム（Rust、C）をデバッグする。QEMU の gdb
 - `LLDB_PYTHON=1` で Python を有効にする（rustc の表示整形のため、#83）。`python3-dev` と swig が要る。
   - その lldb はビルドしたマシンの libpython3.x が要るので、手元で使うだけにする。
   - `dist-toolchain.sh` は、Python 付きの build/lldb を詰めるのを断る。
-  - 配布物と CI の LLDB は Python なしのまま。CI では表示整形のテストを飛ばす。
+  - 配布物と CI の LLDB は Python なしのまま。CI では表示整形のテストを飛ばす（#150）。
 - libxml2（2.13.9）をソースから静的ライブラリとしてビルドし、LLDB にリンクする（#82）。
   - 目的: GDB サーバーの `target.xml` とメモリマップ（`qXfer:memory-map`）を読むため。
   - ICU・lzma・zlib なしでビルドするので、配布物の lldb が必要とするライブラリは増えない。
@@ -119,7 +119,7 @@ rx-rt の `_rx_isr_common` の CFI で、LLDB はハンドラから割り込ま�
   直前の命令の行が出る。`int` なら `int` の行、`setpsw i` の直後に入った割り込みなら `interrupt::enable` の行になる。
 - `_rx_isr_common` 自身のフレームの PSW は「unavailable」になる。どこにも退避していないため。
 - 実機: EK-RX74M（2026-11-09、hw-lldb-check.sh）で、ユーザーモードの場合が QEMU と同じになる
-  （r0 = USP、PSW.U = 1）。ソフトウェア割り込み・CMT・入れ子の場合は、実機ではまだ確かめていない。
+  （r0 = USP、PSW.U = 1）。ソフトウェア割り込み・CMT・入れ子の場合は、実機ではまだ確かめていない（#153）。
 
 ### Rust の型（#83、2026-11-09）
 
@@ -139,7 +139,7 @@ Python スクリプト。`rust-lldb` が読み込む）が使える（下の「�
 | 参照 | ポインタ（`(lldb_demo::Point *) point_ref = 0x...`） | `frame variable *point_ref`、`point_ref->x` |
 | クロージャ | 捕まえた変数への参照（`{closure_env#0}` の `_ref__k`） | `frame variable *add_k._ref__k` |
 
-- `expr` で enum の variant の中を指すと（`expr some.$variants$.$variant$1.value.__0`）、LLDB が落ちる。clang の
+- `expr` で enum の variant の中を指すと（`expr some.$variants$.$variant$1.value.__0`）、LLDB が落ちる（#151）。clang の
   アサーション（`missing temporary materialization conversion`）による。
   - x86_64 の Rust のプログラムでも同じなので、RX 特有ではない。
   - build/lldb はアサーション付きでビルドしているので、落ちる。
@@ -224,7 +224,7 @@ lit テストを実行する。
 まだ試していないもの（#87）:
 
 - DR レジスタに置かれた変数の表示（レジスタそのものは QEMU でも読み書きできる、#81）;
-- LLDB の gdb-remote の API テスト（Python が要る、#83）。
+- LLDB の gdb-remote の API テスト（Python が要る、#87）。
 
 （実機での LLDB のセッションは scripts/hw-lldb-check.sh が自動で回す。下の「実機」。）
 
@@ -297,7 +297,7 @@ check-lldb.sh と同じように照合する。リポジトリは WSL にある�
   `_rx_isr_common` の中で止まると、バックトレースが壊れる。LLDB の非同期停止での最初のフレームの巻き戻しは、
   命令のエミュレーション（EmulateInstructionRX）による。これは、割り込みで入ったときのスタック
   （CFA = SP + 36）も `dpushm` / `dpopm` も知らない。DWARF の CFI は正しいが、LLDB は x86 以外では CFI を
-  エミュレーションで補う形を使わない（FuncUnwinders）。未解決。
+  エミュレーションで補う形を使わない（FuncUnwinders）。未解決（#152）。
 
 ### ブリッジがすること
 
