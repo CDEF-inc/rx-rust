@@ -110,6 +110,13 @@ breakpoint delete -f
 watchpoint set variable finished
 continue
 watchpoint delete -f
+breakpoint set -n ret_f64
+continue
+si
+register read dr0
+register write dr5 1.25
+register read -f x dr5
+breakpoint delete -f
 process detach
 platform shell sleep 2
 platform shell echo @@session3
@@ -193,6 +200,10 @@ expect "watchpoint: the second hit"  '^new value: \{v:\{value:\{0:2\}\}\}$|^ +\(
 expect "watchpoint: in the handler"  'frame #[0-9]: 0x[0-9a-f]+ lldb-demo.elf`lldb_demo::user::trap' 1
 expect "watchpoint: finished"        'new value: 1$' 2
 expect "watchpoint: at the write"    'stop reason = watchpoint 2' 2
+# The DFPU's registers (#81): `utod r1, dr0` in ret_f64(3) gives 3.0, and a
+# written double reads back (1.25 = 0x3ff4...).
+expect "DFPU: dr0 after utod"        '^ +dr0 = 3$' 2
+expect "DFPU: write and read dr5"    '^ +dr5 = 0x3ff4000000000000$' 2
 expect "again: the reset vector"     'frame #0: 0x[0-9a-f]+ lldb-demo.elf`_rx_reset' 2
 # (The formatters, if loaded in session 1, are still loaded.)
 expect "again: breakpoint"           'frame #0: 0x[0-9a-f]+ lldb-demo.elf`lldb_demo::scale\(p=(\(x = 5, y = -2\)|\{x:5, y:-2\}), k=3\) at main\.rs:27' 2
@@ -202,7 +213,7 @@ expect "after detach: stopped"       'stop reason = signal SIGINT' 3
 # entry or the handler. (A stop inside _rx_isr_common does not unwind yet:
 # LLDB's frame-0 plan there comes from instruction emulation, which knows
 # neither the interrupt's entry state nor dpushm / dpopm.)
-expect "after detach: in the loop"   'frame #0: 0x[0-9a-f]+ lldb-demo.elf`(_lldb_user_loop|_rx_vector_64|_rx_isr_common|lldb_demo::user::trap|core::sync::atomic)' 3
+expect "after detach: in the loop"   'frame #0: 0x[0-9a-f]+ lldb-demo.elf`(_lldb_user_loop|_rx_vector_64|_rx_isr_common|lldb_demo::user::trap|<?core::sync::atomic)' 3
 if grep -q -E 'Assertion|Stack dump|PLEASE submit' "$tmp/out"; then
   echo "FAIL  LLDB crashed"; status=1
 else
