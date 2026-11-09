@@ -32,6 +32,10 @@ wsl() { MSYS_NO_PATHCONV=1 wsl.exe -d "$distro" -- "$@"; }
 loop=$(wsl "$wroot/build/llvm/bin/llvm-nm" "$welf" | awk '$3 == "_lldb_user_loop" {print $1}')
 [ -n "$loop" ] || { echo "no _lldb_user_loop in $elf" >&2; exit 2; }
 int=$(printf '0x%x' $((0x$loop + 11)))
+# Next to TRAPS (user.rs), for a second watchpoint, which the bridge refuses.
+traps=$(wsl "$wroot/build/llvm/bin/llvm-nm" "$welf" | awk '$3 == "_TRAPS" {print $1}')
+[ -n "$traps" ] || { echo "no TRAPS in $elf" >&2; exit 2; }
+wp2=$(printf '%x' $((0x$traps + 4)))
 
 port=${LLDB_PORT:-61235}
 tmp=$(mktemp -d)
@@ -81,6 +85,8 @@ breakpoint set -n trap
 continue
 breakpoint delete -f
 watchpoint set variable TRAPS
+process plugin packet send qWatchpointSupportInfo:
+process plugin packet send Z2,$wp2,1
 continue
 continue
 watchpoint delete -f
@@ -197,6 +203,9 @@ else echo "FAIL  watchpoint: $n hits on TRAPS, not 2"; status=1; fi
 # AtomicU32: {v:{value:{0:2}}} with the formatters, else over lines with
 # `(__0 = 2)`.
 expect "watchpoint: the second hit"  '^new value: \{v:\{value:\{0:2\}\}\}$|^ +\(__0 = 2\)$' 1
+# One watchpoint at a time: the server's stop does not say which one hit.
+expect "watchpoint: one slot"        '^response: num:1;$' 1
+expect "watchpoint: second refused"  '^response: E01$' 1
 expect "watchpoint: in the handler"  'frame #[0-9]: 0x[0-9a-f]+ lldb-demo.elf`lldb_demo::user::trap' 1
 expect "watchpoint: finished"        'new value: 1$' 2
 expect "watchpoint: at the write"    'stop reason = watchpoint 2' 2

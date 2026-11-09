@@ -30,11 +30,12 @@ an LLDB connection and serves it:
   (`qRcmd`) passed through. A breakpoint in the code flash becomes one of
   the debugger's hardware breakpoints (the server does that).
 - watchpoints (`Z2` write, `Z3` read, `Z4` access) passed through (#80).
-  The server's stop does not say which one hit, so the bridge adds the
-  `watch:` / `rwatch:` / `awatch:` field: the one watchpoint, or the one
-  whose memory changed. The CPU stops after the access, which qHostInfo
-  tells LLDB; qWatchpointSupportInfo gives the server's count of free
-  hardware breakpoints. (On the AP-RX72M-0A a watchpoint was once seen to
+  The server's stop does not say which one hit, so the bridge allows one
+  at a time (qWatchpointSupportInfo says 1; a second `Z2`-`Z4` gets E01)
+  and adds its `watch:` / `rwatch:` / `awatch:` field. (With several,
+  telling them apart by the watched memory fails for reads and for
+  writes of the same value.) The CPU stops after the access, which
+  qHostInfo tells LLDB. (On the AP-RX72M-0A a watchpoint was once seen to
   fire only before the first run; on the EK-RX74M they fire every time.)
 
 When LLDB kills (`k`) or disconnects, the bridge stops the program,
@@ -197,9 +198,6 @@ class Bridge:
         return bytes.fromhex(rep)[::-1].hex()
 
     def resume(self, step):
-        # The watched memory, to tell which watchpoint stopped the CPU.
-        before = {} if step else {
-            k: self.r.read(k[1], n) for k, n in self.watchpoints.items()}
         self.r.cmd("vCont;s:p1.1" if step else "vCont;c")
         self.running = True
         interrupted = False
@@ -224,23 +222,19 @@ class Bridge:
         pc = self.getreg(PC)
         if (not step and not interrupted and sig == "05" and not extra
                 and int(bytes.fromhex(pc)[::-1].hex(), 16) not in self.breakpoints):
-            extra = self.watch_hit(before)
+            extra = self.watch_hit()
         self.stop = "T%sthread:1;%02x:%s;%s" % (sig, PC, pc, extra.lstrip(";"))
         if not self.stop.endswith(";"):
             self.stop += ";"
         return self.stop
 
-    def watch_hit(self, before):
+    def watch_hit(self):
         """The stop field for the watchpoint that stopped the CPU (#80): the
         server's stop says nothing, and comes after the access (as LLDB
-        expects on RX). With one watchpoint it is that one; with several,
-        the one whose memory changed, else the first."""
+        expects on RX). There is at most one (see the `Z2`-`Z4` handling)."""
         if not self.watchpoints:
             return ""
-        keys = list(self.watchpoints)
-        changed = [k for k in keys
-                   if self.r.read(k[1], self.watchpoints[k]) != before.get(k)]
-        kind, addr = (changed or keys)[0]
+        (kind, addr), = self.watchpoints
         return ";%s:%x" % ({"2": "watch", "3": "rwatch", "4": "awatch"}[kind], addr)
 
     def step(self):
@@ -374,7 +368,7 @@ class Bridge:
                     "watchpoint_exceptions_received:after;"
                     % TRIPLE.encode().hex())
         if p.startswith("qWatchpointSupportInfo"):
-            return "num:%d;" % self.watch_slots()
+            return "num:%d;" % min(1, self.watch_slots())
         if p == "qProcessInfo":
             return "pid:1;triple:%s;endian:little;ptrsize:4;" % (
                 TRIPLE.encode().hex())
@@ -422,11 +416,14 @@ class Bridge:
                 off += k
             return "OK"
         if p[0] in "Zz" and p[1:2] in ("2", "3", "4"):
-            # Write, read and access watchpoints (#80).
+            # Write, read and access watchpoints (#80), one at a time: the
+            # server's stop does not say which one hit.
+            _, addr, length = p[1:].split(";")[0].split(",")
+            key = (p[1], int(addr, 16))
+            if p[0] == "Z" and self.watchpoints and key not in self.watchpoints:
+                return "E01"
             rep = r.cmd(p)[0]
             if rep == "OK":
-                _, addr, length = p[1:].split(";")[0].split(",")
-                key = (p[1], int(addr, 16))
                 if p[0] == "Z":
                     self.watchpoints[key] = int(length, 16)
                 else:
@@ -485,8 +482,8 @@ class Bridge:
         self.watchpoints = {}
 
     def watch_slots(self):
-        """How many watchpoints LLDB may set: the server's count of free
-        hardware breakpoints (8 on the RX74M), which they share."""
+        """The server's count of free hardware breakpoints (8 on the RX74M),
+        which watchpoints share."""
         if self.slots is None:
             self.slots = 4
             try:
