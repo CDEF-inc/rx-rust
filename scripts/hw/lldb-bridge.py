@@ -20,10 +20,14 @@ vector (or at the ELF's _start, for a program in RAM). It then waits for
 an LLDB connection and serves it:
 
 - the target description (target.xml, or qRegisterInfo for an LLDB without
-  XML support): the core registers, the accumulators and EXTB (not the
-  DFPU registers, which the server cannot read), with the server's
-  register numbers; the server's memory map;
-- `p` / `g` from single `p` reads, turned little-endian; `P` / `G`;
+  XML support): the core registers, the accumulators, EXTB and, on the
+  RX74N / RX74M, the DFPU's (dr0-dr15 as doubles, dpsw, dcmr, decnt, depc;
+  #81), numbered in order without the server's gap before dr0 (the
+  bridge turns the numbers into the server's); the server's memory map.
+  The AP-RX72M-0A's server crashes when dr0 is read, so there the DFPU's
+  registers are left out;
+- `p` / `g` from single `p` reads, turned little-endian (a DR register
+  comes as two big-endian words, low first); `P` / `G`;
 - `c`, `s`, `vCont` and ^C as non-stop requests, answered with the stop
   reply when the server's %Stop notification comes;
 - memory, breakpoints (`m`, `M`, `Z0`, `Z1`, `z`) and monitor commands
@@ -71,11 +75,14 @@ REGS = [("r%d" % i, i, 32) for i in range(16)] + [
     # The accumulators are 72 bits; the server sends them as 128.
     ("acc0", 0x19, 128), ("acc1", 0x1a, 128), ("extb", 0x1b, 32),
 ]
-BITS = {n: b for _, n, b in REGS}
 INTB = 0x14
+# The DFPU's registers (#81), with the server's numbers from its
+# target.xml: dr0-dr15 (64 bits), then dpsw, dcmr, decnt, depc.
+DFPU = ["dr%d" % i for i in range(16)] + ["dpsw", "dcmr", "decnt", "depc"]
 
 TYPES = {"r0": "data_ptr", "pc": "code_ptr", "bpc": "code_ptr",
          "psw": "psw_flags", "bpsw": "psw_flags", "fpsw": "fpsw_flags"}
+TYPES.update(("dr%d" % i, "ieee_double") for i in range(16))
 FLAGS = """
   <flags id="psw_flags" size="4">
     <field name="C" start="0" end="0"/>
@@ -110,33 +117,64 @@ FLAGS = """
   </flags>"""
 
 
-def target_xml():
-    regs = "\n".join(
+def group(name, n):
+    if n < 0x10 or name == "pc":
+        return "general"
+    return "dfpu" if name in DFPU else "system"
+
+
+def target_xml(regs):
+    # regnum: the place in REGS (the bridge's numbers for `p` / `P`).
+    xml = "\n".join(
         '  <reg name="%s" bitsize="%d" regnum="%d" type="%s" group="%s"/>'
-        % (name, bits, n, TYPES.get(name, "uint%d" % bits),
-           "general" if n < 0x10 or name == "pc" else "system")
-        for name, n, bits in REGS)
+        % (name, bits, i, TYPES.get(name, "uint%d" % bits), group(name, n))
+        for i, (name, n, bits) in enumerate(regs))
     return ('<?xml version="1.0"?>\n<!DOCTYPE target SYSTEM "gdb-target.dtd">\n'
             '<target version="1.0">\n<architecture>rx</architecture>\n'
             '<feature name="org.gnu.gdb.rx.core">%s\n%s\n</feature>\n</target>\n'
-            % (FLAGS, regs))
+            % (FLAGS, xml))
+
+
+def server_dfpu(xml):
+    """The DFPU registers in the server's target.xml, as (name, number,
+    bits): only when dr0 has a number of its own (RX74N / RX74M, where the
+    security extension's registers come first). The AP-RX72M-0A's server
+    numbers them from 0x1c on, and reading dr0 there crashes it (#81)."""
+    import re
+    regs, n = {}, 0
+    for m in re.finditer(r"<reg ([^>]*)>", xml):
+        a = dict(re.findall(r'(\w+)="([^"]*)"', m.group(1)))
+        if a.get("name") == "dr0" and "regnum" not in a:
+            return []
+        if "regnum" in a:
+            n = int(a["regnum"])
+        regs[a.get("name")] = (n, int(a.get("bitsize", "32")))
+        n += 1
+    if not all(name in regs for name in DFPU):
+        return []
+    return [(name,) + regs[name] for name in DFPU]
 
 
 # For LLDB built without libxml2, which cannot read target.xml: the same
-# registers through qRegisterInfo (the index is the server's number).
+# registers through qRegisterInfo (the index is the place in the list, as
+# in target.xml's regnum).
 GENERIC = {"r0": "sp", "r6": "fp", "pc": "pc", "psw": "flags",
            "r1": "arg1", "r2": "arg2", "r3": "arg3", "r4": "arg4"}
-DWARF = dict([("r%d" % i, i) for i in range(16)] + [("psw", 16), ("pc", 17)])
+DWARF = dict([("r%d" % i, i) for i in range(16)] + [("psw", 16), ("pc", 17)]
+             + [("dr%d" % i, 32 + i) for i in range(16)])
+SETS = {"general": "General Purpose Registers", "system": "System Registers",
+        "dfpu": "DFPU Registers"}
 
 
-def register_info(index):
-    if index >= len(REGS):
+def register_info(regs, index):
+    if index >= len(regs):
         return "E45"
-    name, n, bits = REGS[index]
-    offset = sum(b for _, _, b in REGS[:index]) // 8
-    info = ("name:%s;bitsize:%d;offset:%d;encoding:uint;format:hex;"
-            "set:%s;" % (name, bits, offset, "General Purpose Registers"
-                         if n < 0x10 or name == "pc" else "System Registers"))
+    name, n, bits = regs[index]
+    offset = sum(b for _, _, b in regs[:index]) // 8
+    encoding = ("encoding:ieee754;format:float;" if name.startswith("dr")
+                else "encoding:uint;format:hex;")
+    info = ("name:%s;bitsize:%d;offset:%d;%sset:%s;"
+            % (name, bits, offset, encoding, SETS[group(name, n)]))
     if name in DWARF:
         info += "ehframe:%d;dwarf:%d;" % (DWARF[name], DWARF[name])
     if name in GENERIC:
@@ -167,7 +205,14 @@ class Bridge:
         self.elf = elf
         self.stop = "T05thread:1;"
         self.memory_map = None
-        self.xml = target_xml()
+        self.regs = REGS + server_dfpu(self.xfer_server("features", "target.xml"))
+        self.bits = {n: b for _, n, b in self.regs}
+        # LLDB numbers the registers by their place in self.regs, through
+        # target.xml and qRegisterInfo alike; the server's numbers have a
+        # gap before dr0 (its security registers, which LLDB is not shown).
+        self.server_num = [n for _, n, _ in self.regs]
+        assert self.server_num.index(PC) == PC  # the stop reply's PC
+        self.xml = target_xml(self.regs)
         self.write = None
         self.cond = threading.Condition()
         self.running = False
@@ -193,8 +238,13 @@ class Bridge:
     def getreg(self, n):
         """Register N as little-endian hex (the server sends big-endian)."""
         rep, _ = self.r.cmd("p%x" % n)
-        if len(rep) != BITS[n] // 4:
+        if len(rep) != self.bits[n] // 4:
             raise RuntimeError("p%x: %s" % (n, rep))
+        if self.bits[n] == 64:
+            # A DR register: the low word, then the high word, each
+            # big-endian (seen against dpushm.d on the RX74M). `P` takes
+            # the value little-endian, as for the others.
+            return (bytes.fromhex(rep[:8])[::-1] + bytes.fromhex(rep[8:])[::-1]).hex()
         return bytes.fromhex(rep)[::-1].hex()
 
     def resume(self, step):
@@ -395,20 +445,23 @@ class Bridge:
         if p.startswith("qSymbol"):
             return "OK"
         if p.startswith("qRegisterInfo"):
-            return register_info(int(p[len("qRegisterInfo"):], 16))
+            return register_info(self.regs, int(p[len("qRegisterInfo"):], 16))
         if p.startswith("p"):
-            n = int(p[1:].split(";")[0], 16)
-            return self.getreg(n) if n in BITS else "E01"
-        if p.startswith("P"):
-            n, v = p[1:].split(";")[0].split("=")
-            if int(n, 16) not in BITS:
+            i = int(p[1:].split(";")[0], 16)
+            if i >= len(self.server_num):
                 return "E01"
-            return r.cmd("P%s=%s" % (n, v))[0]
+            return self.getreg(self.server_num[i])
+        if p.startswith("P"):
+            i, v = p[1:].split(";")[0].split("=")
+            i = int(i, 16)
+            if i >= len(self.server_num):
+                return "E01"
+            return r.cmd("P%x=%s" % (self.server_num[i], v))[0]
         if p == "g" or p.startswith("g;"):
-            return "".join(self.getreg(n) for _, n, _ in REGS)
+            return "".join(self.getreg(n) for _, n, _ in self.regs)
         if p.startswith("G"):
             data, off = p[1:].split(";")[0], 0
-            for _, n, bits in REGS:
+            for _, n, bits in self.regs:
                 k = bits // 4
                 rep = r.cmd("P%x=%s" % (n, data[off:off + k]))[0]
                 if rep != "OK":
@@ -526,10 +579,10 @@ class Bridge:
         if self.elf_stamp() != self.loaded:
             self.reload()
 
-    def xfer_server(self, obj):
+    def xfer_server(self, obj, annex=""):
         data, off = "", 0
         while True:
-            rep = self.r.cmd("qXfer:%s:read::%x,400" % (obj, off))[0]
+            rep = self.r.cmd("qXfer:%s:read:%s:%x,400" % (obj, annex, off))[0]
             if not rep or rep[0] not in "ml":
                 return data
             data += rep[1:]
