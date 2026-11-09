@@ -40,6 +40,16 @@ done
   { echo "usage: hw-lldb.sh [--listen] [--sessions N] ELF" >&2; exit 2; }
 . "$root/scripts/hw/e2-server.sh"
 start_server
-trap stop_server EXIT
+# The bridge runs in the background so that ^C or a kill of this script
+# (hw-lldb-check.sh) is seen while it waits: then the bridge and the server
+# are stopped.
+bridge=
+trap '[ -n "$bridge" ] && kill $bridge 2> /dev/null; stop_server' EXIT
+trap 'exit 130' INT TERM
 "$py" "$(cygpath -w "$root/scripts/hw/lldb-bridge.py")" --sessions "$sessions" \
-  "$port" "$mode${LLDB_PORT:-61235}" "$(cygpath -w "$1")"
+  "$port" "$mode${LLDB_PORT:-61235}" "$(cygpath -w "$1")" &
+bridge=$!
+wait $bridge
+rc=$?
+bridge=
+exit $rc

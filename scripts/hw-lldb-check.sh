@@ -76,6 +76,13 @@ continue
 si
 bt
 breakpoint delete -f
+breakpoint set -n trap
+continue
+breakpoint delete -f
+watchpoint set variable TRAPS
+continue
+continue
+watchpoint delete -f
 EOF
 # Without Python `process continue` would not come back: the program loops.
 [ $python = yes ] && cat >> "$tmp/cmds" << EOF
@@ -100,6 +107,9 @@ breakpoint set -n scale
 continue
 bt
 breakpoint delete -f
+watchpoint set variable finished
+continue
+watchpoint delete -f
 process detach
 platform shell sleep 2
 platform shell echo @@session3
@@ -112,16 +122,25 @@ cp "$tmp/cmds" "$root/$run.cmds"
 cat > "$root/$run.run" << EOF
 args=()
 while IFS= read -r c; do args+=(-o "\$c"); done < "$wroot/$run.cmds"
-timeout -k 10 300 "$wroot/build/lldb/bin/lldb" -b -x "$welf" "\${args[@]}"
+timeout -k 10 ${LLDB_TIMEOUT:-300} "$wroot/build/lldb/bin/lldb" -b -x "$welf" "\${args[@]}"
 EOF
 wsl bash "$wroot/$run.run" > "$tmp/out" 2>&1 &
 lldb=$!
 sleep 3
-LLDB_PORT=$port bash "$root/scripts/hw-lldb.sh" --sessions 3 "$elf" > "$tmp/bridge" 2>&1
+LLDB_PORT=$port bash "$root/scripts/hw-lldb.sh" --sessions 3 "$elf" > "$tmp/bridge" 2>&1 &
+bridge=$!
 wait $lldb
 rc=$?
 log=$root/$run.log
 cat "$tmp/out" > "$log"
+# The bridge ends after the third session. If LLDB stopped early, it would
+# wait for the next one: stop it (hw-lldb.sh then stops the server).
+stuck=no
+for i in $(seq 30); do kill -0 $bridge 2> /dev/null || break; sleep 1; done
+if kill -0 $bridge 2> /dev/null; then
+  stuck=yes
+  kill $bridge; wait $bridge
+fi
 awk -v d="$tmp" 'BEGIN {f = d "/s1"} /^@@session[0-9]$/ {f = d "/s" substr($0, 10)} {print > f}' "$tmp/out"
 touch "$tmp/s1" "$tmp/s2" "$tmp/s3"
 
@@ -130,6 +149,7 @@ status=0
 case $rc in
   124|137) echo "FAIL  LLDB timed out"; status=1 ;;
 esac
+[ $stuck = yes ] && { echo "FAIL  the bridge did not end (stopped it)"; status=1; }
 # expect NAME PATTERN [SESSION]   (default: the first session)
 expect() {
   if grep -q -E -- "$2" "$tmp/s${3:-1}"; then echo "ok    $1"
@@ -161,12 +181,28 @@ expect "step into int #64: handler"  'frame #0: 0x[0-9a-f]+ lldb-demo.elf`_rx_ve
 expect "step into int #64: caller"   'frame #1: 0x[0-9a-f]+ lldb-demo.elf`_lldb_user_loop \+ 14'
 [ $python = yes ] &&
   expect "^C"                        'stop reason = signal SIGINT'
+# Watchpoints (#80): two hits on TRAPS (written by the trap handler), and
+# one on `finished`, set at a breakpoint after a reset (where the
+# AP-RX72M-0A once never fired).
+n=$(grep -c -E 'stop reason = watchpoint 1$' "$tmp/s1")
+if [ "$n" -ge 2 ]; then echo "ok    watchpoint: hit twice"
+else echo "FAIL  watchpoint: $n hits on TRAPS, not 2"; status=1; fi
+# AtomicU32: {v:{value:{0:2}}} with the formatters, else over lines with
+# `(__0 = 2)`.
+expect "watchpoint: the second hit"  '^new value: \{v:\{value:\{0:2\}\}\}$|^ +\(__0 = 2\)$' 1
+expect "watchpoint: in the handler"  'frame #[0-9]: 0x[0-9a-f]+ lldb-demo.elf`lldb_demo::user::trap' 1
+expect "watchpoint: finished"        'new value: 1$' 2
+expect "watchpoint: at the write"    'stop reason = watchpoint 2' 2
 expect "again: the reset vector"     'frame #0: 0x[0-9a-f]+ lldb-demo.elf`_rx_reset' 2
 # (The formatters, if loaded in session 1, are still loaded.)
 expect "again: breakpoint"           'frame #0: 0x[0-9a-f]+ lldb-demo.elf`lldb_demo::scale\(p=(\(x = 5, y = -2\)|\{x:5, y:-2\}), k=3\) at main\.rs:27' 2
 expect "again: detached"             'Process [0-9]+ detached' 2
 expect "after detach: stopped"       'stop reason = signal SIGINT' 3
-expect "after detach: user loop"     'frame #[0-9]: 0x[0-9a-f]+ lldb-demo.elf`_lldb_user_loop' 3
+# Somewhere in the loop: the loop, the vector's entry, rx-rt's interrupt
+# entry or the handler. (A stop inside _rx_isr_common does not unwind yet:
+# LLDB's frame-0 plan there comes from instruction emulation, which knows
+# neither the interrupt's entry state nor dpushm / dpopm.)
+expect "after detach: in the loop"   'frame #0: 0x[0-9a-f]+ lldb-demo.elf`(_lldb_user_loop|_rx_vector_64|_rx_isr_common|lldb_demo::user::trap|core::sync::atomic)' 3
 if grep -q -E 'Assertion|Stack dump|PLEASE submit' "$tmp/out"; then
   echo "FAIL  LLDB crashed"; status=1
 else
