@@ -21,13 +21,14 @@ an LLDB connection and serves it:
 
 - the target description (target.xml, or qRegisterInfo for an LLDB without
   XML support): the core registers, the accumulators, EXTB and, on the
-  RX74N / RX74M, the DFPU's (dr0-dr15 as doubles, dpsw, dcmr, decnt, depc;
-  #81), numbered in order without the server's gap before dr0 (the
-  bridge turns the numbers into the server's); the server's memory map.
-  The AP-RX72M-0A's server crashes when dr0 is read, so there the DFPU's
-  registers are left out;
+  the DFPU's (dr0-dr15 as doubles, dpsw, dcmr, decnt, depc; #81),
+  numbered in order without the RX74N / RX74M server's gap before dr0
+  (the bridge turns the numbers into the server's); the server's memory
+  map;
 - `p` / `g` from single `p` reads, turned little-endian (a DR register
-  comes as two big-endian words, low first); `P` / `G`;
+  comes as two big-endian words, low first); `P` / `G`. The AP-RX72M-0A's
+  server crashes when a DR register is read with `p`, so there the DFPU's
+  registers come from the server's `g` (which has them right);
 - `c`, `s`, `vCont` and ^C as non-stop requests, answered with the stop
   reply when the server's %Stop notification comes;
 - memory, breakpoints (`m`, `M`, `Z0`, `Z1`, `z`) and monitor commands
@@ -137,22 +138,25 @@ def target_xml(regs):
 
 def server_dfpu(xml):
     """The DFPU registers in the server's target.xml, as (name, number,
-    bits): only when dr0 has a number of its own (RX74N / RX74M, where the
-    security extension's registers come first). The AP-RX72M-0A's server
-    numbers them from 0x1c on, and reading dr0 there crashes it (#81)."""
+    bits), and whether they must be read through `g` (#81). On the RX74N /
+    RX74M dr0 has a number of its own (0x21: the security extension's
+    registers come first), and `p` reads them. The AP-RX72M-0A's server
+    numbers them on from EXTB (dr0 = 0x1c); there `p` of a DR register
+    crashes it and `p` of the others answers garbage, but `g` has them all
+    (little-endian, after EXTB) and `P` writes them."""
     import re
-    regs, n = {}, 0
+    regs, n, numbered = {}, 0, False
     for m in re.finditer(r"<reg ([^>]*)>", xml):
         a = dict(re.findall(r'(\w+)="([^"]*)"', m.group(1)))
-        if a.get("name") == "dr0" and "regnum" not in a:
-            return []
+        if a.get("name") == "dr0":
+            numbered = "regnum" in a
         if "regnum" in a:
             n = int(a["regnum"])
         regs[a.get("name")] = (n, int(a.get("bitsize", "32")))
         n += 1
     if not all(name in regs for name in DFPU):
-        return []
-    return [(name,) + regs[name] for name in DFPU]
+        return [], False
+    return [(name,) + regs[name] for name in DFPU], not numbered
 
 
 # For LLDB built without libxml2, which cannot read target.xml: the same
@@ -205,8 +209,20 @@ class Bridge:
         self.elf = elf
         self.stop = "T05thread:1;"
         self.memory_map = None
-        self.regs = REGS + server_dfpu(self.xfer_server("features", "target.xml"))
+        dfpu, from_g = server_dfpu(self.xfer_server("features", "target.xml"))
+        self.regs = REGS + dfpu
         self.bits = {n: b for _, n, b in self.regs}
+        # The registers read from the server's `g` (the DFPU's on the
+        # AP-RX72M-0A): server number -> hex offset in `g`. There the
+        # server's numbers have no gap, so `g` is in the order of self.regs.
+        self.from_g = {}
+        if from_g:
+            off = 0
+            for i, (_, n, bits) in enumerate(self.regs):
+                if i >= len(REGS):
+                    self.from_g[n] = off
+                off += bits // 4
+            self.g_len = off
         # LLDB numbers the registers by their place in self.regs, through
         # target.xml and qRegisterInfo alike; the server's numbers have a
         # gap before dr0 (its security registers, which LLDB is not shown).
@@ -235,8 +251,21 @@ class Bridge:
 
     # --- the server
 
-    def getreg(self, n):
-        """Register N as little-endian hex (the server sends big-endian)."""
+    def server_g(self):
+        """The server's `g`, for the registers in self.from_g."""
+        if not self.from_g:
+            return None
+        rep, _ = self.r.cmd("g")
+        if len(rep) != self.g_len:
+            raise RuntimeError("g: %d hex digits, not %d" % (len(rep), self.g_len))
+        return rep
+
+    def getreg(self, n, g=None):
+        """Register N (the server's number) as little-endian hex (the server
+        sends big-endian). G: the server's `g`, if already read."""
+        if n in self.from_g:
+            g = g or self.server_g()
+            return g[self.from_g[n]:self.from_g[n] + self.bits[n] // 4]
         rep, _ = self.r.cmd("p%x" % n)
         if len(rep) != self.bits[n] // 4:
             raise RuntimeError("p%x: %s" % (n, rep))
@@ -458,7 +487,8 @@ class Bridge:
                 return "E01"
             return r.cmd("P%x=%s" % (self.server_num[i], v))[0]
         if p == "g" or p.startswith("g;"):
-            return "".join(self.getreg(n) for _, n, _ in self.regs)
+            g = self.server_g()
+            return "".join(self.getreg(n, g) for _, n, _ in self.regs)
         if p.startswith("G"):
             data, off = p[1:].split(";")[0], 0
             for _, n, bits in self.regs:
