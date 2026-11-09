@@ -15,8 +15,9 @@
 # LLDB on Windows (`gdb-remote 61235`).
 #
 # The bridge and the server stay up across LLDB sessions (#86): after
-# `kill` (or when LLDB quits) the bridge downloads ELF again, read from the
-# file, and resets the board; `hw-connect` in LLDB starts the next session.
+# `kill` (or when LLDB quits), `hw-connect` in LLDB starts the next session:
+# the bridge then downloads ELF again, read from the file at that moment,
+# and resets the board.
 # After a rebuild LLDB needs a new target for the new symbols (`target
 # delete`, `target create ELF`, then `hw-connect`). After `detach` the
 # program keeps running, and the next session stops it where it is. ^C
@@ -40,16 +41,9 @@ done
   { echo "usage: hw-lldb.sh [--listen] [--sessions N] ELF" >&2; exit 2; }
 . "$root/scripts/hw/e2-server.sh"
 start_server
-# The bridge runs in the background so that ^C or a kill of this script
-# (hw-lldb-check.sh) is seen while it waits: then the bridge and the server
-# are stopped.
-bridge=
-trap '[ -n "$bridge" ] && kill $bridge 2> /dev/null; stop_server' EXIT
-trap 'exit 130' INT TERM
+trap stop_server EXIT
+# ^C reaches the bridge, which then stops the program (or leaves a detached
+# one running) and ends. The bridge also ends when the server goes away
+# while it waits for LLDB (hw-lldb-check.sh stops a stuck one that way).
 "$py" "$(cygpath -w "$root/scripts/hw/lldb-bridge.py")" --sessions "$sessions" \
-  "$port" "$mode${LLDB_PORT:-61235}" "$(cygpath -w "$1")" &
-bridge=$!
-wait $bridge
-rc=$?
-bridge=
-exit $rc
+  "$port" "$mode${LLDB_PORT:-61235}" "$(cygpath -w "$1")"

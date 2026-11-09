@@ -49,6 +49,7 @@ wsl bash "$wroot/$run.probe" 2>&1 | grep -q '^python-ok' && python=yes
 cat > "$tmp/cmds" << EOF
 settings set use-color false
 settings set interpreter.stop-command-source-on-error false
+settings set plugin.process.gdb-remote.packet-timeout 30
 process connect --plugin gdb-remote listen://127.0.0.1:$port
 breakpoint set -n scale
 continue
@@ -94,12 +95,15 @@ script import time; time.sleep(2)
 script lldb.debugger.SetAsync(False)
 process status
 EOF
-# Session 2 (#86): after `kill` the bridge loads the ELF again and resets,
-# and the breakpoint hits again. Session 3: after `detach` the program
+# Session 2 (#86): after `kill` the bridge loads the ELF again and resets;
+# the ELF, touched before connecting (as a rebuild would), is loaded again
+# then; and the breakpoint hits again. Session 3: after `detach` the program
 # runs on (into the user-mode loop), and connecting stops it. The markers
 # split the output by session (`platform shell` runs on this side).
 cat >> "$tmp/cmds" << EOF
 kill
+platform shell sleep 15
+platform shell touch $welf
 platform shell echo @@session2
 process connect --plugin gdb-remote listen://127.0.0.1:$port
 bt
@@ -141,12 +145,15 @@ rc=$?
 log=$root/$run.log
 cat "$tmp/out" > "$log"
 # The bridge ends after the third session. If LLDB stopped early, it would
-# wait for the next one: stop it (hw-lldb.sh then stops the server).
+# wait for the next one: stop the server, which ends it.
 stuck=no
 for i in $(seq 30); do kill -0 $bridge 2> /dev/null || break; sleep 1; done
 if kill -0 $bridge 2> /dev/null; then
   stuck=yes
-  kill $bridge; wait $bridge
+  taskkill //F //IM e2-server-gdb.exe > /dev/null 2>&1
+  for i in $(seq 15); do kill -0 $bridge 2> /dev/null || break; sleep 1; done
+  kill $bridge 2> /dev/null
+  wait $bridge
 fi
 awk -v d="$tmp" 'BEGIN {f = d "/s1"} /^@@session[0-9]$/ {f = d "/s" substr($0, 10)} {print > f}' "$tmp/out"
 touch "$tmp/s1" "$tmp/s2" "$tmp/s3"
@@ -204,6 +211,9 @@ expect "watchpoint: at the write"    'stop reason = watchpoint 2' 2
 # written double reads back (1.25 = 0x3ff4...).
 expect "DFPU: dr0 after utod"        '^ +dr0 = 3$' 2
 expect "DFPU: write and read dr5"    '^ +dr5 = 0x3ff4000000000000$' 2
+n=$(grep -c '^loading .* again$' "$tmp/bridge")
+if [ "$n" = 2 ]; then echo "ok    again: loaded after kill and after the touch"
+else echo "FAIL  again: the bridge loaded the ELF $n times, not 2"; status=1; fi
 expect "again: the reset vector"     'frame #0: 0x[0-9a-f]+ lldb-demo.elf`_rx_reset' 2
 # (The formatters, if loaded in session 1, are still loaded.)
 expect "again: breakpoint"           'frame #0: 0x[0-9a-f]+ lldb-demo.elf`lldb_demo::scale\(p=(\(x = 5, y = -2\)|\{x:5, y:-2\}), k=3\) at main\.rs:27' 2
