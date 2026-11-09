@@ -9,7 +9,9 @@
 # that call a function cannot be run on RX (no JIT for it in the target):
 # LLDB has to say so, not crash (#79). The release build (opt-level "s")
 # gets a shorter session: what it checks is what optimization leaves, such
-# as an inlined frame and arguments that are no longer available.
+# as an inlined frame and arguments that are no longer available. On a
+# core with the DFPU (RX_CPU=rxv3 / rxv3e), LLDB also writes and reads a DR
+# register (CDEF-inc/qemu's gdbstub gives them, #81).
 #
 #   check-lldb.sh          PROFILE=dev|release (default dev); RX_CPU picks
 #                          the core (scripts/cpu.sh; default RXv1 code on
@@ -66,6 +68,14 @@ if "$LLDB" -b -x -o 'script print("python" + "-ok")' 2>&1 | grep -q '^python-ok'
   formatters=("command script import $root/rust/src/etc/lldb_lookup.py"
               "frame variable some none ok err circle rect name slice point_ref tuple")
 fi
+# The DFPU's registers (#81), on the QEMU models that have it.
+dfpu= dfpu_cmds=()
+case ${QEMU_CPU:-} in
+  rxv3|rxv3e)
+    dfpu=1
+    dfpu_cmds=("register write dr5 1.25" "register read dr5" "register read -f x dr5"
+               "register read dpsw") ;;
+esac
 if [ "$profile" = release ]; then
   # opt-level "s": the session stops only where the code is still there
   # (some rets.rs functions are folded into their caller).
@@ -76,6 +86,7 @@ if [ "$profile" = release ]; then
     "target variable result finished"
     "breakpoint set -n ret_s2" "breakpoint set -n ret_u64" "breakpoint set -n ret_f64"
     "continue" "finish" "continue" "finish" "continue" "finish"
+    "${dfpu_cmds[@]}"
   )
 else
   cmds=(
@@ -104,6 +115,8 @@ else
     "${formatters[@]}"
     "breakpoint set -n trap" "continue" "bt" "register read usp"
     "frame select 2" "register read psw r0" "frame select 0"
+    "${dfpu_cmds[@]}"
+    # Last: the error ends LLDB's batch run.
     "expr lldb_demo::outer(1, 2)"
   )
 fi
@@ -222,6 +235,12 @@ expect "interrupt: interrupted code" 'frame #2: 0x[0-9a-f]+ lldb-demo`_lldb_user
 expect "interrupt: PSW.U = 1"        '= \(IPL = 0, PM = 0, U = 1,|PM:0, :0, U:1,'
 usp=$(grep -o -E '^ +usp = 0x[0-9a-f]+' "$tmp/out" | head -1 | awk '{print $3}')
 expect "interrupt: SP = USP"         "^ +r0 = ${usp:-none} "
+fi
+if [ -n "$dfpu" ]; then
+  expect "DFPU: dr5 as a double"     '^ +dr5 = 1\.25$'
+  expect "DFPU: dr5 in hex"          '^ +dr5 = 0x3ff4000000000000$'
+  # (LLDB may add the symbol at that address.)
+  expect "DFPU: dpsw"                '^ +dpsw = 0x[0-9a-f]{8}( |$)'
 fi
 # build-lldb.sh links libxml2, so LLDB reads QEMU's target.xml (#82).
 if grep -q 'does not have XML parsing enabled' "$tmp/out"; then

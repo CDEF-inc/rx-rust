@@ -166,8 +166,10 @@ Python 付きの LLDB で `command script import rust/src/etc/lldb_lookup.py`（
   （`RUST_LLDB` か PATH）と組み合わせて使う。
 
 `RX_CPU=rxv2|rxv3|rxv3e` で、その CPU 向けにビルドして CDEF-inc/qemu の同じコアで動かす（`scripts/cpu.sh`）。
-4 つのコアすべてで同じ結果になる（2026-11-09）。ただし、QEMU の gdbstub には DFPU のレジスタがない（#81）。
-そのため、DR レジスタに置かれた f64 の変数はまだ試していない。
+4 つのコアすべてで同じ結果になる（2026-11-09）。DFPU のある rxv3 / rxv3e では、CDEF-inc/qemu の gdbstub が
+DFPU のレジスタ（dr0〜dr15、dpsw、dcmr、decnt、depc。`rx-dfpu.xml`、dr0 は 26 番）を出す（#81、CDEF-inc/qemu#19）。
+check-lldb.sh はそこで、`register write dr5 1.25` を倍精度と 16 進で読み戻し、dpsw が読めることも確かめる
+（dev では、バッチを終わらせる関数呼び出しの式の前）。DR レジスタに置かれた f64 の変数の表示は、まだ試していない。
 
 `PROFILE=release`（opt-level "s"）は、最適化の後に残るものだけを短いセッションで確かめる:
 
@@ -221,7 +223,7 @@ lit テストを実行する。
 
 まだ試していないもの（#87）:
 
-- DR レジスタに置かれた値（QEMU の gdbstub に DFPU のレジスタがない、#81）;
+- DR レジスタに置かれた変数の表示（レジスタそのものは QEMU でも読み書きできる、#81）;
 - LLDB の gdb-remote の API テスト（Python が要る、#83）。
 
 （実機での LLDB のセッションは scripts/hw-lldb-check.sh が自動で回す。下の「実機」。）
