@@ -23,6 +23,7 @@ case $root in
   *) echo "hw-lldb-check.sh needs the repository in WSL ($distro)" >&2; exit 2 ;;
 esac
 dir=build/hw; [ "$board" = rx72m ] || dir=$dir-rx74n
+dfpu=yes; [ "$board" = rx72m ] && dfpu=no
 elf=${1:-$root/$dir/lldb/lldb-demo.elf}
 [ -f "$elf" ] || { echo "no $elf; run HW_BOARD=$board scripts/hw-build.sh lldb" >&2; exit 2; }
 welf=/${elf#//*/*/}
@@ -120,6 +121,10 @@ breakpoint delete -f
 watchpoint set variable finished
 continue
 watchpoint delete -f
+EOF
+# The DFPU's registers (#81), which the bridge shows on the RX74N / RX74M
+# only (on the AP-RX72M-0A reading dr0 crashes the server).
+[ $dfpu = yes ] && cat >> "$tmp/cmds" << EOF
 breakpoint set -n ret_f64
 continue
 si
@@ -127,6 +132,8 @@ register read dr0
 register write dr5 1.25
 register read -f x dr5
 breakpoint delete -f
+EOF
+cat >> "$tmp/cmds" << EOF
 process detach
 platform shell sleep 2
 platform shell echo @@session3
@@ -218,8 +225,10 @@ expect "watchpoint: finished"        'new value: 1$' 2
 expect "watchpoint: at the write"    'stop reason = watchpoint 2' 2
 # The DFPU's registers (#81): `utod r1, dr0` in ret_f64(3) gives 3.0, and a
 # written double reads back (1.25 = 0x3ff4...).
-expect "DFPU: dr0 after utod"        '^ +dr0 = 3$' 2
-expect "DFPU: write and read dr5"    '^ +dr5 = 0x3ff4000000000000$' 2
+if [ $dfpu = yes ]; then
+  expect "DFPU: dr0 after utod"        '^ +dr0 = 3$' 2
+  expect "DFPU: write and read dr5"    '^ +dr5 = 0x3ff4000000000000$' 2
+fi
 n=$(grep -c '^loading .* again$' "$tmp/bridge")
 if [ "$n" = 2 ]; then echo "ok    again: loaded after kill and after the touch"
 else echo "FAIL  again: the bridge loaded the ELF $n times, not 2"; status=1; fi

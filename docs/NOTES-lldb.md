@@ -314,6 +314,9 @@ e2-server-gdb の癖（docs/NOTES-hw.md）を LLDB から隠す:
     - サーバーの target.xml では、dr0 に番号（33 = 0x21）が付いている。RXv3 のセキュリティ拡張のレジスタ
       （ivc、wid、trctb、wintb、wpri: 0x1c〜0x20）が先に来るため。dr0〜dr15 は 0x21〜0x30、
       dpsw / dcmr / decnt / depc は 0x31〜0x34。ブリッジはサーバーの target.xml から番号を読む。
+    - LLDB には、すき間を詰めた番号で見せる（dr0 は 0x1c）。target.xml の regnum も qRegisterInfo の番号も
+      同じで、ブリッジが `p` / `P` でサーバーの番号に直す。サーバーの番号のまま見せると、libxml2 のない LLDB
+      （qRegisterInfo は詰めた番号しか表せない）で dr5 への書き込みが dr0 に行ってしまう（#147 のレビュー）。
     - `p` は 64 ビットの値を、下位の語・上位の語の順に、それぞれビッグエンディアンで返す。`P` はリトルエンディアンで
       受け付ける。`P` で書いた dr1〜dr3 が、`_rx_isr_common` の `dpushm.d dr0-dr3` でスタックに積まれた値と
       一致することで確かめた（2026-11-09）。

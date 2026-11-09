@@ -22,7 +22,8 @@ an LLDB connection and serves it:
 - the target description (target.xml, or qRegisterInfo for an LLDB without
   XML support): the core registers, the accumulators, EXTB and, on the
   RX74N / RX74M, the DFPU's (dr0-dr15 as doubles, dpsw, dcmr, decnt, depc;
-  #81), with the server's register numbers; the server's memory map.
+  #81), numbered in order without the server's gap before dr0 (the
+  bridge turns the numbers into the server's); the server's memory map.
   The AP-RX72M-0A's server crashes when dr0 is read, so there the DFPU's
   registers are left out;
 - `p` / `g` from single `p` reads, turned little-endian (a DR register
@@ -123,10 +124,11 @@ def group(name, n):
 
 
 def target_xml(regs):
+    # regnum: the place in REGS (the bridge's numbers for `p` / `P`).
     xml = "\n".join(
         '  <reg name="%s" bitsize="%d" regnum="%d" type="%s" group="%s"/>'
-        % (name, bits, n, TYPES.get(name, "uint%d" % bits), group(name, n))
-        for name, n, bits in regs)
+        % (name, bits, i, TYPES.get(name, "uint%d" % bits), group(name, n))
+        for i, (name, n, bits) in enumerate(regs))
     return ('<?xml version="1.0"?>\n<!DOCTYPE target SYSTEM "gdb-target.dtd">\n'
             '<target version="1.0">\n<architecture>rx</architecture>\n'
             '<feature name="org.gnu.gdb.rx.core">%s\n%s\n</feature>\n</target>\n'
@@ -154,7 +156,8 @@ def server_dfpu(xml):
 
 
 # For LLDB built without libxml2, which cannot read target.xml: the same
-# registers through qRegisterInfo (the index is the server's number).
+# registers through qRegisterInfo (the index is the place in the list, as
+# in target.xml's regnum).
 GENERIC = {"r0": "sp", "r6": "fp", "pc": "pc", "psw": "flags",
            "r1": "arg1", "r2": "arg2", "r3": "arg3", "r4": "arg4"}
 DWARF = dict([("r%d" % i, i) for i in range(16)] + [("psw", 16), ("pc", 17)]
@@ -204,6 +207,11 @@ class Bridge:
         self.memory_map = None
         self.regs = REGS + server_dfpu(self.xfer_server("features", "target.xml"))
         self.bits = {n: b for _, n, b in self.regs}
+        # LLDB numbers the registers by their place in self.regs, through
+        # target.xml and qRegisterInfo alike; the server's numbers have a
+        # gap before dr0 (its security registers, which LLDB is not shown).
+        self.server_num = [n for _, n, _ in self.regs]
+        assert self.server_num.index(PC) == PC  # the stop reply's PC
         self.xml = target_xml(self.regs)
         self.write = None
         self.cond = threading.Condition()
@@ -439,13 +447,16 @@ class Bridge:
         if p.startswith("qRegisterInfo"):
             return register_info(self.regs, int(p[len("qRegisterInfo"):], 16))
         if p.startswith("p"):
-            n = int(p[1:].split(";")[0], 16)
-            return self.getreg(n) if n in self.bits else "E01"
-        if p.startswith("P"):
-            n, v = p[1:].split(";")[0].split("=")
-            if int(n, 16) not in self.bits:
+            i = int(p[1:].split(";")[0], 16)
+            if i >= len(self.server_num):
                 return "E01"
-            return r.cmd("P%s=%s" % (n, v))[0]
+            return self.getreg(self.server_num[i])
+        if p.startswith("P"):
+            i, v = p[1:].split(";")[0].split("=")
+            i = int(i, 16)
+            if i >= len(self.server_num):
+                return "E01"
+            return r.cmd("P%x=%s" % (self.server_num[i], v))[0]
         if p == "g" or p.startswith("g;"):
             return "".join(self.getreg(n) for _, n, _ in self.regs)
         if p.startswith("G"):
