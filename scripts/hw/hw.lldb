@@ -1,0 +1,10 @@
+# LLDB commands for debugging on the board (scripts/hw-lldb.sh):
+#   lldb ELF -s scripts/hw/hw.lldb -o hw-connect
+# hw-connect waits for the bridge. For the next session, `kill` and
+# hw-connect again: the bridge has loaded the ELF again and reset the board.
+# After rebuilding the ELF, LLDB must read it again too: `target delete`,
+# `target create ELF`, then hw-connect (LLDB keeps a target's symbols). The
+# bridge then loads the rebuilt ELF while LLDB connects, which takes longer
+# than LLDB's default packet timeout.
+settings set plugin.process.gdb-remote.packet-timeout 30
+command alias hw-connect process connect --plugin gdb-remote listen://127.0.0.1:61235

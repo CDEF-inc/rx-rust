@@ -1,6 +1,7 @@
 """A bridge between LLDB and Renesas e2-server-gdb (E2 Lite).
 
-Usage: lldb-bridge.py SERVER_PORT [connect:]PORT [ELF]   (scripts/hw-lldb.sh)
+Usage: lldb-bridge.py [--sessions N] SERVER_PORT [connect:]PORT [ELF]
+                                                       (scripts/hw-lldb.sh)
 
 With connect:PORT the bridge connects to an LLDB that waits on localhost:PORT
 (`process connect --plugin gdb-remote listen://127.0.0.1:PORT`), retrying
@@ -16,7 +17,7 @@ its client disconnects (scripts/hw/rsp.py, docs/NOTES-hw.md). The bridge
 connects to the server once, downloads ELF (if given), resets the CPU and
 replays the launch sequence, so that the CPU is stopped at the reset
 vector (or at the ELF's _start, for a program in RAM). It then waits for
-one LLDB connection and serves it:
+an LLDB connection and serves it:
 
 - the target description (target.xml, or qRegisterInfo for an LLDB without
   XML support): the core registers, the accumulators and EXTB (not the
@@ -33,9 +34,16 @@ one LLDB connection and serves it:
   (LLDB sets and clears its watchpoints around every stop), so LLDB is told
   that they are not supported.
 
-When LLDB detaches (`D`) the program keeps running; when it kills (`k`) or
-disconnects, the bridge stops the program and exits, and so does the
-server.
+When LLDB kills (`k`) or disconnects, the bridge stops the program,
+removes LLDB's breakpoints and waits for the next LLDB connection: in
+LLDB, `kill` and `process connect` again (#86; after a rebuild, in a new
+target, since LLDB keeps a target's symbols). When that comes, it
+downloads ELF again, read from the file then (so an ELF rebuilt in
+between is the one loaded), and resets the CPU. When LLDB detaches (`D`)
+the program keeps running, and the next LLDB connection stops it where it
+is; ^C ending the bridge meanwhile leaves it running. The server stays connected all along: it exits when
+the bridge disconnects. --sessions N ends the bridge after N sessions
+(default: serve until interrupted).
 """
 import os
 import socket
@@ -138,19 +146,40 @@ def xfer_slice(data, args):
     return ("l" if off + length >= len(data) else "m") + chunk
 
 
+class SessionEnd(Exception):
+    """LLDB killed, detached (DETACHED) or went away."""
+    def __init__(self, detached=False):
+        super().__init__()
+        self.detached = detached
+
+
+class ServerGone(Exception):
+    """e2-server-gdb closed the connection."""
+
+
 class Bridge:
     def __init__(self, server, elf):
         self.r = server
-        self.ack = True
+        self.elf = elf
         self.stop = "T05thread:1;"
         self.memory_map = None
         self.xml = target_xml()
         self.write = None
+        self.cond = threading.Condition()
+        self.running = False
+        self.loaded = self.elf_stamp()    # of the ELF last loaded (connect())
+        self.detached = False     # the last session detached
+        # LLDB's breakpoints, address -> "TYPE,ADDR,KIND" of their Z packet,
+        # which step() must leave alone and which are removed when LLDB goes.
+        self.breakpoints = {}
+        self.session = 0
+        self.new_session()
+
+    def new_session(self):
+        self.session += 1
+        self.ack = True
         self.inbuf = b""
         self.eof = False
-        self.cond = threading.Condition()
-        # LLDB's breakpoints (Z0 / Z1), which step() must leave alone.
-        self.breakpoints = set()
 
     # --- the server
 
@@ -163,12 +192,14 @@ class Bridge:
 
     def resume(self, step):
         self.r.cmd("vCont;s:p1.1" if step else "vCont;c")
+        self.running = True
         interrupted = False
         while True:
             note = self.r.wait_note(0.1)
             if note:
                 if TRACE:
                     log("server: %s" % note)
+                self.running = False
                 break
             if not interrupted and self.lldb_interrupted():
                 self.r.cmd("vCont;t:p1.1")
@@ -204,7 +235,7 @@ class Bridge:
         handler = self.r.word(self.r.getreg(INTB) + 4 * vector)
         placed = []
         try:
-            for a in {handler, pc + size} - self.breakpoints:
+            for a in {handler, pc + size} - self.breakpoints.keys():
                 rep = self.r.cmd("Z1,%x,1" % a)[0]
                 if rep != "OK":
                     # No free hardware breakpoint, say: running would not
@@ -231,7 +262,7 @@ class Bridge:
         packet; the rest stays for packets())."""
         with self.cond:
             if self.eof:
-                raise KeyboardInterrupt
+                raise SessionEnd()
             i = self.inbuf.find(b"\x03")
             j = self.inbuf.find(b"$")
             if i < 0 or 0 <= j < i:
@@ -243,11 +274,18 @@ class Bridge:
 
     def start_reader(self, read):
         """Read LLDB's bytes into inbuf on a thread, so that a ^C is seen
-        while the target runs."""
+        while the target runs. The thread ends with its session."""
+        session = self.session
+
         def loop():
             while True:
-                data = read()
+                try:
+                    data = read()
+                except OSError:
+                    data = b""
                 with self.cond:
+                    if self.session != session:
+                        return
                     if not data:
                         self.eof = True
                     else:
@@ -360,9 +398,9 @@ class Bridge:
             if rep == "OK":
                 addr = int(p.split(",")[1], 16)
                 if p[0] == "Z":
-                    self.breakpoints.add(addr)
+                    self.breakpoints[addr] = p[1:]
                 else:
-                    self.breakpoints.discard(addr)
+                    self.breakpoints.pop(addr, None)
             return rep
         if p[0] in "mM":
             return r.cmd(p)[0]
@@ -379,14 +417,61 @@ class Bridge:
         if p[0] in "sS" or p.startswith("vCont;s") or p.startswith("vCont;S"):
             return self.step()
         if p.startswith("D"):
-            r.cmd("D;1")
+            # Run on; the server stays connected for the next session.
+            for a, z in self.breakpoints.items():
+                r.cmd("z" + z)
+            self.breakpoints = {}
+            r.cmd("vCont;c")
+            self.running = True
             self.send("OK")
-            raise SystemExit(0)
+            raise SessionEnd(detached=True)
         if p in ("k", "vKill;1", "vKill"):
             # LLDB takes an exit status for `k`, OK for `vKill`.
             self.send("X09" if p == "k" else "OK")
-            raise KeyboardInterrupt
+            raise SessionEnd()
         return ""
+
+    def halt(self):
+        """Stop the program if it runs (LLDB went away, or detached)."""
+        if self.running:
+            self.r.cmd("vCont;t:p1.1")
+            self.r.wait_note(5)
+            self.running = False
+
+    def end_session(self, last=False):
+        """After a session LLDB killed or left: stop, remove LLDB's
+        breakpoints, download the ELF again and reset, for the next
+        session. If the ELF changes before that connects (a rebuild), it is
+        loaded again then (reload_if_changed)."""
+        self.halt()
+        for a, z in self.breakpoints.items():
+            self.r.cmd("z" + z)
+        self.breakpoints = {}
+        if not last:
+            self.reload()
+
+    def elf_stamp(self):
+        try:
+            st = os.stat(self.elf)
+            return (st.st_mtime_ns, st.st_size)
+        except (OSError, TypeError):
+            return None
+
+    def reload(self):
+        """Download the ELF again (read from the file) and reset."""
+        log("loading %s again" % (self.elf or "nothing"))
+        # Before reading it: a change while loading is seen at the next
+        # connection.
+        self.loaded = self.elf_stamp()
+        load(self.r, self.elf)
+        self.stop = "T05thread:1;%02x:%s;" % (PC, self.getreg(PC))
+
+    def reload_if_changed(self):
+        """At a connection: the ELF rebuilt since it was loaded is loaded
+        now (this takes some seconds of LLDB's handshake: scripts/hw/hw.lldb
+        gives LLDB a longer packet timeout)."""
+        if self.elf_stamp() != self.loaded:
+            self.reload()
 
     def xfer_server(self, obj):
         data, off = "", 0
@@ -399,37 +484,97 @@ class Bridge:
             if rep[0] == "l":
                 return data
 
-    def serve(self, where):
+    def accept(self, where, listener):
         if where.startswith("connect:"):
             port = int(where[len("connect:"):])
             log("connecting to LLDB on localhost:%d" % port)
-            end = time.time() + 120
+            # The first LLDB may come up later than the bridge (two minutes);
+            # a later one whenever the user runs `process connect` again.
+            end = time.time() + 120 if self.session == 1 else None
             while True:
                 try:
-                    c = socket.create_connection(("localhost", port), timeout=5)
-                    break
+                    return socket.create_connection(("localhost", port), timeout=5)
                 except OSError:
-                    if time.time() > end:
+                    if end is not None and time.time() > end:
                         raise
+                    self.check_server()
                     time.sleep(1)
-        else:
-            s = socket.socket()
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind(("localhost", int(where)))
-            s.listen(1)
-            log("waiting for LLDB on localhost:%s" % where)
-            c, _ = s.accept()
-        c.settimeout(None)
-        c.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        self.start_reader(lambda: c.recv(65536))
-        self.write = c.sendall
-        log("LLDB connected")
-        for p in self.packets():
-            if TRACE:
-                log("-> %r" % p[:200])
-            reply = self.handle(p)
-            if reply is not None:
-                self.send(reply)
+        log("waiting for LLDB on localhost:%s" % where)
+        listener.settimeout(1)
+        while True:
+            try:
+                return listener.accept()[0]
+            except socket.timeout:
+                self.check_server()
+
+    def check_server(self):
+        """End the bridge if the server went away while it waits for LLDB
+        (hw-lldb-check.sh stops the server to end a bridge left waiting)."""
+        s = self.r.s
+        s.setblocking(False)
+        try:
+            gone = s.recv(1, socket.MSG_PEEK) == b""
+        except BlockingIOError:
+            gone = False
+        except OSError:
+            gone = True
+        finally:
+            s.settimeout(60)
+        if gone:
+            log("the server went away")
+            raise ServerGone()
+
+    def serve(self, where, sessions):
+        """Serve LLDB sessions, SESSIONS of them (0: for ever)."""
+        listener = None
+        if not where.startswith("connect:"):
+            listener = socket.socket()
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(("localhost", int(where)))
+            listener.listen(1)
+        n = 0
+        while True:
+            c = self.accept(where, listener)
+            n += 1
+            c.settimeout(None)
+            c.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            if not self.running:
+                self.reload_if_changed()
+            else:
+                # The last session detached: stop where the program is.
+                self.halt()
+                self.stop = "T02thread:1;%02x:%s;" % (PC, self.getreg(PC))
+            self.detached = False
+            self.start_reader(lambda: c.recv(65536))
+            self.write = c.sendall
+            log("LLDB connected")
+            detached = False
+            try:
+                for p in self.packets():
+                    if TRACE:
+                        log("-> %r" % p[:200])
+                    reply = self.handle(p)
+                    if reply is not None:
+                        self.send(reply)
+            except SessionEnd as e:
+                detached = e.detached
+            finally:
+                with self.cond:
+                    self.new_session()
+                try:
+                    c.close()
+                except OSError:
+                    pass
+            # Kept on the bridge for main(): ^C while waiting for the next
+            # session leaves a detached program running.
+            self.detached = detached
+            if detached:
+                log("LLDB detached; the program keeps running")
+            else:
+                log("LLDB disconnected")
+                self.end_session(last=bool(sessions) and n >= sessions)
+            if sessions and n >= sessions:
+                return
 
 
 def connect(port, elf):
@@ -439,6 +584,13 @@ def connect(port, elf):
         r.cmd(p)
     r.wait_note(2)
     r.mon("configuration_complete")
+    load(r, elf, launch=True)
+    return r
+
+
+def load(r, elf, launch=False):
+    """Download ELF (if given) and reset; the CPU is stopped. The launch
+    sequence is sent once, after the first reset (as scripts/hw/run.py)."""
     entry = None
     if elf:
         r.mon("prg_download_start_on_connect")
@@ -450,12 +602,12 @@ def connect(port, elf):
                 raise RuntimeError("verify failed at %x" % addr)
         entry = elf_entry(elf)
     r.mon("reset")
-    run.launch(r)
+    if launch:
+        run.launch(r)
     # A program in RAM starts at its entry; one in the code flash boots from
     # the reset vector, where the reset left the PC.
     if entry is not None and entry < 0xffc00000:
         r.setreg(PC, entry)
-    return r
 
 
 def elf_entry(path):
@@ -469,22 +621,28 @@ def log(text):
 
 
 def main():
-    server_port, where = int(sys.argv[1]), sys.argv[2]
-    elf = sys.argv[3] if len(sys.argv) > 3 else None
+    args = sys.argv[1:]
+    sessions = 0
+    if args[:1] == ["--sessions"]:
+        sessions, args = int(args[1]), args[2:]
+    server_port, where = int(args[0]), args[1]
+    elf = args[2] if len(args) > 2 else None
     r = connect(server_port, elf)
     b = Bridge(r, elf)
     try:
-        b.serve(where)
-    except KeyboardInterrupt:
+        b.serve(where, sessions)
+    except KeyboardInterrupt:     # ^C in hw-lldb.sh's terminal
         pass
-    except SystemExit:
-        log("detached; the program keeps running")
+    except ServerGone:
+        log("bridge done")
         return
     try:
-        r.cmd("vKill;1")
+        # Leave a detached program running (unless a session took it over
+        # since); stop any other.
+        r.cmd("D;1" if b.detached else "vKill;1")
     except Exception:
         pass
-    log("LLDB disconnected")
+    log("bridge done")
 
 
 if __name__ == "__main__":

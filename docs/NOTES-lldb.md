@@ -222,17 +222,37 @@ lit テストを実行する。
 まだ試していないもの（#87）:
 
 - DR レジスタに置かれた値（QEMU の gdbstub に DFPU のレジスタがない、#81）;
-- 実機での LLDB のセッションを `hw-run.sh` のように自動で回すこと;
 - LLDB の gdb-remote の API テスト（Python が要る、#83）。
+
+（実機での LLDB のセッションは scripts/hw-lldb-check.sh が自動で回す。下の「実機」。）
 
 ## 実機（e2-server-gdb）
 
 ```sh
-# WSL
-lldb ELF -o 'process connect --plugin gdb-remote listen://127.0.0.1:61235'
+# WSL（hw.lldb は hw-connect = process connect --plugin gdb-remote listen://127.0.0.1:61235 を定める）
+lldb ELF -s scripts/hw/hw.lldb -o hw-connect
 # Windows の Git Bash（順序はどちらが先でもよい）
 scripts/hw-lldb.sh ELF
 ```
+
+### セッションの回し方（#86）
+
+ブリッジとサーバーは、LLDB のセッションをまたいで動き続ける。サーバーの起動（約 10 秒）は最初の 1 回だけ。
+
+| したいこと | LLDB で | ブリッジがすること |
+|---|---|---|
+| 最初から走らせ直す | `kill`、`hw-connect` | `kill` でプログラムを止め、LLDB のブレークポイントを外す。`hw-connect` で ELF をそのときのファイルから読んで書き込み直し、リセットする |
+| ビルドし直した ELF で | `kill`、`target delete`、`target create ELF`、`hw-connect` | 同じ（書き込むのは新しい ELF） |
+| 走らせたまま離れ、あとで止める | `process detach`、のちに `hw-connect` | ブレークポイントを外して走らせ、次の接続で止める |
+| すべて終える | （LLDB を終える） | `hw-lldb.sh` の端末で ^C |
+
+- LLDB は、ターゲットの ELF が書き換わっても `process connect` では読み直さない（QEMU で確かめた。
+  ELF を差し替えても `main` は元の番地のまま）。新しいターゲットを作れば読み直す。
+- LLDB のセッションの中でのリセット（`process plugin packet monitor reset`）は、LLDB が状態の変化を知らないので
+  使わない。`kill` と `hw-connect` で走らせ直す。
+- `hw-lldb.sh --sessions N` は N 回のセッションで終わる（hw-lldb-check.sh は 3）。
+- 端末が 2 つ要る（Git Bash で `hw-lldb.sh`、WSL で LLDB）のは変わらない。WSL の interop が無効で、
+  NAT モードの WSL から Windows の localhost に届かないため（#99）。
 
 WSL（NAT モード）からは Windows の localhost に届かないが、Windows からは WSL の localhost に届く。
 そこで、LLDB が待ち受け、ブリッジが接続しに行く（2 分間再試行する）。
@@ -253,13 +273,15 @@ check-lldb.sh と同じように照合する。リポジトリは WSL にある�
   ^C は LLDB の非同期モード（Python から切り替える）が要るので、Python がなければ走らせずに終える。
   Python の有無は、先に LLDB を 1 回動かして確かめる;
 - ユーザーモードで割り込まれたコードへの巻き戻し（r0 = USP、PSW.U = 1）;
-- `int #64` へのシングルステップ（ハンドラ `_rx_vector_64` で止まり、そこからループへ遡れる）。
+- `int #64` へのシングルステップ（ハンドラ `_rx_vector_64` で止まり、そこからループへ遡れる）;
+- 2 回目のセッション（`kill` のあと。リセットベクタから始まり、ブレークポイントがまた効く）と、
+  3 回目のセッション（`process detach` のあと。走っていたユーザーモードのループで止まる）。
 
 `wsl.exe` は `bash -c` のスクリプトの後ろの引数を渡さないので、WSL 側で動かす部分はファイル
 （`build/hw*/lldb/hw-lldb-check.run`）に書いて実行する。
 
-2026-11-09、EK-RX74M（`HW_BOARD=rx74m`）で 21 項目すべて通過。Python なしにした場合も、表示整形と ^C を
-飛ばして通る（25 秒）。LLDB が時間切れ（300 秒）になったら失敗にする。AP-RX72M-0A ではまだ回していない。
+2026-11-09、EK-RX74M（`HW_BOARD=rx74m`）で 26 項目すべて通過。Python なしにした場合も、表示整形と ^C を
+飛ばして通る（21 項目、37 秒）。LLDB が時間切れ（300 秒）になったら失敗にする。AP-RX72M-0A ではまだ回していない。
 
 ### ブリッジがすること
 
@@ -293,9 +315,14 @@ e2-server-gdb の癖（docs/NOTES-hw.md）を LLDB から隠す:
   LLDB 自身がブレークポイントを置いている番地には、一時的なものを置かない（外すと LLDB のものまで消えるため）。
   サーバーが `Z1` を断ったら（ハードウェアブレークが足りないなど）、置けた分を外し、走らせずにその場で
   止まったと答え、理由を LLDB のコンソールに出す。ブレークポイントを減らしてからステップし直す。
-- **終了:**
-  - LLDB が `kill` したり切断したりしたら、ブリッジはプログラムを止めて終わり、サーバーも終わる。
-  - `detach` ならプログラムは走ったまま残る。
+- **セッションの終わり（#86）:**
+  - LLDB が `kill` したり切断したりしたら、プログラムを止め、LLDB のブレークポイントを外して、次の接続を待つ。
+    次の接続が来たときに ELF をファイルから読んで書き込み直し、リセットする（起動シーケンスは最初の 1 回だけ。
+    scripts/hw/run.py と同じ）。その間にビルドし直した ELF が書き込まれる。
+  - `detach` なら、ブレークポイントを外して走らせたまま次の接続を待ち、接続されたら止める（SIGINT として見せる）。
+    待っている間に `hw-lldb.sh` を ^C で終えても、プログラムは走ったまま残る。
+  - サーバーにはつないだままにする（サーバーはブリッジが切断すると終わる）。ブリッジが終わるとき、
+    最後のセッションが `detach` ならプログラムは走ったまま残る。
 - `BRIDGE_TRACE=1` で、LLDB とのパケットとサーバーの停止通知を表示する。
 
 ### 例外に入る命令をステップ実行しない（#98）
@@ -346,8 +373,7 @@ LLDB では次のときにシングルステップになる:
     （QEMU の lldb-demo で確かめた）。
 - 割り込みを受け付ける命令の場合は、その命令の行を `next` / `step` で通らず、上のどちらかで越える。
 
-PC が壊れてしまったら、そのセッションは捨てて `hw-lldb.sh` を起動し直す（#86）。
-LLDB の `process plugin packet monitor reset` でもリセットはできるが、LLDB は状態が変わったことを知らない。
+PC が壊れてしまったら、`kill` と `hw-connect` で走らせ直す（#86、上の「セッションの回し方」）。
 
 
 ### 実機で確かめたこと（2026-11-03）
