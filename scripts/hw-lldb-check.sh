@@ -32,6 +32,10 @@ wsl() { MSYS_NO_PATHCONV=1 wsl.exe -d "$distro" -- "$@"; }
 loop=$(wsl "$wroot/build/llvm/bin/llvm-nm" "$welf" | awk '$3 == "_lldb_user_loop" {print $1}')
 [ -n "$loop" ] || { echo "no _lldb_user_loop in $elf" >&2; exit 2; }
 int=$(printf '0x%x' $((0x$loop + 11)))
+# Next to TRAPS (user.rs), for a second watchpoint, which the bridge refuses.
+traps=$(wsl "$wroot/build/llvm/bin/llvm-nm" "$welf" | awk '$3 == "_TRAPS" {print $1}')
+[ -n "$traps" ] || { echo "no TRAPS in $elf" >&2; exit 2; }
+wp2=$(printf '%x' $((0x$traps + 4)))
 
 port=${LLDB_PORT:-61235}
 tmp=$(mktemp -d)
@@ -77,6 +81,15 @@ continue
 si
 bt
 breakpoint delete -f
+breakpoint set -n trap
+continue
+breakpoint delete -f
+watchpoint set variable TRAPS
+process plugin packet send qWatchpointSupportInfo:
+process plugin packet send Z2,$wp2,1
+continue
+continue
+watchpoint delete -f
 EOF
 # Without Python `process continue` would not come back: the program loops.
 [ $python = yes ] && cat >> "$tmp/cmds" << EOF
@@ -104,6 +117,9 @@ breakpoint set -n scale
 continue
 bt
 breakpoint delete -f
+watchpoint set variable finished
+continue
+watchpoint delete -f
 process detach
 platform shell sleep 2
 platform shell echo @@session3
@@ -178,6 +194,21 @@ expect "step into int #64: handler"  'frame #0: 0x[0-9a-f]+ lldb-demo.elf`_rx_ve
 expect "step into int #64: caller"   'frame #1: 0x[0-9a-f]+ lldb-demo.elf`_lldb_user_loop \+ 14'
 [ $python = yes ] &&
   expect "^C"                        'stop reason = signal SIGINT'
+# Watchpoints (#80): two hits on TRAPS (written by the trap handler), and
+# one on `finished`, set at a breakpoint after a reset (where the
+# AP-RX72M-0A once never fired).
+n=$(grep -c -E 'stop reason = watchpoint 1$' "$tmp/s1")
+if [ "$n" -ge 2 ]; then echo "ok    watchpoint: hit twice"
+else echo "FAIL  watchpoint: $n hits on TRAPS, not 2"; status=1; fi
+# AtomicU32: {v:{value:{0:2}}} with the formatters, else over lines with
+# `(__0 = 2)`.
+expect "watchpoint: the second hit"  '^new value: \{v:\{value:\{0:2\}\}\}$|^ +\(__0 = 2\)$' 1
+# One watchpoint at a time: the server's stop does not say which one hit.
+expect "watchpoint: one slot"        '^response: num:1;$' 1
+expect "watchpoint: second refused"  '^response: E01$' 1
+expect "watchpoint: in the handler"  'frame #[0-9]: 0x[0-9a-f]+ lldb-demo.elf`lldb_demo::user::trap' 1
+expect "watchpoint: finished"        'new value: 1$' 2
+expect "watchpoint: at the write"    'stop reason = watchpoint 2' 2
 n=$(grep -c '^loading .* again$' "$tmp/bridge")
 if [ "$n" = 2 ]; then echo "ok    again: loaded after kill and after the touch"
 else echo "FAIL  again: the bridge loaded the ELF $n times, not 2"; status=1; fi
@@ -186,7 +217,11 @@ expect "again: the reset vector"     'frame #0: 0x[0-9a-f]+ lldb-demo.elf`_rx_re
 expect "again: breakpoint"           'frame #0: 0x[0-9a-f]+ lldb-demo.elf`lldb_demo::scale\(p=(\(x = 5, y = -2\)|\{x:5, y:-2\}), k=3\) at main\.rs:27' 2
 expect "again: detached"             'Process [0-9]+ detached' 2
 expect "after detach: stopped"       'stop reason = signal SIGINT' 3
-expect "after detach: user loop"     'frame #[0-9]: 0x[0-9a-f]+ lldb-demo.elf`_lldb_user_loop' 3
+# Somewhere in the loop: the loop, the vector's entry, rx-rt's interrupt
+# entry or the handler. (A stop inside _rx_isr_common does not unwind yet:
+# LLDB's frame-0 plan there comes from instruction emulation, which knows
+# neither the interrupt's entry state nor dpushm / dpopm.)
+expect "after detach: in the loop"   'frame #0: 0x[0-9a-f]+ lldb-demo.elf`(_lldb_user_loop|_rx_vector_64|_rx_isr_common|lldb_demo::user::trap|core::sync::atomic)' 3
 if grep -q -E 'Assertion|Stack dump|PLEASE submit' "$tmp/out"; then
   echo "FAIL  LLDB crashed"; status=1
 else

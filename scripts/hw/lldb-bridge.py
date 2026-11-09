@@ -29,10 +29,14 @@ an LLDB connection and serves it:
 - memory, breakpoints (`m`, `M`, `Z0`, `Z1`, `z`) and monitor commands
   (`qRcmd`) passed through. A breakpoint in the code flash becomes one of
   the debugger's hardware breakpoints (the server does that).
-- no watchpoints: the server accepts them, but a watchpoint only fires
-  once, and only when it was set before the CPU first ran after a reset
-  (LLDB sets and clears its watchpoints around every stop), so LLDB is told
-  that they are not supported.
+- watchpoints (`Z2` write, `Z3` read, `Z4` access) passed through (#80).
+  The server's stop does not say which one hit, so the bridge allows one
+  at a time (qWatchpointSupportInfo says 1; a second `Z2`-`Z4` gets E01)
+  and adds its `watch:` / `rwatch:` / `awatch:` field. (With several,
+  telling them apart by the watched memory fails for reads and for
+  writes of the same value.) The CPU stops after the access, which
+  qHostInfo tells LLDB. (On the AP-RX72M-0A a watchpoint was once seen to
+  fire only before the first run; on the EK-RX74M they fire every time.)
 
 When LLDB kills (`k`) or disconnects, the bridge stops the program,
 removes LLDB's breakpoints and waits for the next LLDB connection: in
@@ -172,6 +176,9 @@ class Bridge:
         # LLDB's breakpoints, address -> "TYPE,ADDR,KIND" of their Z packet,
         # which step() must leave alone and which are removed when LLDB goes.
         self.breakpoints = {}
+        # LLDB's watchpoints, (TYPE, address) -> length.
+        self.watchpoints = {}
+        self.slots = None
         self.session = 0
         self.new_session()
 
@@ -213,10 +220,22 @@ class Bridge:
                         if f.startswith(("swbreak", "hwbreak", "watch", "rwatch",
                                          "awatch")))
         pc = self.getreg(PC)
+        if (not step and not interrupted and sig == "05" and not extra
+                and int(bytes.fromhex(pc)[::-1].hex(), 16) not in self.breakpoints):
+            extra = self.watch_hit()
         self.stop = "T%sthread:1;%02x:%s;%s" % (sig, PC, pc, extra.lstrip(";"))
         if not self.stop.endswith(";"):
             self.stop += ";"
         return self.stop
+
+    def watch_hit(self):
+        """The stop field for the watchpoint that stopped the CPU (#80): the
+        server's stop says nothing, and comes after the access (as LLDB
+        expects on RX). There is at most one (see the `Z2`-`Z4` handling)."""
+        if not self.watchpoints:
+            return ""
+        (kind, addr), = self.watchpoints
+        return ";%s:%x" % ({"2": "watch", "3": "rwatch", "4": "awatch"}[kind], addr)
 
     def step(self):
         """A single step. The server leaves a garbage PC after stepping an
@@ -344,7 +363,12 @@ class Bridge:
                     "qXfer:memory-map:read+;QStartNoAckMode+;swbreak+;"
                     "hwbreak+;vContSupported+")
         if p == "qHostInfo":
-            return "triple:%s;endian:little;ptrsize:4;" % TRIPLE.encode().hex()
+            # The server stops after the instruction that hit a watchpoint.
+            return ("triple:%s;endian:little;ptrsize:4;"
+                    "watchpoint_exceptions_received:after;"
+                    % TRIPLE.encode().hex())
+        if p.startswith("qWatchpointSupportInfo"):
+            return "num:%d;" % min(1, self.watch_slots())
         if p == "qProcessInfo":
             return "pid:1;triple:%s;endian:little;ptrsize:4;" % (
                 TRIPLE.encode().hex())
@@ -392,7 +416,19 @@ class Bridge:
                 off += k
             return "OK"
         if p[0] in "Zz" and p[1:2] in ("2", "3", "4"):
-            return ""
+            # Write, read and access watchpoints (#80), one at a time: the
+            # server's stop does not say which one hit.
+            _, addr, length = p[1:].split(";")[0].split(",")
+            key = (p[1], int(addr, 16))
+            if p[0] == "Z" and self.watchpoints and key not in self.watchpoints:
+                return "E01"
+            rep = r.cmd(p)[0]
+            if rep == "OK":
+                if p[0] == "Z":
+                    self.watchpoints[key] = int(length, 16)
+                else:
+                    self.watchpoints.pop(key, None)
+            return rep
         if p[0] in "Zz" and p[1:2] in ("0", "1"):
             rep = r.cmd(p)[0]
             if rep == "OK":
@@ -418,9 +454,7 @@ class Bridge:
             return self.step()
         if p.startswith("D"):
             # Run on; the server stays connected for the next session.
-            for a, z in self.breakpoints.items():
-                r.cmd("z" + z)
-            self.breakpoints = {}
+            self.clear_points()
             r.cmd("vCont;c")
             self.running = True
             self.send("OK")
@@ -438,15 +472,34 @@ class Bridge:
             self.r.wait_note(5)
             self.running = False
 
+    def clear_points(self):
+        """Remove LLDB's breakpoints and watchpoints (LLDB went away)."""
+        for z in self.breakpoints.values():
+            self.r.cmd("z" + z)
+        for (kind, addr), length in self.watchpoints.items():
+            self.r.cmd("z%s,%x,%x" % (kind, addr, length))
+        self.breakpoints = {}
+        self.watchpoints = {}
+
+    def watch_slots(self):
+        """The server's count of free hardware breakpoints (8 on the RX74M),
+        which watchpoints share."""
+        if self.slots is None:
+            self.slots = 4
+            try:
+                rep = self.r.mon("get_no_hw_bkpts_available")[0]
+                self.slots = int(bytes.fromhex(rep).decode().strip())
+            except (ValueError, UnicodeDecodeError):
+                pass
+        return self.slots
+
     def end_session(self, last=False):
         """After a session LLDB killed or left: stop, remove LLDB's
-        breakpoints, download the ELF again and reset, for the next
-        session. If the ELF changes before that connects (a rebuild), it is
-        loaded again then (reload_if_changed)."""
+        breakpoints and watchpoints, download the ELF again and reset, for
+        the next session. If the ELF changes before that connects (a
+        rebuild), it is loaded again then (reload_if_changed)."""
         self.halt()
-        for a, z in self.breakpoints.items():
-            self.r.cmd("z" + z)
-        self.breakpoints = {}
+        self.clear_points()
         if not last:
             self.reload()
 
