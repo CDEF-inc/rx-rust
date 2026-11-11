@@ -100,6 +100,15 @@ run "check-fp" bash "$S/check-fp.sh"
 run "check-lld" bash "$S/check-lld.sh"
 run "lld lit" "$root/build/llvm/bin/llvm-lit" -q \
   "$root"/rust/src/llvm-project/lld/test/ELF/rx-*
+# The RX backend's lit tests in llvm-project (MC encodings, disassembler,
+# CodeGen), once the llvm-project submodule has them (llvm-project#39).
+L=$root/rust/src/llvm-project/llvm/test
+if [ -d "$L/CodeGen/RX" ]; then
+  run "llvm lit" "$root/build/llvm/bin/llvm-lit" -q \
+    "$L/MC/RX" "$L/MC/Disassembler/RX" "$L/CodeGen/RX"
+else
+  echo "(no llvm/test/CodeGen/RX in the llvm-project submodule: RX lit tests not run)"
+fi
 # LLDB (build/lldb, from scripts/build-lldb.sh; skipped without it): debug
 # sessions on QEMU (Rust dev and release, RXv3 code, GCC's C with Rust, with
 # and without CFI), the RX unwinder's unit tests and the RX lit test.
