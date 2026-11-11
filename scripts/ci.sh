@@ -38,11 +38,14 @@ deps() {
     esac
   done
   local sudo=; [ "$(id -u)" = 0 ] || sudo=sudo
+  # Each apt-get has a time limit. On 2026-11-11 the first attempt also hung
+  # without output instead of failing, once in apt-get for the whole job
+  # (main's dist job for almost 5 hours), so the fallback below never ran.
   apt_install() {
-    $sudo apt-get update -qq
-    $sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-      -o Acquire::Retries=3 --no-install-recommends ca-certificates "${p[@]}" \
-      > /dev/null
+    $sudo timeout -k 30 300 apt-get update -qq &&
+      $sudo env DEBIAN_FRONTEND=noninteractive timeout -k 30 600 \
+        apt-get install -y -qq -o Acquire::Retries=3 --no-install-recommends \
+        ca-certificates "${p[@]}" > /dev/null
   }
   apt_install && return
   # On 2026-11-11 the runner's resolver stopped resolving the Ubuntu
@@ -50,7 +53,7 @@ deps() {
   # mirror+file:/etc/apt/apt-mirrors.txt, and archive.ubuntu.com) for hours
   # while GitHub's resolved. Then use public DNS servers and
   # archive.ubuntu.com, and try again.
-  echo "apt-get install failed: retrying with public DNS and archive.ubuntu.com" >&2
+  echo "apt-get install failed or timed out: retrying with public DNS and archive.ubuntu.com" >&2
   if [ -d /etc/systemd ] && command -v systemctl > /dev/null; then
     $sudo mkdir -p /etc/systemd/resolved.conf.d
     printf '[Resolve]\nDNS=1.1.1.1 8.8.8.8\nFallbackDNS=1.0.0.1 8.8.4.4\n' |
