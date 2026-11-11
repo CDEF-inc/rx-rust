@@ -94,11 +94,8 @@ GCC の `rx_function_arg` などに合わせた。構造体の扱いは rustc �
   - run-all-tests.sh は build/lldb の clang（scripts/build-lldb.sh）があるときに各 CPU の -O0 / -O2 で走らせる。
 
 ## 残っていること
-- rustc の callconv/rx.rs は引数のスカラーを 32 ビットに拡張する（zeroext / signext）。GCC の呼ぶ側は拡張しないので、
-  GCC から呼ばれる Rust の関数が u8 / i16 などを受け取ると上位ビットを信じてしまう。また可変長呼び出しの名前なしの
-  構造体を、レジスタに入る大きさなら `[N x i32]`（4 境界）で渡すので、char だけの構造体が詰まる GCC と位置がずれうる。
-- `-misa` を付けない GNURX の既定は 32 ビット double（`-mdfpu` は 64 ビットにする）。clang の既定は 64 ビットなので、GNURX と
-  混ぜるときは GNURX 側に `-m64bit-doubles`（または clang 側に `-m32bit-doubles`）。
+- rustc の callconv/rx.rs も GCC に合わせた（CDEF-inc/rust#42、rx-rust#161）: char / short の引数を拡張せず、bool は i8、
+  可変長の位置の構造体は byval（NOTES-rustc.md、test/rust/cabi-smoke）。
 - `__attribute__((interrupt))` / `fast_interrupt` は未対応（バックエンドにも無い。Rust は rx-rt の asm で入口を作る）。
 - `-mbig-endian-data`、`-mpid`、`-mno-allow-string-insns`、`-msmall-data-limit`、`-mint-register`、`-mgcc-abi` は無い
   （バックエンドが対応していない）。

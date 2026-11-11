@@ -85,8 +85,8 @@ test/mc/        assembler tests, compared with GNU as
 test/codegen/   LLVM IR + C tests run on QEMU (Rust/LLVM <-> GCC calls)
 test/qemu/      instruction tests for the QEMU CPU models (also run on the boards)
 test/hw/        start-up code, harness and linker scripts for the boards
-test/rust/      Rust tests: coretests (library/coretests on QEMU), core-smoke and variadic-smoke
-                (with C drivers), qemu-demo, alloc-smoke,
+test/rust/      Rust tests: coretests (library/coretests on QEMU), core-smoke, variadic-smoke and
+                cabi-smoke (with C drivers), qemu-demo, alloc-smoke,
                 float-smoke, isr-save, isr-bank, lldb-demo, hw-irq (also on the board);
                 board only: hw-pac, hw-hal, hw-uart, hw-spi, hw-adc, hw-pwm (RX72M) and
                 hw-pac-rx74n, hw-hal-rx74n, hw-clock-rx74n, hw-spi-rx74n, hw-adc-rx74n,
