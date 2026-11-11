@@ -38,9 +38,26 @@ deps() {
     esac
   done
   local sudo=; [ "$(id -u)" = 0 ] || sudo=sudo
-  $sudo apt-get update -qq
-  $sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    --no-install-recommends ca-certificates "${p[@]}" > /dev/null
+  apt_install() {
+    $sudo apt-get update -qq
+    $sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+      -o Acquire::Retries=3 --no-install-recommends ca-certificates "${p[@]}" \
+      > /dev/null
+  }
+  apt_install && return
+  # The runner's apt mirror list (mirror+file:/etc/apt/apt-mirrors.txt,
+  # azure.archive.ubuntu.com first) sometimes stops resolving for hours
+  # (2026-11-11): use archive.ubuntu.com instead and try again.
+  echo "apt-get install failed: retrying with archive.ubuntu.com" >&2
+  local f
+  for f in /etc/apt/sources.list /etc/apt/sources.list.d/*; do
+    [ -f "$f" ] || continue
+    $sudo sed -i -E \
+      -e 's#mirror\+file:/etc/apt/apt-mirrors\.txt#http://archive.ubuntu.com/ubuntu/#' \
+      -e 's#https?://azure\.archive\.ubuntu\.com/ubuntu/?#http://archive.ubuntu.com/ubuntu/#' \
+      "$f"
+  done
+  apt_install
 }
 
 # The submodules, one commit deep (setup.sh).
