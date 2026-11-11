@@ -37,8 +37,9 @@ clang --target=rx-none-elf --gcc-toolchain=gnu/install -T my.ld foo.o bar_gcc.o 
 - 型: `-dM` の `_TYPE__` は GCC と全部一致。int32_t / int_least32_t は long、int_fast8/16/32_t は int、char32_t は
   unsigned long（newlib の型）。clang は int_fastN_t を int_leastN_t と同じにしていたので、TargetInfo に
   `getFastIntTypeByWidth` を足した。
-  - ただし clang 自身の stdint.h（`-ffreestanding` や newlib が無いとき）は int_fastN_t を int_leastN_t で定義するので、
-    そのときだけ int_fast8/16_t が GCC と違う。
+  - clang 自身の stdint.h（`-ffreestanding` や newlib が無いとき）も、RX ではこれらのマクロで int_fastN_t とその上限・幅を
+    定義する（以前は int_leastN_t と同じにしていて、int_fast8/16_t が 1 / 2 バイトだった。#41 のレビューで指摘。
+    clang/test/Headers/rx-stdint.c）。
 - アラインメント: long long / double は 4。`__alignof__` も 4（clang は既定で 8 にする「優先アラインメント」を持つので
   `allowsLargerPreferedTypeAlignment` を false に）。
 - ビットフィールド: GCC は RX で MS のレイアウト（`TARGET_MS_BITFIELD_LAYOUT_P`。型の違うビットフィールドは新しい
