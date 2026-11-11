@@ -132,6 +132,29 @@ bash scripts/run-rust-test.sh     # -Zbuild-std=core でテスト crate をビ�
 - `scripts/run-rust-test.sh` は、共有の target ディレクトリにある最初の `lib*.a` をリンクしていた。
   そのため、core-smoke の後では別のクレートでも core-smoke を走らせていた。いまは Cargo.toml のクレート名で選ぶ。
 
+## coretests（2026-11-11）
+`library/coretests`（core のテスト、約 2,800 件）を rx-none-elf でビルドし、QEMU で走らせる
+（`scripts/run-coretests.sh`、`test/rust/coretests`）。coretests のソースには手を入れない。
+- rx-none-elf には std も libtest も無いので、どちらも小さな代わりのクレートを使う（Cargo で `std` / `test` という名前の依存にする）。
+  - `std/`: core と alloc を std と同じ形で再エクスポートし、出力は QEMU の SCI0。rustc は std の prelude を入れるだけで
+    `#[macro_use]` はしないので、`println!` などのマクロも prelude に置く。std にしか無い型（`LazyLock`、`thread_local!`、
+    `RandomState`、`HashSet` を `BTreeSet` で、`catch_unwind` は閉包を呼ぶだけ）は最小限の代わり。
+    std にしか無い f16 / f32 / f64 のメソッド（`floor`、`powf`、`gamma` など）は std と同じ中身をトレイトにして prelude に置く
+    （定数式で使われる `floor` などは const trait）。C の数学関数は compiler_builtins の libm。
+  - `test/`: rustc のテストハーネスが作る `TestDescAndFn` などの型と、呼ばれる `test_main_env_args` を持つ。テストを 1 本ずつ
+    呼び、結果を libtest の形式で出す。パニックは巻き戻せないので、パニックハンドラがそのテストの結果を記録し
+    （`#[should_panic]` なら成功）、スタックを `__stack` に戻して次のテストから再開する（確保したメモリは捨てる）。
+    起動コード、グローバルアロケータ（2 のべき乗の大きさごとの空きリスト、8 MB）もここ。
+  - `features/`: coretests が有効にしている std だけの feature（`float_gamma`）を `staged_api` で宣言するだけのクレート。
+    無いと「未知の feature」でコンパイルエラーになる。
+- プログラムは約 1.9 MB なので 512 KB の ROM には入らない。QEMU の SDRAM（16 MB）に ELF として読み込む（`test/coretests.x`）。
+- 結果（rx62n / rxv2 / rxv3 / rxv3e の release）: 2814 件通過、5 件は coretests 自身が `panic = "abort"` で無視、
+  失敗 1 件（`atomic::ptr_bitops_tagging`）。QEMU で約 70 秒。
+  - この失敗は RX バックエンドの不具合: スタックの再整列が無く、`#[repr(align(16))]` のローカル変数が 4 バイト整列にしかならない。
+    LLVM はその番地の下位ビットを 0 として畳み込むので、AtomicPtr の値と比べた結果がずれる（RXFrameLowering）。
+  - 失敗してよいテストは `test/rust/coretests/expected-failures` に書き、それ以外の失敗と、書いてあるのに通ったテスト（XPASS）を
+    エラーにする。
+
 ## 注意・未対応
 - `scripts/run-rust-test.sh` は、`RX_CPU` が無ければ `-C target-cpu=rxv1` でビルドして QEMU の rx62n で走らせる
   （qemu-demo も .cargo/config.toml で rxv1 を指定）。`RX_CPU=rxv2|rxv3|rxv3e` なら、その CPU 向けにビルドして

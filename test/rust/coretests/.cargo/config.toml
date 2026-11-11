@@ -1,0 +1,11 @@
+[build]
+target = "rx-none-elf"
+
+[target.rx-none-elf]
+# QEMU's RX62N is RXv1. coretests.x (test/) puts the program in the 16 MB
+# SDRAM.
+rustflags = ["-C", "link-arg=-Tcoretests.x", "-C", "target-cpu=rxv1"]
+
+[unstable]
+build-std = ["core", "alloc"]
+build-std-features = ["compiler-builtins-mem"]

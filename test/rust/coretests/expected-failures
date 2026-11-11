@@ -1,0 +1,8 @@
+# coretests that fail on rx-none-elf, checked by scripts/run-coretests.sh:
+# "CPU TEST  # why", CPU `*` for every core or one of rx62n, rxv2, rxv3,
+# rxv3e.
+
+# The RX backend does not realign the stack: a #[repr(align(16))] local is
+# only 4-aligned, while LLVM folds its low address bits as zero
+# (RXFrameLowering has no stack realignment).
+*  atomic::ptr_bitops_tagging
