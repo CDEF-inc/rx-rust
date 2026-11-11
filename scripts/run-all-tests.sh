@@ -124,6 +124,7 @@ if [ -x "$root/build/lldb/bin/lldb" ]; then
   run "lldb lit" "$root/build/lldb/bin/llvm-lit" -q \
     "$root"/rust/src/llvm-project/lldb/test/Shell/Disassemble/TestDisassembleRX.test \
     "$root"/rust/src/llvm-project/clang/test/Preprocessor/init-rx.c \
+    "$root"/rust/src/llvm-project/clang/test/Headers/rx-stdint.c \
     "$root"/rust/src/llvm-project/clang/test/CodeGen/rx-mangle.c \
     "$root"/rust/src/llvm-project/clang/test/CodeGen/RX \
     "$root"/rust/src/llvm-project/clang/test/Driver/rx-toolchain.c
