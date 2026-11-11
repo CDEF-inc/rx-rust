@@ -6,8 +6,14 @@ publish = false
 
 [dependencies]
 rx-rt = { path = "../../../crates/rx-rt", features = ["critical-section"] }
-rx72-hal = { path = "../../../crates/rx72-hal", features = ["rx72m"] }
+hw-board = { path = "../hw-board" }
 embedded-hal = { git = "https://github.com/CDEF-inc/embedded-hal", rev = "41f29f6bfced1cae0cbe712ba96ee32c075b3125" }
+
+[features]
+# The board: exactly one of these (hw-board).
+ap-rx72m = ["hw-board/ap-rx72m"]
+ek-rx74n = ["hw-board/ek-rx74n"]
+ek-rx74m = ["hw-board/ek-rx74m"]
 
 [[bin]]
 name = "hw-adc"
@@ -21,11 +27,15 @@ debug = true
 [profile.dev]
 opt-level = 1
 
-# The generated PAC is about 23 MB of source: with debug info rustc takes
-# over ten minutes on it, without it about half a minute.
+# The generated PACs are about 23 MB (RX72) and 47 MB (RX74) of source:
+# with debug info rustc takes over ten minutes on them.
 [profile.release.package.rx72-pac]
 debug = false
-
 [profile.dev.package.rx72-pac]
+debug = false
+opt-level = "s"
+[profile.release.package.rx74-pac]
+debug = false
+[profile.dev.package.rx74-pac]
 debug = false
 opt-level = "s"

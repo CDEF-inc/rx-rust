@@ -88,9 +88,9 @@ test/hw/        start-up code, harness and linker scripts for the boards
 test/rust/      Rust tests: coretests (library/coretests on QEMU), core-smoke, variadic-smoke and
                 cabi-smoke (with C drivers), qemu-demo, alloc-smoke,
                 float-smoke, isr-save, isr-bank, lldb-demo, hw-irq (also on the board);
-                board only: hw-pac, hw-hal, hw-uart, hw-spi, hw-adc, hw-pwm (RX72M) and
-                hw-pac-rx74n, hw-hal-rx74n, hw-clock-rx74n, hw-spi-rx74n, hw-adc-rx74n,
-                hw-pwm-rx74n, hw-i2c-rx74n (RX74N / RX74M)
+                board only, the board as a feature (hw-board): hw-pac, hw-hal,
+                hw-spi, hw-adc, hw-pwm (all boards), hw-uart (AP-RX72M-0A),
+                hw-clock, hw-i2c (EK-RX74N / EK-RX74M)
 docs/           design notes and plan (in Japanese)
 ```
 

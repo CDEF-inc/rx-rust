@@ -2,7 +2,8 @@
 target = "rx-none-elf"
 
 [target.rx-none-elf]
-# The RX72M: RXv3 with the FPU and the DFPU.
+# RXv3 with the FPU and the DFPU (the RX72M; the RX74N / RX74M run it too).
+# scripts/hw-build.sh gives its own RUSTFLAGS: rxv3e for the RX74N / RX74M.
 rustflags = ["-C", "link-arg=-Tlink.x", "-C", "target-cpu=rxv3"]
 
 [unstable]

@@ -28,6 +28,14 @@ e² studio の sfrx で比べると、どちらの組も M が N の上位集合
 feature でも同じコードになる。EK-RX74M のテストは今のところ `rx74n` でビルドしたものをそのまま動かしている
 （RX74N のレジスタはすべて同じアドレスにある）。
 
+ボードのテスト（test/rust/hw-*、hw-irq を除く）と examples/serial-echo も、ボードを feature で選ぶ:
+`ap-rx72m`（AP-RX72M-0A）、`ek-rx74n`（EK-RX74N）、`ek-rx74m`（EK-RX74M）。テストは test/rust/hw-board に
+依存し、そこにボードの HAL（`hw_board::hal`）、memory.x（`RX_MEMORY_X`、なければボードのもの）、結果の変数
+（`checks` / `failures` / `first_failure` / `finished`）と `check` / `finish`、`_done`、panic handler がある。
+両方のボードで動くテストは src/rx72.rs と src/rx74.rs に分かれ、src/main.rs が feature で片方を選ぶ（hw-pac は違いが小さいので 1 つのファイルで cfg）。
+片方のボードだけのテスト（hw-uart は AP-RX72M-0A、hw-clock と hw-i2c は EK-RX74N / EK-RX74M）は、
+そのボードの feature だけを持つ。scripts/hw-build.sh は `HW_BOARD` から feature を決める（rx74m でも ek-rx74n）。
+
 ## PAC（crates/rx72-pac）
 
 build.rs が次を行う。
@@ -65,7 +73,7 @@ sfrx にはモジュール 283 個、レジスタ 33,277 個があり、半分�
 
 RX72M と名前が違う: SYSTEM は SYSC と MSTPREG に分かれ（`p.sysc.prcr_s()`、`p.mstpreg.mstpcrf()`）、ICU の IER は `ier3` のように 0 埋めがない。
 
-確認: test/rust/hw-pac-rx74n（EK-RX74N、rt グループ、11 チェック、release / dev とも通る）。
+確認: test/rust/hw-pac（ek-rx74n、EK-RX74N、rt グループ、11 チェック、release / dev とも通る）。
 
 ## EK-RX74N の配線（ボードのマニュアル R20UT5626EG0100 より）
 
@@ -115,7 +123,7 @@ RX72M と名前が違う: SYSTEM は SYSC と MSTPREG に分かれ（`p.sysc.prc
     同期化回路を飛ばす（47.3.19。8 ビットのフレームは PCLKA : TCLK = 1:1 で使える、表 47.17）。
   - SPDR はどの幅でも LSB 詰めで読み書きできるので、バイトで扱う。次アクセス遅延の既定は 1 RSPCK + 5 TCLK。
 
-確認: test/rust/hw-spi-rx74n（rt グループ、29 チェック、release / dev とも通る。2026-11-08）。PLL1 480 MHz
+確認: test/rust/hw-spi の rx74.rs（rt グループ、29 チェック、release / dev とも通る。2026-11-08）。PLL1 480 MHz
 （PCLKA 120 MHz）で、内容は RX72M の hw-spi と同じ（ビットレートの選び方、PmnPFS、SPCR = C100_0001h、
 SPLP2 / SPLP のループバック、4 モードの 1 MHz と 30 MHz、アイドル時の RSPCK と MOSI、転送時間）。64 バイトは 1 MHz で
 5046 カウント（673 us）、500 kHz で 10068 カウント（比 2.00）。D11 と D12 をつなぐと外部ループバックも確かめる。
@@ -132,7 +140,7 @@ SPLP2 / SPLP のループバック、4 モードの 1 MHz と 30 MHz、アイド
     GTUDDTYC.OBDTY（10b / 11b）で出す（RX72M の MTU のような TGR の工夫は要らない）。新しいデューティは GTCCRB の
     バッファの GTCCRE に書き（GTBER.CCRB = 01b）、周期の終わりに移るので半端なパルスは出ない。
 
-確認: test/rust/hw-pwm-rx74n（rt グループ、22 チェック、release / dev とも通る。2026-11-08）。PLL1 480 MHz（PCLKD
+確認: test/rust/hw-pwm の rx74.rs（rt グループ、22 チェック、release / dev とも通る。2026-11-08）。PLL1 480 MHz（PCLKD
 120 MHz）で、内容は RX72M の hw-pwm と同じ（PF05 を PIDR で読み、CMT0 の時間で重みを付けて測る）。1 kHz の 25 / 50 /
 75 % は 25.0 / 50.0 / 75.0 %（release）、24.9 / 49.9 / 74.9 %（dev）、100 ms に立ち上がり 100 回。100 kHz の 50 % は
 50.0 % / 48.7 %、10 ms に 1000 回。初めの 1 回ですべて通った。
@@ -209,7 +217,7 @@ SPLP2 / SPLP のループバック、4 モードの 1 MHz と 30 MHz、アイド
 - EEPROM の中身は全部 FFh（未書き込み）なので、一致の確認はデータとしては弱い。書き込みは、ボードの EtherCAT の
   設定を書き換えないよう試していない。EK-RX74N（EEPROM なし）では `eeprom=0` で、そのチェックを飛ばす（未確認）。
 
-確認: test/rust/hw-adc-rx74n（rt グループ、19 チェック、release / dev とも通る。2026-11-08、初めの 1 回で通った）。
+確認: test/rust/hw-adc の rx74.rs（rt グループ、19 チェック、release / dev とも通る。2026-11-08、初めの 1 回で通った）。
 配線なしで確かめる。PLL1 480 MHz、ADCLK 60 MHz。
 - ADCCKCR = 05h、ADCCKDIVCR = 04h、MSTPD21、ユニット 1・2 のスリープ、ADCLKSR、ADCNVSTR = 06_0606h、
   ADSSTR0 = 300 / 60、キャリブレーションのエラーなし。
@@ -220,8 +228,8 @@ SPLP2 / SPLP のループバック、4 モードの 1 MHz と 30 MHz、アイド
 - DA0 の内部出力を 400h / 800h / C00h にすると 400h / 800h / C00h（dev は 801h / C01h）。
 - P400 の `into_analog`（ASEL、PMR / PDR / PCR = 0）と `read`、`set_sampling_states(120)`、`into_input` で ASEL が消える。
 
-確認: test/rust/hw-hal-rx74n（rt グループ、10 チェック、release / dev とも通る。LED が順に光る）。
-test/rust/hw-clock-rx74n（rt グループ、20 チェック、480 MHz と `--cfg clock600` の 600 MHz、release / dev とも通る）は
+確認: test/rust/hw-hal の rx74.rs（rt グループ、10 チェック、release / dev とも通る。LED が順に光る）。
+test/rust/hw-clock（rt グループ、20 チェック、480 MHz と feature `clock600` の 600 MHz、release / dev とも通る）は
 設定後のレジスタに加えて、CAC でクロックを測る。メインクロック対 MOCO / 8192 は 23580（MOCO が 4% 速い）、
 PLL1P / 16 対メインクロック / 8192 は 10239（480 MHz、計算は 10240）と 12799（600 MHz、12800）、PCLKB は 20479 と 25599。
 CMT0 で測った 100 ms の遅延、CPU のループ（100 万回で 37.5 ms と 30 ms、比は 600 / 480）も確かめる。

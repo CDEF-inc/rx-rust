@@ -1,0 +1,35 @@
+[package]
+name = "hw-i2c"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rx-rt = { path = "../../../crates/rx-rt", features = ["critical-section"] }
+hw-board = { path = "../hw-board" }
+embedded-hal = { git = "https://github.com/CDEF-inc/embedded-hal", rev = "41f29f6bfced1cae0cbe712ba96ee32c075b3125" }
+
+[features]
+# The board: exactly one of these (hw-board).
+ek-rx74n = ["hw-board/ek-rx74n"]
+ek-rx74m = ["hw-board/ek-rx74m"]
+
+[[bin]]
+name = "hw-i2c"
+test = false
+bench = false
+
+[profile.release]
+opt-level = "s"
+debug = true
+
+[profile.dev]
+opt-level = 1
+
+# The generated PAC is about 47 MB of source: with debug info rustc
+# takes over ten minutes on it.
+[profile.release.package.rx74-pac]
+debug = false
+[profile.dev.package.rx74-pac]
+debug = false
+opt-level = "s"
