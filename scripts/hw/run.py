@@ -8,8 +8,8 @@ sends when it launches a debug session (non-stop mode), so this replays
 it. Each ELF is downloaded, the CPU reset and run from _start (a program
 in RAM) or the reset vector (one in the code flash) until the hardware
 breakpoint at _done, or SECONDS. Failures logged by test/hw/harness.s go
-to NAME.fail. The exit status is 0 iff every test finished without
-failures.
+to NAME.fail, and coretests' output (its RAM buffer) to NAME.log. The exit
+status is 0 iff every test finished without failures.
 
 A program without _done (examples/*, which run until stopped) runs for
 SECONDS and counts as passed; if it is the last ELF, the runner detaches
@@ -37,6 +37,38 @@ def launch(r):
     r.wait_note(2)
     r.mon("launch_complete")
     r.mon("all_launches_complete")
+
+
+def save_log(r, syms, elf):
+    """coretests' output (test/rust/coretests, a RAM buffer on the board):
+    write it to NAME.log and print its failures and summary, or the test
+    that was running if it did not finish."""
+    # The buffer is a ring of `size` bytes; `n` counts all written.
+    size = 192 * 1024
+    n = r.word(syms["coretests_log_len"])
+    if n <= size:
+        data = r.read(syms["coretests_log"], n) if n else b""
+    else:
+        data = r.read(syms["coretests_log"], size)
+        data = data[n % size:] + data[:n % size]
+        data = b"[the first %d bytes are not kept]\n" % (n - size) + data
+    text = data.decode("utf-8", "replace")
+    with open(elf[:-4] + ".log", "w", encoding="utf-8") as f:
+        f.write(text)
+    lines = text.splitlines()
+    show = False
+    for line in lines:
+        if line.startswith("test ") and " ..." in line:
+            show = False
+        elif line.startswith(("---- ", "failures:", "test result: ", "heap: ",
+                            "panic outside")):
+            show = not line.startswith("test result: ")
+            print("  " + line)
+        elif show and line.strip():
+            print("  " + line)
+    started = [x for x in lines if x.startswith("test ") and x.endswith(" ...")]
+    if started and not any(x.startswith("test result: ") for x in lines):
+        print("  last started: " + started[-1])
 
 
 def run(r, elf, seconds):
@@ -77,6 +109,8 @@ def run(r, elf, seconds):
     v = {k: r.word(syms[k]) if k in syms else 0 for k in
          ("finished", "checks", "failures", "first_failure",
           "got_value", "want_value")}
+    if "coretests_log" in syms:
+        save_log(r, syms, elf)
     if v["finished"] != 1:
         print("[%s/%s] did not finish in %.1f s (pc=%08x, checks=%d)"
               % (name, BOARD, el, pc, v["checks"]))

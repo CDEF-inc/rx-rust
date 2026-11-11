@@ -9,3 +9,7 @@ name = "std"
 
 [dependencies]
 std_features = { package = "rx-std-features", path = "../features" }
+
+[features]
+# Print into a RAM buffer (coretests_log) instead of SCI0, for the board.
+log-buffer = []

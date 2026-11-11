@@ -124,6 +124,20 @@ R01UH1055EJ0110）をつないだ。
   RX74M でも使える（ESC と DSMIF は扱わない）。
 - RX74M にはデュアルコアの品種（R5K574MC_DUAL）もあるが、EK-RX74M はシングルコアとして扱っている。
 
+### coretests（2026-11-11）
+`library/coretests`（core のテスト）を EK-RX74M で走らせる。既定の一覧には入れていない。
+```sh
+HW_BOARD=rx74m scripts/hw-build.sh coretests            # WSL
+HW_BOARD=rx74m HW_TIMEOUT=900 scripts/hw-run.sh build/hw-rx74n/coretests/*.elf   # Git Bash
+```
+- 全体（.text 1.3 MB）はコード MRAM（1 MB）に入らないので、`num` だけ（1523 件、.text 0.8 MB）と残り（1292 件、0.6 MB）の
+  2 本に分ける（`scripts/coretests-part.sh`。coretests のソースは変えず、`mod` 行を選んだクレートルートを生成する）。
+- コードは MRAM、起動コード・.rodata・.data・.bss・ヒープ・スタックは On-chip RAM（`test/rust/coretests/test/coretests-rx74n.x`）。
+  デバッガが直接書き込むので .data のコピーは無い。run.py は RAM にある `_start` から走らせる。
+- テストの前に rx74n-hal で PLL1 を 480 MHz にする（リセット時の MOCO 8 MHz では何時間もかかる）。
+- 出力は RAM のリングバッファ（最後の 192 KB、`coretests_log`）。run.py が `NAME.log` に書き、失敗と要約を表示する。
+- 結果: 2 本とも全件通過（1523 + 1292 = 2815、無視 5）。実行は 58 秒と 172 秒、書き込みを含めて約 5 分。
+
 ## e2-server-gdb の使い方で分かったこと
 
 GDB は使わず、Python から直接リモートプロトコルを話す。e² studio と同じ手順でないと CPU が走らない。

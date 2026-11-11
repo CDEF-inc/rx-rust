@@ -1,13 +1,17 @@
 //! A stand-in for libtest that runs the `#[test]` functions of a test crate
-//! on QEMU (bare metal, `panic = "abort"`, no threads or processes).
+//! on QEMU or the board (bare metal, `panic = "abort"`, no threads or
+//! processes).
 //!
 //! rustc's test harness calls `test_main_env_args_abort` with the tests. They
-//! run one after another and the results are printed on SCI0 in libtest's
-//! format. A panic cannot unwind, so the panic handler records the result
-//! of the running test (a pass for `#[should_panic]`), resets the stack and
-//! jumps back into the loop with the next test; whatever the test allocated
-//! or borrowed is leaked. The program also has the global allocator and the
-//! start-up code, and sets `finished` at the end.
+//! run one after another and the results are printed (std's `println!`: SCI0
+//! on QEMU, a RAM buffer on the board) in libtest's format. A panic cannot
+//! unwind, so the panic handler records the result of the running test (a
+//! pass for `#[should_panic]`), resets the stack and jumps back into the
+//! loop with the next test; whatever the test allocated or borrowed is
+//! leaked. The program also has the global allocator (on the heap the
+//! linker script gives) and the start-up code; at the end it sets
+//! `finished` and spins at `_done`. With the `rx74n` feature the tests run
+//! with PLL1 at 480 MHz.
 
 #![no_std]
 #![feature(asm_experimental_arch)]
@@ -141,7 +145,12 @@ fn tests() -> &'static [&'static TestDescAndFn] {
 }
 
 unsafe extern "C" {
+    // From the linker script.
     static __stack: u8;
+    static coretests_heap_start: u8;
+    static coretests_heap_end: u8;
+    // In the start-up code: spins.
+    safe fn done() -> !;
 }
 
 /// The runner rustc's harness calls (`_abort` without `-Zpanic-abort-tests`
@@ -154,9 +163,33 @@ pub fn test_main_env_args_abort(tests: &[&TestDescAndFn]) -> ExitCode {
     // The slice may be in main's stack frame, which a panic discards.
     let tests: Vec<&'static TestDescAndFn> =
         tests.iter().map(|&t| unsafe { &*(t as *const TestDescAndFn) }).collect();
+    #[cfg(feature = "rx74n")]
+    pll_480mhz();
     println!("\nrunning {} tests", tests.len());
     unsafe { TESTS = tests.leak() };
     run()
+}
+
+/// The EK-RX74N's 24 MHz crystal through PLL1: 480 MHz, with the MRAM and
+/// SRAM wait cycles that need (the reset clock, the 8 MHz MOCO, would make
+/// the run take hours).
+#[cfg(feature = "rx74n")]
+fn pll_480mhz() {
+    let p = rx74n_hal::pac::Peripherals::take().unwrap();
+    rx74n_hal::clock::Config::pll_480mhz_from_24mhz().configure(&p.sysc, &p.sram, &p.mram);
+}
+
+// rx74n-pac's `Peripherals::take` needs a critical section; nothing here
+// uses interrupts.
+#[cfg(feature = "rx74n")]
+mod critical_section_impl {
+    struct NoInterrupts;
+    critical_section::set_impl!(NoInterrupts);
+
+    unsafe impl critical_section::Impl for NoInterrupts {
+        unsafe fn acquire() -> critical_section::RawRestoreState {}
+        unsafe fn release(_: critical_section::RawRestoreState) {}
+    }
 }
 
 fn pass() {
@@ -207,7 +240,10 @@ extern "C" fn run() -> ! {
                 (Err(e), _) => fail(name, e),
             }
         }
-        let (passed, ignored) = (PASSED, IGNORED);
+        let (passed, ignored, used) = (PASSED, IGNORED, TOP);
+        let (base, limit) = heap();
+        println!("
+heap: {used} of {} bytes used", limit - base);
         let failed = &*addr_of_mut!(FAILED);
         if !failed.is_empty() {
             println!("\nfailures:");
@@ -223,7 +259,7 @@ extern "C" fn run() -> ! {
         );
         finished = 1;
     }
-    loop {}
+    done()
 }
 
 #[panic_handler]
@@ -233,7 +269,7 @@ fn panic(info: &PanicInfo) -> ! {
         if i == usize::MAX {
             println!("panic outside a test: {info}");
             finished = 2;
-            loop {}
+            done()
         }
         CURRENT = usize::MAX;
         let t = tests()[i];
@@ -254,28 +290,41 @@ fn panic(info: &PanicInfo) -> ! {
     }
 }
 
-// Start-up: the ELF is loaded by QEMU, so .data is in place and .bss is
-// zero. rustc's `main` calls std's `start` lang item.
+// Start-up: the ELF is loaded by QEMU or the debugger, so .data is in
+// place; .bss is cleared (sstr.b: R3 bytes of R2 to [R1]). rustc's `main`
+// calls std's `start` lang item; it is called through a register because
+// on the board this code is in RAM and the rest in the code MRAM, out of
+// bsr.a's reach. _done, where the program ends (the board runner's
+// breakpoint), is with the rest of the code, which calls it.
 global_asm!(
     ".section .text.start, \"ax\"",
     ".global _start",
     "_start:",
     "mov.l #__stack, r0",
+    "mov.l #__bss_start, r1",
+    "mov.l #0, r2",
+    "mov.l #__bss_size, r3",
+    "sstr.b",
     "mov.l #0, r1",
     "mov.l #0, r2",
-    "bsr.a _main",
-    "1: bra.b 1b",
+    "mov.l #_main, r3",
+    "jsr r3",
+    "bra.b _start",
+    ".section .text.done, \"ax\"",
+    ".global _done",
+    "_done:",
+    "bra.b _done",
 );
 
-// A free list per power-of-two size class, on a static heap. Blocks of
-// 2^c bytes are aligned to min(2^c, 4096); larger alignments are not
+// A free list per power-of-two size class, on the heap between
+// coretests_heap_start and coretests_heap_end (the linker script). Blocks
+// of 2^c bytes are aligned to min(2^c, 4096); larger alignments are not
 // reused.
-const HEAP_SIZE: usize = 8 << 20;
+fn heap() -> (usize, usize) {
+    (&raw const coretests_heap_start as usize, &raw const coretests_heap_end as usize)
+}
 
-#[repr(C, align(4096))]
-struct HeapMem([u8; HEAP_SIZE]);
-
-static mut HEAP: HeapMem = HeapMem([0; HEAP_SIZE]);
+/// Bytes of the heap taken so far.
 static mut TOP: usize = 0;
 static mut FREE: [usize; 32] = [0; 32];
 
@@ -299,10 +348,10 @@ unsafe impl GlobalAlloc for Heap {
             }
             let size = 1usize << c;
             let align = size.min(4096).max(l.align());
-            let base = (&raw mut HEAP) as usize;
+            let (base, limit) = heap();
             let start = (base + TOP + align - 1) & !(align - 1);
             match start.checked_add(size) {
-                Some(end) if end <= base + HEAP_SIZE => {
+                Some(end) if end <= limit => {
                     TOP = end - base;
                     start as *mut u8
                 }

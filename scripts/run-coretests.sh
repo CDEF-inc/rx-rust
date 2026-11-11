@@ -13,7 +13,9 @@
 # iff the tests finished and exactly those failed. PROFILE=release|dev
 # (default release). RX_CPU picks the CPU model (see cpu.sh; default RXv1
 # code on QEMU's rx62n). RUN_TIMEOUT is the limit in seconds (default 900).
-# QEMU and QEMU_FLAGS as in qemu-run.sh.
+# PART=+MOD,... or -MOD,... runs only those test modules, or all but those
+# (coretests-part.sh; the board runs PART=+num and PART=-num). QEMU and
+# QEMU_FLAGS as in qemu-run.sh.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -26,6 +28,14 @@ G=$root/gnu/install/bin
 host=x86_64-unknown-linux-gnu
 cargo=$root/rust/build/$host/stage0/bin/cargo
 target_dir=$root/build/coretests/${RX_CPU:-default}
+part=
+if [ -n "${PART:-}" ]; then
+  case $PART in +*) part=-${PART#+} ;; *) part=-no-${PART#-} ;; esac
+  part=${part//,/-}
+  target_dir=$target_dir$part
+  crate=$target_dir/src
+  bash "$root/scripts/coretests-part.sh" "$PART" "$crate" > /dev/null
+fi
 if [ -z "${QEMU:-}" ]; then
   QEMU=$root/../qemu/build/qemu-system-rx
   [ -x "$QEMU" ] || QEMU=qemu-system-rx
@@ -71,7 +81,7 @@ wait $qemu 2> /dev/null || true
 tr -d '\r' < "$tmp/sci0.txt" > "$log"
 [ $verbose = 1 ] && cat "$log"
 
-label=coretests-$profile${RX_CPU:+-$RX_CPU}
+label=coretests$part-$profile${RX_CPU:+-$RX_CPU}
 if ! grep -qE "$end" "$log"; then
   echo "[$label] did not finish; the last test started:"
   grep '^test .* \.\.\.$' "$log" | tail -1
@@ -82,8 +92,11 @@ summary=$(grep -E "$end" "$log")
 # The names in the "failures:" list.
 sed -n '/^failures:$/,/^$/s/^    //p' "$log" | sort > "$tmp/failed"
 cpu=${RX_CPU:-rx62n}
+# Of the expected failures, those that ran (all but with PART).
+sed -n 's/^test \(.*\) \.\.\.$/\1/p' "$log" | sort > "$tmp/ran"
 awk -v c="$cpu" '$1 == c || $1 == "*" {print $2}' \
-  "$crate/expected-failures" | sort > "$tmp/expected"
+  "$root/test/rust/coretests/expected-failures" | sort | comm -12 - "$tmp/ran" \
+  > "$tmp/expected"
 status=0
 if grep -q '^panic outside' "$log"; then status=1; fi
 while read -r t; do
