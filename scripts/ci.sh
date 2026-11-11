@@ -45,10 +45,24 @@ deps() {
       > /dev/null
   }
   apt_install && return
-  # The runner's apt mirror list (mirror+file:/etc/apt/apt-mirrors.txt,
-  # azure.archive.ubuntu.com first) sometimes stops resolving for hours
-  # (2026-11-11): use archive.ubuntu.com instead and try again.
-  echo "apt-get install failed: retrying with archive.ubuntu.com" >&2
+  # On 2026-11-11 the runner's resolver stopped resolving the Ubuntu
+  # archive hosts (azure.archive.ubuntu.com, the first in its mirror list
+  # mirror+file:/etc/apt/apt-mirrors.txt, and archive.ubuntu.com) for hours
+  # while GitHub's resolved. Then use public DNS servers and
+  # archive.ubuntu.com, and try again.
+  echo "apt-get install failed: retrying with public DNS and archive.ubuntu.com" >&2
+  if [ -d /etc/systemd ] && command -v systemctl > /dev/null; then
+    $sudo mkdir -p /etc/systemd/resolved.conf.d
+    printf '[Resolve]\nDNS=1.1.1.1 8.8.8.8\nFallbackDNS=1.0.0.1 8.8.4.4\n' |
+      $sudo tee /etc/systemd/resolved.conf.d/ci-dns.conf > /dev/null
+    $sudo systemctl restart systemd-resolved || true
+    # Point every link at them too: the link's own DNS server wins otherwise.
+    local l
+    for l in $(ls /sys/class/net); do
+      [ "$l" = lo ] || $sudo resolvectl dns "$l" 1.1.1.1 8.8.8.8 2> /dev/null || true
+    done
+    $sudo resolvectl flush-caches 2> /dev/null || true
+  fi
   local f
   for f in /etc/apt/sources.list /etc/apt/sources.list.d/*; do
     [ -f "$f" ] || continue
@@ -57,6 +71,7 @@ deps() {
       -e 's#https?://azure\.archive\.ubuntu\.com/ubuntu/?#http://archive.ubuntu.com/ubuntu/#' \
       "$f"
   done
+  getent hosts archive.ubuntu.com >&2 || echo "archive.ubuntu.com still does not resolve" >&2
   apt_install
 }
 
