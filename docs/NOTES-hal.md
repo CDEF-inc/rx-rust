@@ -225,7 +225,7 @@ test/rust/hw-clock-rx74n（rt グループ、20 チェック、480 MHz と `--cf
 設定後のレジスタに加えて、CAC でクロックを測る。メインクロック対 MOCO / 8192 は 23580（MOCO が 4% 速い）、
 PLL1P / 16 対メインクロック / 8192 は 10239（480 MHz、計算は 10240）と 12799（600 MHz、12800）、PCLKB は 20479 と 25599。
 CMT0 で測った 100 ms の遅延、CPU のループ（100 万回で 37.5 ms と 30 ms、比は 600 / 480）も確かめる。
-examples/rx74n-serial-echo（CPUCLK0 600 MHz）は `scripts/hw/serial-echo.ps1 -Port COM9` ですべて通った（1 行のエコー、
+examples/serial-echo の `ek-rx74n`（CPUCLK0 600 MHz）は `scripts/hw/serial-echo.ps1 -Port COM9` ですべて通った（1 行のエコー、
 4096 バイトを 375 ms で取りこぼしなし、ブレークがフレーミングエラーになり、そのあともエコーが続く）。
 hw-run.sh で動かしている間に実行する。MOCO 8 MHz のままでも通っていた（4096 バイトで 390 ms）。
 
@@ -407,8 +407,8 @@ LD1 / LD2 を 2 Hz で交互に点滅させる。点滅の処理 `blink` は emb
 
 ## 例: examples/serial-echo（2026-11-04）
 
-CN8（SCI2、115200 bps 8N1）に届いたバイトをそのまま送り返す。エコーの処理 `echo` は `embedded-io` の
-`Read` / `Write` だけで書いた汎用の関数で、`main` が rx72-hal の `Serial`（クロックは PLL 240 MHz）を渡す。
+ボードのシリアルポート（115200 bps 8N1）に届いたバイトをそのまま送り返す。ボードは feature で選ぶ（`ap-rx72m` は CN8 の SCI2、`ek-rx74n` / `ek-rx74m` は J27 の RSCI12。2026-11-12 に旧 examples/rx74n-serial-echo を統合、#165）。エコーの処理 `echo` は `embedded-io` の
+`Read` / `Write` だけで書いた汎用の関数で、`board::serial` が HAL の `Serial`（AP-RX72M-0A は PLL 240 MHz、EK-RX74N / EK-RX74M は CPUCLK0 600 MHz）を作って渡す。
 受信エラーは `! framing error` のような 1 行で知らせ、エコーを続ける。`RX_BYTES` / `RX_ERRORS` が数える。
 
 - 配線: USB シリアル変換（3.3 V）の TXD を CN8 の 1 番（RXD2）、RXD を 2 番（TXD2）、GND を GND に。

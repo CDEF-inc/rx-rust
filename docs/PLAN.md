@@ -30,8 +30,7 @@
 - `crates/rx-rt/` — 起動コード・ベクタ表・リンカスクリプト（M5）
 - `crates/rx72-pac/`、`crates/rx72-hal/` — RX72M の PAC（ビルド時に生成）と embedded-hal 実装（NOTES-hal.md）
 - `crates/rx74-pac/`、`crates/rx74-hal/` — RX74N の PAC と embedded-hal 実装、`crates/sfrx-pac/` — PAC の生成処理
-- `examples/rx74n-serial-echo/` — EK-RX74N の J27（RSCI12）のエコー
-- `examples/blinky/` — AP-RX72M-0A の LD1 / LD2 点滅、`examples/serial-echo/` — CN8（SCI2）のエコー
+- `examples/blinky/` — AP-RX72M-0A の LD1 / LD2 点滅、`examples/serial-echo/` — シリアルのエコー（AP-RX72M-0A の CN8、EK-RX74N / EK-RX74M の J27。ボードは feature）
 - `scripts/`, `test/` — ビルド・検証スクリプトとテスト（`test/hw` は実機用）、`docs/` — このファイルと NOTES-*.md
 - `gnu/install/`（`scripts/build-gnu.sh`、リポジトリ外）— 参照用 rx-elf binutils 2.43 / 上流 GCC 14.2 + libgcc（エンコーディング検証・ABI 比較・リンカ）。
   binutils には `scripts/patches/` を当てる（ld が e_flags の V2 / V3 を落とす不具合の修正）

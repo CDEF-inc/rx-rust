@@ -6,7 +6,7 @@
 # there, rom, codegen, rust, the rt tests isr-save, isr-bank, alloc-smoke,
 # float-smoke, hw-pac-rx74n, hw-hal-rx74n, hw-clock-rx74n (480 and 600 MHz),
 # hw-spi-rx74n, hw-pwm-rx74n, hw-adc-rx74n and hw-i2c-rx74n, and
-# rx74n-serial-echo.
+# serial-echo (feature ek-rx74n).
 # HW_BOARD=rx74m builds the same: the RX74M (EK-RX74M) has every RX74N
 # register at the same address and runs these tests as they are.
 #
@@ -24,7 +24,8 @@
 #            alloc-smoke, float-smoke (also with +flush-denormals: float-smoke-fd)
 #            (target-cpu=rxv3, release / dev), in the code flash with
 #            test/hw/rx72m-memory.x, booted from the reset vector
-#   examples examples/* (blinky, serial-echo; release), in the code  -> build/hw/examples
+#   examples examples/* (blinky, serial-echo with the board's feature;  -> build/hw/examples
+#            release, target-cpu and memory.x as for rt), in the code
 #            flash. They run until stopped; hw-run.sh runs one for
 #            HW_TIMEOUT seconds and leaves it running (not part of its
 #            default list)
@@ -54,7 +55,8 @@ case $board in
     peripherals=(hw-irq hw-pac hw-hal hw-uart hw-spi hw-adc hw-pwm
                  "hw-irq:-relax:-C target-feature=+relax")
     all=(insns rom codegen rust rt examples lldb)
-    insns=(cmt) extra_defs=() examples=(blinky serial-echo) ;;
+    insns=(cmt) extra_defs=() board_feature=ap-rx72m
+    examples=(blinky "serial-echo:$board_feature") ;;
   rx74n)
     out=$root/build/hw-rx74n cpu=rxv3e v3e=1 ram_ld=rx74n-ram.ld rom_ld=rx74n-rom.ld
     memory_x=rx74n-memory.x peripherals=(hw-pac-rx74n hw-hal-rx74n hw-clock-rx74n hw-spi-rx74n hw-pwm-rx74n
@@ -62,7 +64,9 @@ case $board in
                  "hw-clock-rx74n:-600:--cfg clock600")
     all=(insns rom codegen rust rt examples lldb)
     insns=(rxv3e-insns) extra_defs=(--defsym ROOT_ONLY=1)
-    examples=(rx74n-serial-echo) ;;
+    # Also on the EK-RX74M, like the other tests (one RX74N PAC build).
+    board_feature=ek-rx74n
+    examples=("serial-echo:$board_feature") ;;
   *)
     echo "unknown HW_BOARD $board (rx72m, rx74n, rx74m)" >&2
     exit 2 ;;
@@ -201,14 +205,17 @@ for g in "${groups[@]}"; do
     examples)
       d=$out/examples; mkdir -p "$d"
       tdir=$(target_dir "$out/examples-target")
-      for crate in "${examples[@]}"; do
-        # The crate's .cargo/config.toml has the target, its rustflags and
-        # build-std.
+      # NAME or NAME:FEATURES
+      for spec in "${examples[@]}"; do
+        IFS=: read -r crate features <<< "$spec"
+        # The crate's .cargo/config.toml has the target and build-std;
+        # RUSTFLAGS replaces its rustflags, for this board's target-cpu.
         (cd "$root/examples/$crate" &&
          RUSTC=$root/rust/build/$host/stage1/bin/rustc RUSTC_BOOTSTRAP=1 \
-         PATH=$G:$PATH \
+         RUSTFLAGS="-C link-arg=-Tlink.x -C target-cpu=$cpu $linker_flag" \
+         RX_MEMORY_X=$T/$memory_x PATH=$G:$PATH \
          "$root/rust/build/$host/stage0/bin/cargo" build -q --release \
-           --target-dir "$tdir")
+           ${features:+--features "$features"} --target-dir "$tdir")
         cp "$tdir/rx-none-elf/release/$crate" "$d/$crate.elf"
         sym "$d/$crate.elf"
         echo "built $d/$crate.elf"
