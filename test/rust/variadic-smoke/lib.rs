@@ -22,6 +22,20 @@ pub struct S3 {
     pub c: [u8; 3],
 }
 
+/// Four chars: a multiple of 4 bytes, but 1-byte aligned. In a variadic
+/// position GCC copies it to the stack at that alignment.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct S4 {
+    pub c: [u8; 4],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct S1 {
+    pub c: u8,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct S8 {
@@ -34,6 +48,8 @@ unsafe extern "C" {
     fn c_mixed(a: c_int, b: c_int, c: c_int, ...) -> c_longlong;
     fn c_dsum(n: c_int, ...) -> c_double;
     fn c_structs(n: c_int, ...) -> c_int;
+    fn c_packed(n: c_int, ...) -> c_int;
+    fn c_last(n: c_int, a: S3, b: S4, ...) -> c_int;
     fn c_vsum(n: c_int, ap: VaList<'_>) -> c_int;
 }
 
@@ -175,6 +191,11 @@ pub unsafe extern "C" fn rs_call(out: *mut u32, k: c_int) -> c_int {
         o.put64(c_dsum(3, 1.5f64, 1.0f64 / 3.0, k as c_double).to_bits());
         o.put(c_structs(2, S8 { a: k, b: -k }, S3 { c: [1, 2, 3] }, k) as u32);
         o.put(c_structs(3, S8 { a: 7, b: k }, S3 { c: [9, 8, k as u8] }, -1) as u32);
+        // On the stack at offsets 4 (S3), 7 (S4), 11 (S1) and 12 (int).
+        let s4 = S4 { c: [4, 5, 6, k as u8] };
+        o.put(c_packed(1, S3 { c: [1, 2, 3] }, s4, S1 { c: 7 }, k) as u32);
+        // `a` and the last named `b` at offsets 0 and 3, the int at 8.
+        o.put(c_last(2, S3 { c: [k as u8, 2, 3] }, s4, -k) as u32);
         o.put(rs_sum(4, 10, 20, 30, k) as u32);
     }
     o.n as c_int

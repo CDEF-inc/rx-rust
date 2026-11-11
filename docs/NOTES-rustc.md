@@ -29,7 +29,20 @@
 ### callconv/rx.rs（GCC 互換。NOTES-codegen.md の「フロントエンドとの約束」の実装）
 - 戻り値: 構造体はサイズが 4 の倍数かつ 16 以下なら `[N x i32]`（R1-R4）、それ以外は indirect（sret → R15）。整数は 32bit に拡張。
 - 引数: 累積バイト数を数え、構造体はサイズが 4 の倍数で 16 バイト以内に収まるなら `[N x i32]`、それ以外は byval（自然境界）。
-  スカラーは 32bit に拡張。カウンタは各引数をサイズ 4 切り上げで加算（バックエンドと同じ規則）。
+  カウンタは各引数をサイズ 4 切り上げで加算（バックエンドと同じ規則）。
+  - 可変長関数の最後の名前付き引数と名前なしの引数はスタックにあるので、構造体は常に byval（CDEF-inc/rust#42）。
+    `[N x i32]` だとスタック上で 4 バイト境界になり、3 バイトの構造体の後の `char[4]` の構造体が GCC の
+    オフセット 3 ではなく 4 に置かれていた。
+  - char / short の引数は拡張しない（`zeroext` / `signext` を付けない。CDEF-inc/rust#42）。GCC の呼ぶ側は上位ビットを
+    不定のまま渡し（2 つの unsigned char の和は `add r2, r1` のまま、unsigned char を符号拡張の `mov.b` で読む、
+    unsigned をそのまま渡す）、呼ばれた側が `movu.b r1, r1` などで拡張する。以前は拡張属性を付けていたので、
+    Rust の呼ばれた側が上位ビットを信じていた。
+  - bool は 0 / 1 の `i8` で渡す（GCC の呼ばれた側は下位バイトを読む）。拡張なしの `i1` はビット 1〜7 が不定になりうる。
+  - clang の `clang/lib/CodeGen/Targets/RX.cpp` も同じ（CDEF-inc/llvm-project#41）。
+- `test/rust/cabi-smoke`（lib.rs + main.c）: GCC の noinline の関数が上位ビットの不定な u8 / i8 / u16 / i16 / bool を
+  Rust に渡す（和、`mov.b` での読み込み、unsigned のまま）。R1〜R4、i64 の後、スタック上の 3 バイト構造体の後の引数、
+  Rust の戻り値の拡張、Rust から GCC の関数を呼ぶ向きも見る。42 チェック。変更前の rustc では 16 個失敗する。
+  スタックに置かれる char / short の引数は CDEF-inc/llvm-project#41 のバックエンドの変更が要るので、ここでは見ない。
 
 ### LLVM 側で M4 中に追加したもの
 - RuntimeLibcalls.td の RX に `Int128RTLibcalls`（__multi3, __udivti3 …）、`CompilerRTOnlyInt64/Int128Libcalls`（__mulodi4,
@@ -127,7 +140,9 @@ bash scripts/run-rust-test.sh     # -Zbuild-std=core でテスト crate をビ�
   - 呼ぶ側では、int / long / long long / f64 / size_t / ptrdiff_t / ポインタの混在、名前付き 1 個の和、`VaList` を
     C の関数に渡す。
   - Rust から GCC の可変長関数を呼び、i64・f64・ポインタ・構造体（S8 と 3 バイトの S3）を渡す。
-  - 379 チェック。QEMU の rx62n / rxv2 / rxv3 / rxv3e の release / dev と、rxv3 の `+fpu,+dfpu` で全通過。
+  - 2026-11-12: S3 の後の `char[4]` の S4 と 1 バイトの S1（`c_packed`）、最後の名前付き引数が S4 の場合（`c_last`）を
+    追加。変更前の rustc では S4 が 4 バイト境界に置かれて 2 個失敗する（CDEF-inc/rust#42 で直した）。
+  - 379 チェック（2026-11-12 から 381）。QEMU の rx62n / rxv2 / rxv3 / rxv3e の release / dev と、rxv3 の `+fpu,+dfpu` で全通過。
   - i64 を 2 つの int として逆順に読む版と、va_copy せずに元を 2 回読む版は失敗する（テストが間違いを見つけることの確認）。
 - `scripts/run-rust-test.sh` は、共有の target ディレクトリにある最初の `lib*.a` をリンクしていた。
   そのため、core-smoke の後では別のクレートでも core-smoke を走らせていた。いまは Cargo.toml のクレート名で選ぶ。

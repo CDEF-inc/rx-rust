@@ -10,6 +10,8 @@ typedef unsigned int u32;
 
 struct s3 { unsigned char c[3]; };
 struct s8 { int a, b; };
+struct s4 { unsigned char c[4]; };
+struct s1 { unsigned char c; };
 
 int rs_collect(u32 *, const char *, ...);
 int rs_collect_named(int, i64, int, int, u32 *, const char *, ...);
@@ -65,6 +67,32 @@ int c_structs(int n, ...) {
   int z = va_arg(ap, int);
   va_end(ap);
   return n + x.a * 3 - x.b * 5 + y.c[0] + y.c[1] * 10 + y.c[2] * 100 + z * 1000;
+}
+
+static int s4val(struct s4 s) {
+  return s.c[0] + s.c[1] * 10 + s.c[2] * 100 + s.c[3] * 1000;
+}
+
+/* Structures of chars, packed on the stack at their own alignment. */
+int c_packed(int n, ...) {
+  va_list ap;
+  va_start(ap, n);
+  struct s3 x = va_arg(ap, struct s3);
+  struct s4 y = va_arg(ap, struct s4);
+  struct s1 z = va_arg(ap, struct s1);
+  int i = va_arg(ap, int);
+  va_end(ap);
+  return n + x.c[0] + x.c[1] * 3 + x.c[2] * 5 + s4val(y) * 7 + z.c * 11 +
+         i * 100000;
+}
+
+/* The last named argument is on the stack too, after a. */
+int c_last(int n, struct s3 a, struct s4 b, ...) {
+  va_list ap;
+  va_start(ap, b);
+  int i = va_arg(ap, int);
+  va_end(ap);
+  return n + a.c[0] + a.c[1] * 3 + a.c[2] * 5 + s4val(b) * 7 + i * 100000;
 }
 
 int c_vsum(int n, va_list ap) {
@@ -218,6 +246,9 @@ int main(void) {
   want[n++] = c_structs(2, (struct s8){k, -k}, (struct s3){{1, 2, 3}}, k);
   want[n++] = c_structs(3, (struct s8){7, k},
                         (struct s3){{9, 8, (unsigned char)k}}, -1);
+  struct s4 s4 = {{4, 5, 6, (unsigned char)k}};
+  want[n++] = c_packed(1, (struct s3){{1, 2, 3}}, s4, (struct s1){7}, k);
+  want[n++] = c_last(2, (struct s3){{(unsigned char)k, 2, 3}}, s4, -k);
   want[n++] = 60 + k;
   clear();
   check(rs_call(got, k), n);
