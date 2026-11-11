@@ -282,6 +282,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "rx74-hal"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "embedded-hal",
+ "embedded-io",
+ "rx74-pac",
+]
+
+[[package]]
+name = "rx74-pac"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "sfrx-pac",
+ "vcell",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -318,6 +337,7 @@ dependencies = [
  "embedded-io",
  "rx-rt",
  "rx72-hal",
+ "rx74-hal",
 ]
 
 [[package]]

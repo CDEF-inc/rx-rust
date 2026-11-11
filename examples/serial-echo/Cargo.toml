@@ -6,8 +6,15 @@ publish = false
 
 [dependencies]
 rx-rt = { path = "../../crates/rx-rt", features = ["critical-section"] }
-rx72-hal = { path = "../../crates/rx72-hal", features = ["rx72m"] }
+rx72-hal = { path = "../../crates/rx72-hal", optional = true }
+rx74-hal = { path = "../../crates/rx74-hal", optional = true }
 embedded-io = { git = "https://github.com/CDEF-inc/embedded-hal", rev = "41f29f6bfced1cae0cbe712ba96ee32c075b3125" }
+
+[features]
+# The board: exactly one of these (src/main.rs, build.rs picks its memory.x).
+ap-rx72m = ["dep:rx72-hal", "rx72-hal/rx72m"]
+ek-rx74n = ["dep:rx74-hal", "rx74-hal/rx74n"]
+ek-rx74m = ["dep:rx74-hal", "rx74-hal/rx74m"]
 
 [[bin]]
 name = "serial-echo"
@@ -21,11 +28,16 @@ debug = true
 [profile.dev]
 opt-level = 1
 
-# The generated PAC is about 23 MB of source: with debug info rustc takes
-# over ten minutes on it, without it about half a minute.
+# The generated PACs are about 23 MB (RX72) and 47 MB (RX74) of source: with
+# debug info rustc takes over ten minutes on them, without it about half a
+# minute to three minutes.
 [profile.release.package.rx72-pac]
 debug = false
-
 [profile.dev.package.rx72-pac]
+debug = false
+opt-level = "s"
+[profile.release.package.rx74-pac]
+debug = false
+[profile.dev.package.rx74-pac]
 debug = false
 opt-level = "s"
