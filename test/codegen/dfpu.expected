@@ -61,8 +61,8 @@ _da_tree
   dmov.l r4, drh1
   dmov.d dr1, 8[r0]                      ; 8-byte Folded Spill
   dmul dr1, dr0, dr1
-  dmov.d 32[r0], dr3
-  dmov.d 40[r0], dr0
+  dmov.d 28[r0], dr3
+  dmov.d 36[r0], dr0
   dmul dr0, dr3, dr2
   dsub dr2, dr1, dr1
   dmov.d dr1, [r0]                       ; 8-byte Folded Spill

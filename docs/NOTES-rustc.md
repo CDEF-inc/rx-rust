@@ -148,10 +148,11 @@ bash scripts/run-rust-test.sh     # -Zbuild-std=core でテスト crate をビ�
   - `features/`: coretests が有効にしている std だけの feature（`float_gamma`）を `staged_api` で宣言するだけのクレート。
     無いと「未知の feature」でコンパイルエラーになる。
 - プログラムは約 1.9 MB なので 512 KB の ROM には入らない。QEMU の SDRAM（16 MB）に ELF として読み込む（`test/coretests.x`）。
-- 結果（rx62n / rxv2 / rxv3 / rxv3e の release）: 2814 件通過、5 件は coretests 自身が `panic = "abort"` で無視、
-  失敗 1 件（`atomic::ptr_bitops_tagging`）。QEMU で約 70 秒。
-  - この失敗は RX バックエンドの不具合: スタックの再整列が無く、`#[repr(align(16))]` のローカル変数が 4 バイト整列にしかならない。
-    LLVM はその番地の下位ビットを 0 として畳み込むので、AtomicPtr の値と比べた結果がずれる（RXFrameLowering）。
+- 結果（rx62n / rxv2 / rxv3 / rxv3e の release）: 2815 件すべて通過、5 件は coretests 自身が `panic = "abort"` で無視。
+  QEMU で約 70 秒。
+  - 当初は `atomic::ptr_bitops_tagging` が失敗した。RX バックエンドにスタックの再整列が無く、`#[repr(align(16))]` の
+    ローカル変数が 4 バイト整列にしかならないのに、LLVM はその番地の下位ビットを 0 として畳み込んでいた。
+    llvm-project#37 でプロローグが SP を揃え直すようにして通った（NOTES-codegen.md「スタックの再整列」）。
   - 失敗してよいテストは `test/rust/coretests/expected-failures` に書き、それ以外の失敗と、書いてあるのに通ったテスト（XPASS）を
     エラーにする。
 

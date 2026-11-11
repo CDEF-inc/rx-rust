@@ -79,7 +79,7 @@ done
 awk '/^_[A-Za-z0-9_]+:/ { sub(":", "", $1); print ""; print $1; next }
      /^\t(pushm|popm|push\.l|pop|rtsd|bsr\.a)\t/ || /^\trts$/ ||
      /^\t(add|sub)\t.*, r0(, r[0-9]+)?$/ || /^\tadd\t#-?[0-9]+, r6, / ||
-     /^\tmov\.l\tr(0|6), r(0|6)$/ || /^\tand\t#-[0-9]+, / {
+     /^\tmov\.l\tr(0|6), r(0|6|7)$/ || /^\tand\t#-[0-9]+, / {
        sub(/^\t/, "  "); gsub(/\t/, " "); print }' \
   "$tmp/fp.s" "$tmp/va.s" | sed '1d' > "$tmp/got"
 
