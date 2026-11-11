@@ -49,7 +49,7 @@ version = "0.1.0"
 dependencies = [
  "critical-section",
  "rx-rt",
- "rx74n-pac",
+ "rx74-pac",
 ]
 
 [[package]]
@@ -262,7 +262,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rx74n-pac"
+name = "rx74-pac"
 version = "0.1.0"
 dependencies = [
  "critical-section",

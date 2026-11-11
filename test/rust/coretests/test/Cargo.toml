@@ -10,8 +10,8 @@ name = "test"
 [dependencies]
 std = { package = "rx-std-shim", path = "../std" }
 critical-section = { version = "1.2", optional = true }
-rx74n-hal = { path = "../../../../crates/rx74n-hal", optional = true }
+rx74-hal = { path = "../../../../crates/rx74-hal", features = ["rx74n"], optional = true }
 
 [features]
 # On the RX74N board: PLL1 at 480 MHz before the tests, the end at _done.
-rx74n = ["dep:rx74n-hal", "dep:critical-section"]
+rx74n = ["dep:rx74-hal", "dep:critical-section"]

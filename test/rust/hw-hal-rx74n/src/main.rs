@@ -1,4 +1,4 @@
-//! rx74n-hal on the EK-RX74N board: GPIO (the user LEDs LED1 / LED2 / LED3 on
+//! rx74-hal on the EK-RX74N board: GPIO (the user LEDs LED1 / LED2 / LED3 on
 //! PF05 / P807 / P604, the pull-up on SW1's P414) and `DelayNs` against CMT0.
 //! The LEDs blink in turn for about two seconds. Booted from the code MRAM by
 //! scripts/hw-run.sh (built by scripts/hw-build.sh); the results are left in
@@ -14,10 +14,10 @@ use core::ptr::write_volatile;
 
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::{InputPin, OutputPin, StatefulOutputPin};
-use rx74n_hal::clock::Clocks;
-use rx74n_hal::delay::Delay;
-use rx74n_hal::gpio::Parts;
-use rx74n_hal::pac::Peripherals;
+use rx74_hal::clock::Clocks;
+use rx74_hal::delay::Delay;
+use rx74_hal::gpio::Parts;
+use rx74_hal::pac::Peripherals;
 // The reset handler, vector tables and critical-section implementation.
 use rx_rt as _;
 

@@ -18,7 +18,7 @@
 | 項目 | いまの動き | 影響 | issue |
 |---|---|---|---|
 | tidy・UI テスト・platform-support ドキュメント | 未対応 | 上流化する場合だけ必要 | #53 |
-| rx72m-hal の I2C（RIIC） | 未実装。UART 受信・SPI・PWM・ADC は済み（rx74n-hal には I2C がある） | RX72M で I2C を使うとき | #54 |
+| rx72-hal の I2C（RIIC） | 未実装。UART 受信・SPI・PWM・ADC は済み（rx74-hal には I2C がある） | RX72M で I2C を使うとき | #54 |
 | AP-RX72M-0A の単体起動 | E2 Lite を外してリセットすると、コードフラッシュのプログラムが動かない。原因は未特定 | デバッガなしで動かすとき | — |
 | EK-RX74N の non-secure ワールド | 実機では未実行（QEMU では動く） | TrustZone 相当の分離を使うとき | — |
 | LLDB | 配布物の lldb で rustc の表示整形を使う（#150）、enum の variant への `expr` で落ちる（#151、RX 特有ではない）、`_rx_isr_common` の中での非同期停止の巻き戻し（#152）、実機での割り込みフレームと rtsd のステップ（#153）、試験の範囲（#87） | デバッグ | #150〜#153、#87 |
@@ -28,8 +28,8 @@
 - `rust/` — サブモジュール CDEF-inc/rust `rx-none-elf`（rust-lang/rust `7189d39d9ce` + RX）。
   その中の `src/llvm-project` は CDEF-inc/llvm-project `rx/23.1`（LLVM 23.1.4 `f738f3b0` + RX バックエンド）
 - `crates/rx-rt/` — 起動コード・ベクタ表・リンカスクリプト（M5）
-- `crates/rx72m-pac/`、`crates/rx72m-hal/` — RX72M の PAC（ビルド時に生成）と embedded-hal 実装（NOTES-hal.md）
-- `crates/rx74n-pac/`、`crates/rx74n-hal/` — RX74N の PAC と embedded-hal 実装、`crates/sfrx-pac/` — PAC の生成処理
+- `crates/rx72-pac/`、`crates/rx72-hal/` — RX72M の PAC（ビルド時に生成）と embedded-hal 実装（NOTES-hal.md）
+- `crates/rx74-pac/`、`crates/rx74-hal/` — RX74N の PAC と embedded-hal 実装、`crates/sfrx-pac/` — PAC の生成処理
 - `examples/rx74n-serial-echo/` — EK-RX74N の J27（RSCI12）のエコー
 - `examples/blinky/` — AP-RX72M-0A の LD1 / LD2 点滅、`examples/serial-echo/` — CN8（SCI2）のエコー
 - `scripts/`, `test/` — ビルド・検証スクリプトとテスト（`test/hw` は実機用）、`docs/` — このファイルと NOTES-*.md
@@ -130,14 +130,14 @@
 - [x] AP-RX72M-0A（RX72M、RXv3 + DFPU）を E2 Lite で動かすテスト環境（`scripts/hw-build.sh`、`scripts/hw-run.sh`）。
   命令・codegen・core-smoke・割り込みの 31 本、35,560 チェックがすべて実機で通過（NOTES-hw.md）。
   実機と QEMU の違いは CDEF-inc/qemu で直した（NOTES-qemu.md）
-- [x] EK-RX74N（RXv3e）でも命令・codegen・core-smoke と rx-rt、rx74n-pac、rx74n-hal のテスト 67 本が通過
+- [x] EK-RX74N（RXv3e）でも命令・codegen・core-smoke と rx-rt、rx74-pac、rx74-hal のテスト 67 本が通過
   （`HW_BOARD=rx74n`、NOTES-hw.md）。PLL で CPUCLK0 480 / 600 MHz（CAC で実測）、UART も USB シリアルで確認。
   non-secure ワールドの実行はまだ
-- [x] rx72m-pac と rx72m-hal: クロック（PLL 240 MHz）、GPIO、MPC、CMT の遅延、SCI2 の UART 送信、rx-rt の critical-section
+- [x] rx72-pac と rx72-hal: クロック（PLL 240 MHz）、GPIO、MPC、CMT の遅延、SCI2 の UART 送信、rx-rt の critical-section
 - [x] L チカ: `examples/blinky`（embedded-hal で LD1 / LD2 を点滅、コードフラッシュから起動）
 - [x] Rust で書いた RTOS が QEMU と RX72M で動く
 - [x] UART の受信と相手機器との通信: `examples/serial-echo`（USB シリアル変換で 4096 バイトとブレークまで。
   デバッガをつないだ状態、NOTES-hal.md）
-- [x] rx72m-hal の SPI（RSPI）・PWM（MTU）・ADC（S12AD）、rx74n-hal の SPI・PWM・ADC・I2C（2026-11-08、NOTES-hal.md）
-- [ ] rx72m-hal の I2C（RIIC）（NOTES-hal.md の「予定」）
+- [x] rx72-hal の SPI（RSPI）・PWM（MTU）・ADC（S12AD）、rx74-hal の SPI・PWM・ADC・I2C（2026-11-08、NOTES-hal.md）
+- [ ] rx72-hal の I2C（RIIC）（NOTES-hal.md の「予定」）
 - [ ] AP-RX72M-0A で、E2 Lite を外してリセットしたときにコードフラッシュから起動すること

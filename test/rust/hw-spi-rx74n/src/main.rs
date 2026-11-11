@@ -1,4 +1,4 @@
-//! rx74n-hal on the EK-RX74N board: RSPIA0 as an SPI master on the Arduino
+//! rx74-hal on the EK-RX74N board: RSPIA0 as an SPI master on the Arduino
 //! connector J13 (PA05 = RSPCK0-B = D13, PA06 = MOSI0-B = D11, PA07 =
 //! MISO0-B = D12), with PLL1 at 480 MHz (PCLKA 120 MHz). The bit rate
 //! choice, the pin functions, the internal loopbacks (SPPCR.SPLP2 / SPLP)
@@ -19,10 +19,10 @@ use core::panic::PanicInfo;
 use core::ptr::{read_volatile, write_volatile};
 
 use embedded_hal::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, SpiBus};
-use rx74n_hal::clock::{Clocks, Config};
-use rx74n_hal::gpio::Parts;
-use rx74n_hal::pac::Peripherals;
-use rx74n_hal::spi::{BitRate, Spi};
+use rx74_hal::clock::{Clocks, Config};
+use rx74_hal::gpio::Parts;
+use rx74_hal::pac::Peripherals;
+use rx74_hal::spi::{BitRate, Spi};
 
 #[unsafe(no_mangle)]
 static mut checks: u32 = 0;

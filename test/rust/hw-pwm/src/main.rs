@@ -1,4 +1,4 @@
-//! rx72m-hal on the AP-RX72M-0A board: PWM on MTU6 out of PJ1 (MTIOC6A,
+//! rx72-hal on the AP-RX72M-0A board: PWM on MTU6 out of PJ1 (MTIOC6A,
 //! the monitor LED LD2), measured on the pin itself without wiring. A loop
 //! reads PJ1 through PIDR and CMT0 (PCLKB / 8 = 7.5 MHz): the CMT0 time
 //! between two reads counts as high when the first read was high, so the
@@ -19,10 +19,10 @@ use core::panic::PanicInfo;
 use core::ptr::{read_volatile, write_volatile};
 
 use embedded_hal::pwm::SetDutyCycle;
-use rx72m_hal::clock::Config;
-use rx72m_hal::gpio::Parts;
-use rx72m_hal::pac::Peripherals;
-use rx72m_hal::pwm::{Pwm, Timing};
+use rx72_hal::clock::Config;
+use rx72_hal::gpio::Parts;
+use rx72_hal::pac::Peripherals;
+use rx72_hal::pwm::{Pwm, Timing};
 
 #[unsafe(no_mangle)]
 static mut checks: u32 = 0;

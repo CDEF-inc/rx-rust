@@ -25,9 +25,9 @@ delay, a UART, SPI, PWM and an ADC; the RX74N HAL also has I2C.
 | LLDB RX support | same, `lldb/source/Plugins/ABI/RX` (and a clang `RXTargetInfo` for its type system) | breakpoints, backtraces (from the compiler's CFI), variables, stepping on QEMU's gdbstub and, through a bridge to e2-server-gdb, on the RX72M; see [`docs/NOTES-lldb.md`](docs/NOTES-lldb.md) |
 | rustc `rx-none-elf` target, callconv, `asm!` | [CDEF-inc/rust](https://github.com/CDEF-inc/rust/tree/rx-none-elf) `rx-none-elf` | `core` and `alloc` build; tier 3 |
 | Startup code, vector tables, linker script | [`crates/rx-rt`](crates/rx-rt) | boots from the reset vector and takes interrupts (peripheral, software, nested, register banks) on QEMU and the boards; `critical-section` implementation |
-| RX72M HAL (embedded-hal 1.0) | [`crates/rx72m-hal`](crates/rx72m-hal) | clocks (PLL 240 MHz), GPIO and pin functions, `DelayNs` (CMT2), SCI2 UART (`embedded-io`), SPI (RSPI2), ADC (S12AD: self-diagnosis, internal reference, temperature sensor), PWM (MTU6); checked on the AP-RX72M-0A (see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
-| RX74N HAL (embedded-hal 1.0) | [`crates/rx74n-hal`](crates/rx74n-hal) | clocks (PLL 480 or 600 MHz), GPIO and pin functions, `DelayNs` (CMT2), RSCI12 UART (`embedded-io`), SPI (RSPIA0), ADC (ADC16H), PWM (GPTW8), I2C (RI3C0 in I2C mode; read from the EK-RX74M's EEPROM); checked on the EK-RX74N and the EK-RX74M |
-| Peripheral access crates | [`crates/rx72m-pac`](crates/rx72m-pac), [`crates/rx74n-pac`](crates/rx74n-pac), [`crates/sfrx-pac`](crates/sfrx-pac) | generated at build time with svd2rust from e² studio's `RX72M.sfrx` / `RX74N.sfrx` (not redistributed); `sfrx-pac` is the shared generator (see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
+| RX72M / RX72N HAL (embedded-hal 1.0) | [`crates/rx72-hal`](crates/rx72-hal) | clocks (PLL 240 MHz), GPIO and pin functions, `DelayNs` (CMT2), SCI2 UART (`embedded-io`), SPI (RSPI2), ADC (S12AD: self-diagnosis, internal reference, temperature sensor), PWM (MTU6); checked on the AP-RX72M-0A (see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
+| RX74M / RX74N HAL (embedded-hal 1.0) | [`crates/rx74-hal`](crates/rx74-hal) | clocks (PLL 480 or 600 MHz), GPIO and pin functions, `DelayNs` (CMT2), RSCI12 UART (`embedded-io`), SPI (RSPIA0), ADC (ADC16H), PWM (GPTW8), I2C (RI3C0 in I2C mode; read from the EK-RX74M's EEPROM); checked on the EK-RX74N and the EK-RX74M |
+| Peripheral access crates | [`crates/rx72-pac`](crates/rx72-pac), [`crates/rx74-pac`](crates/rx74-pac), [`crates/sfrx-pac`](crates/sfrx-pac) | generated at build time with svd2rust from e² studio's `RX72M.sfrx`, `RX72N.sfrx`, `RX74M.sfrx` or `RX74N.sfrx`, as the chip feature picks (not redistributed); `sfrx-pac` is the shared generator (see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
 | QEMU with RXv2 / RXv3 / RXv3e CPU models | [CDEF-inc/qemu](https://github.com/CDEF-inc/qemu/tree/rx/v11.1) `rx/v11.1` | RXv2 / RXv3 / RXv3e instructions, DFPU, Protect Zone (CPU side); instruction tests checked against the RX72M and the RX74N |
 | Build and test scripts, tests | [`scripts`](scripts), [`test`](test) | QEMU and the boards |
 
@@ -75,10 +75,10 @@ rust/           submodule: CDEF-inc/rust (rx-none-elf), which has
                 src/llvm-project -> CDEF-inc/llvm-project (rx/23.1)
 crates/rx-rt/      runtime: reset handler, vector tables, link.x
 crates/sfrx-pac/   PAC generator (sfrx -> SVD -> svd2rust) for the PACs' build.rs
-crates/rx72m-pac/  RX72M PAC, generated at build time from e² studio's RX72M.sfrx
-crates/rx72m-hal/  RX72M HAL: clocks, GPIO, delay, UART, SPI, ADC, PWM
-crates/rx74n-pac/  RX74N PAC (also for the RX74M), from RX74N.sfrx
-crates/rx74n-hal/  RX74N HAL: clocks, GPIO, delay, UART, SPI, ADC, PWM, I2C
+crates/rx72-pac/   RX72M / RX72N PAC, generated at build time from e² studio's RX72M.sfrx / RX72N.sfrx
+crates/rx72-hal/   RX72M / RX72N HAL: clocks, GPIO, delay, UART, SPI, ADC, PWM
+crates/rx74-pac/   RX74M / RX74N PAC, from RX74M.sfrx / RX74N.sfrx
+crates/rx74-hal/   RX74M / RX74N HAL: clocks, GPIO, delay, UART, SPI, ADC, PWM, I2C
 examples/       board examples: blinky, serial-echo (AP-RX72M-0A), rx74n-serial-echo
 scripts/        build and test scripts
 test/mc/        assembler tests, compared with GNU as
@@ -277,7 +277,7 @@ registers there (see [`docs/NOTES-lldb.md`](docs/NOTES-lldb.md)).
 [`examples/blinky`](examples/blinky) blinks the board's monitor LEDs LD1 /
 LD2 (PJ0 / PJ1) at 2 Hz. The blinking is a function written against the
 embedded-hal 1.0 traits only (`StatefulOutputPin`, `OutputPin`,
-`DelayNs`); `main` hands it rx72m-hal's pins and CMT2 delay after setting
+`DelayNs`); `main` hands it rx72-hal's pins and CMT2 delay after setting
 the PLL to 240 MHz. It is written to the code flash, so it keeps running
 after the runner detaches, and after a reset or a power cycle.
 
@@ -290,7 +290,7 @@ HW_TIMEOUT=10 scripts/hw-run.sh build/hw/examples/blinky.elf  # in Git Bash
 
 [`examples/serial-echo`](examples/serial-echo) echoes what arrives on the
 board's serial connector CN8 (SCI2, 115200 bps 8N1), through the
-`embedded-io` `Read` / `Write` traits that rx72m-hal's `Serial` implements;
+`embedded-io` `Read` / `Write` traits that rx72-hal's `Serial` implements;
 a receive error comes back as a line such as `! framing error`. Connect a
 3.3 V USB serial adapter to CN8 (its TXD to pin 1, its RXD to pin 2, and
 GND) and, while the runner keeps the program running, check it from
@@ -320,7 +320,8 @@ powershell -File scripts/hw/serial-echo.ps1 -Port COM9                        # 
 See [`test/rust/qemu-demo`](test/rust/qemu-demo): a `#![no_main]` binary that
 depends on `rx-rt`, provides `memory.x`, and builds with
 `-Zbuild-std=core` and `-C link-arg=-Tlink.x`. For a board, the examples
-add a HAL (`rx72m-hal` or `rx74n-hal`, which re-exports its PAC as `pac`)
+add a HAL (`rx72-hal` or `rx74-hal`, which re-exports its PAC as `pac`)
+with the chip as a feature (`rx72m` / `rx72n`, `rx74m` / `rx74n`)
 and build for `target-cpu=rxv3` or `rxv3e`; the PACs need e² studio's
 `.sfrx` files (see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)). The target and
 its ABI are described in

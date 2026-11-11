@@ -1,4 +1,4 @@
-//! rx74n-hal on the EK-RX74N board: PWM on GPTW8 out of PF05 (GTIOC8B, the
+//! rx74-hal on the EK-RX74N board: PWM on GPTW8 out of PF05 (GTIOC8B, the
 //! user LED LED1), with PLL1 at 480 MHz (PCLKD 120 MHz), measured on the pin
 //! itself without wiring. A loop reads PF05 through PIDR and CMT0 (PCLKB /
 //! 8 = 7.5 MHz): the CMT0 time
@@ -20,10 +20,10 @@ use core::panic::PanicInfo;
 use core::ptr::{read_volatile, write_volatile};
 
 use embedded_hal::pwm::SetDutyCycle;
-use rx74n_hal::clock::Config;
-use rx74n_hal::gpio::Parts;
-use rx74n_hal::pac::Peripherals;
-use rx74n_hal::pwm::{Pwm, Timing};
+use rx74_hal::clock::Config;
+use rx74_hal::gpio::Parts;
+use rx74_hal::pac::Peripherals;
+use rx74_hal::pwm::{Pwm, Timing};
 
 #[unsafe(no_mangle)]
 static mut checks: u32 = 0;

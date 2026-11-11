@@ -1,6 +1,6 @@
 //! Blinks the AP-RX72M-0A's monitor LEDs LD1 / LD2 (PJ0 / PJ1) forever, LD1
 //! and LD2 alternately at 2 Hz. The blinking itself is written against the
-//! embedded-hal 1.0 traits only (`blink`); `main` sets up rx72m-hal's
+//! embedded-hal 1.0 traits only (`blink`); `main` sets up rx72-hal's
 //! clock (PLL 240 MHz), pins and CMT2 delay and hands them over.
 //!
 //! It boots from the code flash through rx-rt, so once written it also runs
@@ -14,10 +14,10 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::{OutputPin, StatefulOutputPin};
-use rx72m_hal::clock::Config;
-use rx72m_hal::delay::Delay;
-use rx72m_hal::gpio::Parts;
-use rx72m_hal::pac::Peripherals;
+use rx72_hal::clock::Config;
+use rx72_hal::delay::Delay;
+use rx72_hal::gpio::Parts;
+use rx72_hal::pac::Peripherals;
 // The reset handler, vector tables and critical-section implementation.
 use rx_rt as _;
 

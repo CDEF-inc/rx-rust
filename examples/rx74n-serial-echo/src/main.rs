@@ -2,7 +2,7 @@
 //! TXD012-B / P115 = RXD012-B, 115200 bps 8N1) back to the sender, forever.
 //! The echo itself is written against the `embedded-io` traits only (`echo`);
 //! `main` sets the clocks up (CPUCLK0 600 MHz; SCICLK stays on the 8 MHz
-//! MOCO), sets up rx74n-hal's `Serial` and hands it over. A receive error is
+//! MOCO), sets up rx74-hal's `Serial` and hands it over. A receive error is
 //! reported as a line `! <error>` (a break gives a framing error), and the
 //! echo goes on.
 //!
@@ -17,10 +17,10 @@ use core::panic::PanicInfo;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use embedded_io::{Read, Write};
-use rx74n_hal::clock::Config;
-use rx74n_hal::gpio::Parts;
-use rx74n_hal::pac::Peripherals;
-use rx74n_hal::serial::Serial;
+use rx74_hal::clock::Config;
+use rx74_hal::gpio::Parts;
+use rx74_hal::pac::Peripherals;
+use rx74_hal::serial::Serial;
 // The reset handler, vector tables and critical-section implementation.
 use rx_rt as _;
 
@@ -58,7 +58,7 @@ fn main() -> ! {
     let clocks = Config::pll_600mhz_from_24mhz().configure(&p.sysc, &p.sram, &p.mram);
     let pins = Parts::take().unwrap();
     let mut serial = Serial::rsci12(p.rsci12, pins.p114, pins.p115, 115_200, &clocks);
-    serial.write_all(b"serial-echo: rx74n-hal RSCI12, 115200 8N1, CPUCLK0 600 MHz\r\n").unwrap();
+    serial.write_all(b"serial-echo: rx74-hal RSCI12, 115200 8N1, CPUCLK0 600 MHz\r\n").unwrap();
     echo(&mut serial)
 }
 

@@ -1,4 +1,4 @@
-//! rx72m-hal on the AP-RX72M-0A board: DelayNs on CMT2 (timed with CMT0
+//! rx72-hal on the AP-RX72M-0A board: DelayNs on CMT2 (timed with CMT0
 //! on the same PCLKB / 8), the MPC pin functions, and SCI2 as a UART on CN8
 //! (P13 = TXD2, P12 = RXD2) at 115200 bps. It sends a line, checks the TXD
 //! pin goes low while sending, and, if CN8's RXD and TXD (pins 1 and 2)
@@ -17,11 +17,11 @@ use core::ptr::{read_volatile, write_volatile};
 
 use embedded_hal::delay::DelayNs;
 use embedded_io::{Read, ReadReady, Write};
-use rx72m_hal::clock::Config;
-use rx72m_hal::delay::Delay;
-use rx72m_hal::gpio::Parts;
-use rx72m_hal::pac::Peripherals;
-use rx72m_hal::serial::{BaudSettings, Serial};
+use rx72_hal::clock::Config;
+use rx72_hal::delay::Delay;
+use rx72_hal::gpio::Parts;
+use rx72_hal::pac::Peripherals;
+use rx72_hal::serial::{BaudSettings, Serial};
 
 #[unsafe(no_mangle)]
 static mut checks: u32 = 0;
@@ -113,7 +113,7 @@ fn main() -> ! {
     check(7, serial.tx_ready() && !serial.rx_ready());
 
     // A line for whoever listens on CN8.
-    serial.write_all(b"Hello from rx72m-hal on SCI2\r\n").unwrap();
+    serial.write_all(b"Hello from rx72-hal on SCI2\r\n").unwrap();
     serial.flush().unwrap();
     check(8, rd8(0x0008_a044) & 1 << 2 != 0); // SCI2 SSR.TEND
 

@@ -1,4 +1,4 @@
-//! rx72m-hal on the AP-RX72M-0A board: the 12-bit A/D converter without
+//! rx72-hal on the AP-RX72M-0A board: the 12-bit A/D converter without
 //! wiring. Both units convert their self-diagnosis voltages (0 V, half
 //! the reference, the reference); unit 1 converts the internal reference
 //! voltage and the temperature sensor (PCLKD 30 MHz, so that the 5 us
@@ -16,10 +16,10 @@
 use core::panic::PanicInfo;
 use core::ptr::{read_volatile, write_volatile};
 
-use rx72m_hal::adc::{Adc, DiagVoltage, TemperatureSensor};
-use rx72m_hal::clock::{Config, Div};
-use rx72m_hal::gpio::Parts;
-use rx72m_hal::pac::Peripherals;
+use rx72_hal::adc::{Adc, DiagVoltage, TemperatureSensor};
+use rx72_hal::clock::{Config, Div};
+use rx72_hal::gpio::Parts;
+use rx72_hal::pac::Peripherals;
 
 #[unsafe(no_mangle)]
 static mut checks: u32 = 0;

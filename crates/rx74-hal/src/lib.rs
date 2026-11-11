@@ -1,5 +1,8 @@
-//! embedded-hal 1.0 implementation for the Renesas RX74N (written for the
-//! 320-pin R5K574NCB4AE of the EK-RX74N board).
+//! embedded-hal 1.0 implementation for the Renesas RX74M and RX74N (written
+//! for the 320-pin R5K574NCB4AE of the EK-RX74N board, and run as it is on
+//! the EK-RX74M). The feature `rx74m` or `rx74n` (exactly one) picks the
+//! chip; the two differ only in the RX74M's EtherCAT slave controller and
+//! DSMIF, which this crate does not use (see rx74-pac).
 //!
 //! - [`clock`]: the clocks after a reset (the 8 MHz MOCO), and PLL1 from
 //!   the main clock (CPUCLK0 480 or 600 MHz).
@@ -15,8 +18,8 @@
 //!
 //! Everything runs in the root world, as a reset leaves it (a Flat-Project
 //! in the hardware manual's terms), and uses the registers' secure
-//! addresses. Register access goes through [`pac`] (rx74n-pac, generated
-//! from e2 studio's RX74N.sfrx) where its types fit, and directly by address
+//! addresses. Register access goes through [`pac`] (rx74-pac, generated
+//! from e2 studio's RX74M.sfrx / RX74N.sfrx) where its types fit, and directly by address
 //! for the uniform port registers, RSPIA0, GPTW8, ADC16H and RI3C0.
 //! Read-modify-write of shared registers runs in a critical section; the
 //! application provides the implementation (rx-rt's `critical-section`
@@ -26,7 +29,7 @@
 
 pub use embedded_hal;
 pub use embedded_io;
-pub use rx74n_pac as pac;
+pub use rx74_pac as pac;
 
 pub mod adc;
 pub mod clock;

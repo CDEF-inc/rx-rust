@@ -1,7 +1,7 @@
 //! Echoes what arrives on the AP-RX72M-0A's serial connector CN8 (SCI2,
 //! P13 = TXD2 / P12 = RXD2, 115200 bps 8N1) back to the sender, forever. The
 //! echo itself is written against the `embedded-io` traits only (`echo`);
-//! `main` sets up rx72m-hal's clock (PLL 240 MHz) and `Serial` and hands it
+//! `main` sets up rx72-hal's clock (PLL 240 MHz) and `Serial` and hands it
 //! over. A receive error is reported as a line `! <error>` (a break gives a
 //! framing error), and the echo goes on.
 //!
@@ -17,10 +17,10 @@ use core::panic::PanicInfo;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use embedded_io::{Read, Write};
-use rx72m_hal::clock::Config;
-use rx72m_hal::gpio::Parts;
-use rx72m_hal::pac::Peripherals;
-use rx72m_hal::serial::Serial;
+use rx72_hal::clock::Config;
+use rx72_hal::gpio::Parts;
+use rx72_hal::pac::Peripherals;
+use rx72_hal::serial::Serial;
 // The reset handler, vector tables and critical-section implementation.
 use rx_rt as _;
 
@@ -58,7 +58,7 @@ fn main() -> ! {
     let clocks = Config::pll_240mhz_from_24mhz().configure(&p.system);
     let pins = Parts::take().unwrap();
     let mut serial = Serial::sci2(p.sci2, pins.p13, pins.p12, 115_200, &clocks);
-    serial.write_all(b"serial-echo: rx72m-hal SCI2, 115200 8N1\r\n").unwrap();
+    serial.write_all(b"serial-echo: rx72-hal SCI2, 115200 8N1\r\n").unwrap();
     echo(&mut serial)
 }
 

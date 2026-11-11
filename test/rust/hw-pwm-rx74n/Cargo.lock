@@ -59,7 +59,7 @@ version = "0.1.0"
 dependencies = [
  "embedded-hal",
  "rx-rt",
- "rx74n-hal",
+ "rx74-hal",
 ]
 
 [[package]]
@@ -272,17 +272,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "rx74n-hal"
+name = "rx74-hal"
 version = "0.1.0"
 dependencies = [
  "critical-section",
  "embedded-hal",
  "embedded-io",
- "rx74n-pac",
+ "rx74-pac",
 ]
 
 [[package]]
-name = "rx74n-pac"
+name = "rx74-pac"
 version = "0.1.0"
 dependencies = [
  "critical-section",
