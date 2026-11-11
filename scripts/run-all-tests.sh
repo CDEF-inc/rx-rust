@@ -183,6 +183,7 @@ for cpu in "${cpus[@]}"; do
   for p in release dev; do
     run "$cpu rust core-smoke $p" env PROFILE=$p bash "$S/run-rust-test.sh"
     run "$cpu rust variadic-smoke $p" env PROFILE=$p bash "$S/run-rust-test.sh" "$root/test/rust/variadic-smoke"
+    run "$cpu rust cabi-smoke $p" env PROFILE=$p bash "$S/run-rust-test.sh" "$root/test/rust/cabi-smoke"
     # build/rust-rom/$cpu; isr-cfi checks what isr-save built
     g="rom $cpu $p"
     run -g "$g" "$cpu rust qemu-demo $p" env PROFILE=$p bash "$S/run-rust-rom.sh"
