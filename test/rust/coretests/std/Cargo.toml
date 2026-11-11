@@ -1,0 +1,11 @@
+[package]
+name = "rx-std-shim"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "std"
+
+[dependencies]
+std_features = { package = "rx-std-features", path = "../features" }

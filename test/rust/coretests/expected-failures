@@ -1,0 +1,3 @@
+# coretests that fail on rx-none-elf, checked by scripts/run-coretests.sh:
+# "CPU TEST  # why", CPU `*` for every core or one of rx62n, rxv2, rxv3,
+# rxv3e.

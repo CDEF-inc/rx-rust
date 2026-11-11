@@ -8,7 +8,7 @@
 | RXISelLowering | 引数・戻り値・呼び出し、BR_CC/SETCC/SELECT_CC → RXISD::CMP + フラグ |
 | RXISelDAGToDAG | アドレス選択（base + dsp、dsp はサイズの倍数かつ dsp:16 に収まる場合のみ）、FrameIndex → FRMIDX |
 | RXFrameLowering | pushm で CSR 保存、`add #-N, r0, r0` で確保、rtsd で解放・復帰・戻り（下記）、プロローグとエピローグの CFI（下記）、必要なときだけフレームポインタ R6（下記） |
-| RXRegisterInfo | R0(SP)/PSW/FPSW/ACC 予約、eliminateFrameIndex（SP 相対） |
+| RXRegisterInfo | R0(SP)/PSW/FPSW/ACC 予約、eliminateFrameIndex（SP / R6 / R7 相対）、スタックの再整列の判定（下記） |
 | RXInstrInfo | コピー・スピル・分岐解析、BranchRelaxation 用の範囲判定 |
 | RXMCInstLower | 擬似命令の展開 + **最短符号への縮小**（下記） |
 | RXAsmPrinter | lower → shrink → 出力 |
@@ -436,6 +436,29 @@ FPU 命令（fadd 等）を使うのは nnan/ninf 付きの演算（fast-math）
   - QEMU の gdbstub と rx-elf-gdb（e2 studio の 16.2）で、動的 alloca の後に呼んだ GCC の関数（`touch`、`c_sum6`。
     呼び出し側は `add #-8, r0` の後）の中で止め、`bt` が dyn / dyn_call / dyn_align → main とたどれ、alloca の大きさが
     違っても main の SP が同じになることを確かめた。
+
+## スタックの再整列（2026-11-11、llvm-project#37）
+- スタックの揃えは 4（データレイアウトの `S32`）。それより大きく揃える固定サイズのスタックオブジェクト（`#[repr(align(16))]`
+  のローカルなど）がある関数は、プロローグで SP を揃え直す。以前は揃え直さず、番地は 4 バイト境界にしかならないのに、
+  LLVM はその下位ビットを 0 として畳み込んでいた（coretests の `atomic::ptr_bitops_tagging` が失敗）。
+  - 判定は RXRegisterInfo::shouldRealignStack: 生きている固定サイズのオブジェクトの揃えが 4 を超えるとき（と
+    `stackrealign` 属性）。動的 alloca は自分で `and #-16` するので含めない（既定の判定は MaxAlign を見るので含めてしまう）。
+  - プロローグ: `pushm r6-..` / `mov.l r0, r6` / `add #-N, r0, r0` / `and #-MaxAlign, r0`。R6 は退避レジスタの直下を指し、
+    CFI は `mov.l` の後に `.cfi_def_cfa r6, 4 + 退避バイト数`。RX の dsp は正の値だけなので、固定オブジェクト（スタック渡しの
+    引数）は R6 から、ローカルは揃えた SP から、どちらも正のオフセットで指す（getFrameIndexReference）。PEI は
+    StackSize + 4 を MaxAlign に揃えるので、ローカルのオフセットは SP から見て揃う。
+  - エピローグ: `mov.l r6, r0` で SP を退避レジスタの位置に戻し、`rtsd #退避バイト数, r6-..`（1020 バイトを超える
+    フレームでも add は要らない）。
+  - 動的 alloca もある関数は SP が動くので、R7 をベースポインタにして揃えた SP を取っておき（`mov.l r0, r7`）、ローカルは
+    R7 から指す。R7 は予約レジスタになり、保存範囲に入る。
+  - フレームポインタ（R6）の要否はレジスタ割り付けの前に決まるので、割り付け後に揃えの大きいスタックオブジェクトが
+    できてはいけない。DR レジスタの退避スロットの揃えを 8 から 4 にした（RXRegisterInfo.td の DPR。f64 は f64:32 で、
+    dmov.d の dsp も 4 倍）。割り付け後に R6 / R7 が要ることになったら report_fatal_error。
+- 検証: `test/codegen/fp.ll` + `fp_main.c` に 16 バイト揃えのローカル、64 バイト揃え + スタック渡しの引数、
+  frame-pointer=all で 1020 バイト超 + スタック渡しの引数のある呼び出し、16 バイト揃え + 動的 alloca（R7）を足した。
+  GCC の関数（c_mis）が番地の下位ビットを返し、fp_main.c が SP を 4 バイトずつ 16 通りずらして呼ぶ（64 バイトの
+  全位置）。各 CPU の -O0 / -O2 で 215 チェック全通過。al16 に `"no-realign-stack"` を付けた版では 12 件失敗する。
+  スタック命令は `fp.expected`、CFI は `fp-cfi.expected`。
 
 DFPU のコードと、アトミックの RXv2 経路（movli/movco ループ）は、CDEF-inc/qemu の rxv2 以降のコアと
 実機の RX72M で実行して確かめた（NOTES-qemu.md、NOTES-hw.md）。

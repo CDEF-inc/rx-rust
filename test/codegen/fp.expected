@@ -85,7 +85,7 @@ _dyn_big
 
 _dyn_byval
   pushm r6-r8
-  add #-8, r0, r6
+  add #-4, r0, r6
   mov.l r6, r0
   sub r1, r0, r7
   bsr.a _touch
@@ -94,7 +94,7 @@ _dyn_byval
   add #4, r0
   bsr.a _elem
   mov.l r6, r0
-  rtsd #20, r6-r8
+  rtsd #16, r6-r8
 
 _dyn_align
   pushm r6-r7
@@ -106,6 +106,61 @@ _dyn_align
   bsr.a _elem
   mov.l r6, r0
   rtsd #12, r6-r7
+
+_al16
+  pushm r6-r8
+  mov.l r0, r6
+  add #-32, r0, r0
+  and #-16, r0
+  add #16, r0, r7
+  bsr.a _touch
+  bsr.a _c_mis
+  bsr.a _elem
+  mov.l r6, r0
+  rtsd #12, r6-r8
+
+_al64_args
+  pushm r6-r9
+  mov.l r0, r6
+  add #-44, r0, r0
+  and #-64, r0
+  add #0, r0, r8
+  bsr.a _touch
+  bsr.a _c_mis
+  bsr.a _elem
+  mov.l r6, r0
+  rtsd #16, r6-r9
+
+_al64_big
+  pushm r6-r10
+  mov.l r0, r6
+  add #-1320, r0, r0
+  and #-64, r0
+  add #64, r0, r8
+  bsr.a _touch
+  bsr.a _c_mis
+  bsr.a _c_sum6
+  bsr.a _elem
+  mov.l r6, r0
+  rtsd #20, r6-r10
+
+_al16_dyn
+  pushm r6-r12
+  mov.l r0, r6
+  add #-16, r0, r0
+  and #-16, r0
+  mov.l r0, r7
+  sub r1, r0, r10
+  bsr.a _touch
+  bsr.a _touch
+  add #-8, r0, r0
+  bsr.a _c_sum6
+  add #8, r0
+  bsr.a _c_mis
+  bsr.a _elem
+  bsr.a _elem
+  mov.l r6, r0
+  rtsd #28, r6-r12
 
 _va_sum
   add #-4, r0, r0
