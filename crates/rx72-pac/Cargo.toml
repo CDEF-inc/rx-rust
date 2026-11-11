@@ -1,8 +1,8 @@
 [package]
-name = "rx74n-pac"
+name = "rx72-pac"
 version = "0.1.0"
 edition = "2021"
-description = "Peripheral access crate for the Renesas RX74N, generated at build time from e2 studio's RX74N.sfrx"
+description = "Peripheral access crate for the Renesas RX72M and RX72N, generated at build time from e2 studio's RX72M.sfrx / RX72N.sfrx"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/CDEF-inc/rx-rust"
 build = "build.rs"
@@ -19,6 +19,9 @@ critical-section = { version = "1.2", optional = true }
 # Peripherals::take(); the application supplies the implementation (rx-rt's
 # critical-section feature).
 critical-section = ["dep:critical-section"]
+# The chip: exactly one of these (build.rs reads its sfrx file).
+rx72m = []
+rx72n = []
 
 [build-dependencies]
 sfrx-pac = { path = "../sfrx-pac" }

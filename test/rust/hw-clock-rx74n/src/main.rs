@@ -1,4 +1,4 @@
-//! rx74n-hal's clock set-up on the EK-RX74N board: PLL1 from the 24 MHz
+//! rx74-hal's clock set-up on the EK-RX74N board: PLL1 from the 24 MHz
 //! crystal, CPUCLK0 480 MHz, or 600 MHz with `--cfg clock600`
 //! (scripts/hw-build.sh builds both). The registers after the set-up, then
 //! the clocks measured by the CAC (the main clock against the MOCO, PLL1P /
@@ -18,10 +18,10 @@ use core::ptr::{read_volatile, write_volatile};
 
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
-use rx74n_hal::clock::Config;
-use rx74n_hal::delay::Delay;
-use rx74n_hal::gpio::Parts;
-use rx74n_hal::pac::Peripherals;
+use rx74_hal::clock::Config;
+use rx74_hal::delay::Delay;
+use rx74_hal::gpio::Parts;
+use rx74_hal::pac::Peripherals;
 // The reset handler, vector tables and critical-section implementation.
 use rx_rt as _;
 

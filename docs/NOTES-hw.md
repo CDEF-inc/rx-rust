@@ -43,7 +43,7 @@ first_failure、got、want）と実行時間を表示し、最後に `== N passe
 | rom | rxv2-insns（EXTB を書き換えるので RAM 版の起動処理と両立しない） | コードフラッシュ、リセットベクタから起動 |
 | codegen | test/codegen の i32、m3、struct、atomic、fpu、dfpu、mem、mulh、frame、jt（`llc -mcpu=rxv3`、-O0 と -O2）と GCC でコンパイルした C ドライバ | RAM |
 | rust | test/rust/core-smoke（`-C target-cpu=rxv3`、release と dev） | RAM |
-| rt | rx-rt のアプリケーション: test/rust/isr-save（ソフトウェア割り込みで FPSW・A0/A1・DR0/DR1・DPSW/DCMR の退避を確かめる）、test/rust/isr-bank（レジスタバンクの割り込み入口）と test/rust/hw-irq（CMT0/CMT1 の割り込み、`interrupt::free`、IPL によるマスク、多重割り込み）、test/rust/hw-pac（rx72m-pac と rx-rt の critical-section）、test/rust/hw-hal（rx72m-hal のクロックと GPIO、LED が点滅する）、test/rust/hw-uart（DelayNs、MPC、SCI2。docs/NOTES-hal.md）、test/rust/hw-spi（RSPI2 の SPI、内部ループバック）、test/rust/hw-adc（A/D 変換器の自己診断、内部基準電圧、温度センサ）、test/rust/hw-pwm（MTU6 の PWM を LD2 の端子で測る）。`-C target-cpu=rxv3`、release と dev | コードフラッシュ（test/hw/rx72m-memory.x）、rx-rt の `_rx_reset` からリセット起動 |
+| rt | rx-rt のアプリケーション: test/rust/isr-save（ソフトウェア割り込みで FPSW・A0/A1・DR0/DR1・DPSW/DCMR の退避を確かめる）、test/rust/isr-bank（レジスタバンクの割り込み入口）と test/rust/hw-irq（CMT0/CMT1 の割り込み、`interrupt::free`、IPL によるマスク、多重割り込み）、test/rust/hw-pac（rx72-pac と rx-rt の critical-section）、test/rust/hw-hal（rx72-hal のクロックと GPIO、LED が点滅する）、test/rust/hw-uart（DelayNs、MPC、SCI2。docs/NOTES-hal.md）、test/rust/hw-spi（RSPI2 の SPI、内部ループバック）、test/rust/hw-adc（A/D 変換器の自己診断、内部基準電圧、温度センサ）、test/rust/hw-pwm（MTU6 の PWM を LD2 の端子で測る）。`-C target-cpu=rxv3`、release と dev | コードフラッシュ（test/hw/rx72m-memory.x）、rx-rt の `_rx_reset` からリセット起動 |
 
 dsp-v1（RXv1 の DSP）と rxv3e-insns は RX72M の ISA と合わないので実行しない。
 
@@ -101,7 +101,7 @@ RX72M との違い:
   セキュアなメモリのコードを実行できず止まる。QEMU にはこの分離がないので全部通る。
 - コード MRAM は R5K574NC で 1 MB（`0xFFF00000`〜）。RAM と同じ手順で書き込める。`test/hw/rx74n-rom.ld`、`rx74n-memory.x` の変数は On-chip RAM のセキュア側に置く。
 - 周辺のアドレスが違うので、`cmt` と rt の hw-irq、hw-hal、hw-uart、hw-spi、hw-adc、hw-pwm、RX72M の examples は実行しない。
-  hw-pac の代わりに、CMT0 の割り込みと critical-section を rx74n-pac で確かめる test/rust/hw-pac-rx74n がある（11 チェック）。
+  hw-pac の代わりに、CMT0 の割り込みと critical-section を rx74-pac で確かめる test/rust/hw-pac-rx74n がある（11 チェック）。
   CMI0 はベクタ 28、IPR4、IER3.IEN4 で RX72M と同じだが、CMT のモジュールストップは MSTPCRF.MSTPF15、保護は PRCR_S。
 - 一度、`FFWRXCmd_AuthKey` の JTAG 通信エラーで接続できなくなった（JTAG クロックを下げても同じ）。SW6 を Pin1 ON / Pin2 OFF にして
   J27 を抜き差しすると戻った。どちらが効いたかは切り分けていない。
@@ -120,7 +120,7 @@ R01UH1055EJ0110）をつないだ。
   つながった（RX FSP のパックで RX74MGr のサポートファイルも入っている）。
 - RX74N 向けにビルドしたテストがそのまま動く。`HW_BOARD=rx74m` の hw-build.sh は RX74N と同じものを作り、
   hw-run.sh は build/hw-rx74n を走らせる。2026-11-08 に insns、rom、codegen、rust、rt の 73 本がすべて通った
-  （rx74n-pac、rx74n-hal の GPIO・クロック（480 / 600 MHz）・SPI・PWM・ADC を含む）。rx74n-pac / rx74n-hal は
+  （rx74-pac、rx74-hal の GPIO・クロック（480 / 600 MHz）・SPI・PWM・ADC を含む）。rx74-pac / rx74-hal は
   RX74M でも使える（ESC と DSMIF は扱わない）。
 - RX74M にはデュアルコアの品種（R5K574MC_DUAL）もあるが、EK-RX74M はシングルコアとして扱っている。
 
@@ -134,7 +134,7 @@ HW_BOARD=rx74m HW_TIMEOUT=900 scripts/hw-run.sh build/hw-rx74n/coretests/*.elf  
   2 本に分ける（`scripts/coretests-part.sh`。coretests のソースは変えず、`mod` 行を選んだクレートルートを生成する）。
 - コードは MRAM、起動コード・.rodata・.data・.bss・ヒープ・スタックは On-chip RAM（`test/rust/coretests/test/coretests-rx74n.x`）。
   デバッガが直接書き込むので .data のコピーは無い。run.py は RAM にある `_start` から走らせる。
-- テストの前に rx74n-hal で PLL1 を 480 MHz にする（リセット時の MOCO 8 MHz では何時間もかかる）。
+- テストの前に rx74-hal で PLL1 を 480 MHz にする（リセット時の MOCO 8 MHz では何時間もかかる）。
 - 出力は RAM のリングバッファ（最後の 192 KB、`coretests_log`）。run.py が `NAME.log` に書き、失敗と要約を表示する。
 - 結果: 2 本とも全件通過（1523 + 1292 = 2815、無視 5）。実行は 58 秒と 172 秒、書き込みを含めて約 5 分。
 

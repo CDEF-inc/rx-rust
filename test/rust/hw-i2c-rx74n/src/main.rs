@@ -1,4 +1,4 @@
-//! rx74n-hal: RI3C0 as an I2C master on P102 = SCL00-A / P103 = SDA00-A,
+//! rx74-hal: RI3C0 as an I2C master on P102 = SCL00-A / P103 = SDA00-A,
 //! with PLL1 at 480 MHz (I3CCLK = PLL1P / 8 = 60 MHz). On the EK-RX74M
 //! these pins carry the EtherCAT EEPROM (U13, 32 kbit, address 50h); the
 //! test only reads it. It checks the set-up (I3CCLK, module stop, the SCL
@@ -23,10 +23,10 @@ use core::ptr::{read_volatile, write_volatile};
 
 use embedded_hal::i2c::Error as _;
 use embedded_hal::i2c::{ErrorKind, I2c as _, NoAcknowledgeSource, Operation};
-use rx74n_hal::clock::Config;
-use rx74n_hal::gpio::Parts;
-use rx74n_hal::i2c::{I2c, Speed, Timing};
-use rx74n_hal::pac::Peripherals;
+use rx74_hal::clock::Config;
+use rx74_hal::gpio::Parts;
+use rx74_hal::i2c::{I2c, Speed, Timing};
+use rx74_hal::pac::Peripherals;
 
 #[unsafe(no_mangle)]
 static mut checks: u32 = 0;

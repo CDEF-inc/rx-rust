@@ -26,6 +26,24 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
 
+/// [`generate`] for the one of `devices` (such as `["RX72M", "RX72N"]`)
+/// whose feature (`rx72m`, `rx72n`) is enabled; for a PAC that covers a
+/// group of chips. Stops the build unless exactly one is.
+pub fn generate_one_of(devices: &[&str]) {
+    let on: Vec<&str> = devices
+        .iter()
+        .copied()
+        .filter(|d| env::var_os(format!("CARGO_FEATURE_{d}")).is_some())
+        .collect();
+    match on[..] {
+        [device] => generate(device),
+        _ => panic!(
+            "enable exactly one of the features {}",
+            devices.iter().map(|d| d.to_lowercase()).collect::<Vec<_>>().join(", ")
+        ),
+    }
+}
+
 /// Generates `OUT_DIR/pac.rs` (and the SVD next to it) for `device`, such as
 /// `RX72M`.
 pub fn generate(device: &str) {

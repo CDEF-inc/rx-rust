@@ -35,7 +35,7 @@ opt-level = 1
 
 # The generated PAC (rx74n feature) is about 23 MB of source; without
 # debug info rustc takes about half a minute on it.
-[profile.dev.package.rx74n-pac]
+[profile.dev.package.rx74-pac]
 debug = false
 opt-level = "s"
 

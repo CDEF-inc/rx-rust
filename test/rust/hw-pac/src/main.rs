@@ -1,4 +1,4 @@
-//! rx72m-pac (generated at build time from e2 studio's RX72M.sfrx) with
+//! rx72-pac (generated at build time from e2 studio's RX72M.sfrx) with
 //! rx-rt's critical-section on the RX72M board: Peripherals::take(), the
 //! SYSTEM, CMT and ICU registers through the PAC, a CMT0 compare match
 //! interrupt and critical_section::with holding it back. Booted from the
@@ -16,7 +16,7 @@ use core::ptr::write_volatile;
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
 
 use rx_rt::interrupt;
-use rx72m_pac::Peripherals;
+use rx72_pac::Peripherals;
 
 #[unsafe(no_mangle)]
 static mut checks: u32 = 0;

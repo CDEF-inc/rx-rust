@@ -1,8 +1,8 @@
 [package]
-name = "rx72m-hal"
+name = "rx74-hal"
 version = "0.1.0"
 edition = "2024"
-description = "embedded-hal 1.0 implementation for the Renesas RX72M"
+description = "embedded-hal 1.0 implementation for the Renesas RX74M and RX74N"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/CDEF-inc/rx-rust"
 
@@ -11,8 +11,13 @@ test = false
 bench = false
 
 [dependencies]
-rx72m-pac = { path = "../rx72m-pac", features = ["critical-section"] }
+rx74-pac = { path = "../rx74-pac", features = ["critical-section"] }
 critical-section = "1.2"
 # CDEF-inc's fork of rust-embedded/embedded-hal (the same as upstream 1.0).
 embedded-hal = { git = "https://github.com/CDEF-inc/embedded-hal", rev = "41f29f6bfced1cae0cbe712ba96ee32c075b3125" }
 embedded-io = { git = "https://github.com/CDEF-inc/embedded-hal", rev = "41f29f6bfced1cae0cbe712ba96ee32c075b3125" }
+
+[features]
+# The chip: exactly one of these (it picks rx74-pac's register description).
+rx74m = ["rx74-pac/rx74m"]
+rx74n = ["rx74-pac/rx74n"]

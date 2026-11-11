@@ -1,4 +1,4 @@
-//! rx74n-hal on the EK-RX74N board: the 16-bit A/D converter (ADC16H,
+//! rx74-hal on the EK-RX74N board: the 16-bit A/D converter (ADC16H,
 //! unit 0, SAR) without wiring, with PLL1 at 480 MHz (ADCLK = PLL1P / 8 =
 //! 60 MHz). The ADCCLK and module set-up, the calibration, the
 //! self-diagnosis voltages, the internal reference voltage, the
@@ -16,10 +16,10 @@
 use core::panic::PanicInfo;
 use core::ptr::{read_volatile, write_volatile};
 
-use rx74n_hal::adc::{Adc, DiagVoltage, TemperatureSensor};
-use rx74n_hal::clock::Config;
-use rx74n_hal::gpio::Parts;
-use rx74n_hal::pac::Peripherals;
+use rx74_hal::adc::{Adc, DiagVoltage, TemperatureSensor};
+use rx74_hal::clock::Config;
+use rx74_hal::gpio::Parts;
+use rx74_hal::pac::Peripherals;
 
 #[unsafe(no_mangle)]
 static mut checks: u32 = 0;

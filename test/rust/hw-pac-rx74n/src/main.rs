@@ -1,4 +1,4 @@
-//! rx74n-pac (generated at build time from e2 studio's RX74N.sfrx) with
+//! rx74-pac (generated at build time from e2 studio's RX74N.sfrx) with
 //! rx-rt's critical-section on the EK-RX74N board: Peripherals::take(), the
 //! SYSC, MSTPREG, CMT and ICU registers through the PAC, a CMT0 compare match
 //! interrupt and critical_section::with holding it back. Booted from the
@@ -16,7 +16,7 @@ use core::ptr::write_volatile;
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
 
 use rx_rt::interrupt;
-use rx74n_pac::Peripherals;
+use rx74_pac::Peripherals;
 
 #[unsafe(no_mangle)]
 static mut checks: u32 = 0;

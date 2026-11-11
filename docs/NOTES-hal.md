@@ -7,16 +7,32 @@
 - **embedded-hal**: CDEF-inc/embedded-hal（rust-embedded/embedded-hal の fork、上流と同じ内容）。
   embedded-hal、-nb、-async、-bus、embedded-io、-async、embedded-can はそのまま rx-none-elf でビルドできる。
   トレイトの定義だけのクレートなので、RX 用のコードは入れない。RX で問題が出たときの修正先にする。
-- **PAC**: `crates/rx72m-pac`。e² studio が入れる `RX72M.sfrx` からビルド時に生成する（下記）。
+- **PAC**: `crates/rx72-pac`。e² studio が入れる `RX72M.sfrx` からビルド時に生成する（下記）。
   生成物は Renesas の記述から作るので、リポジトリには入れない。
 - **critical-section**: rx-rt の `critical-section` フィーチャー（PSW.I を保存して消し、戻す）。
-- **HAL**: `crates/rx72m-hal`。embedded-hal 1.0 のトレイトを実装する（下記）。
+- **HAL**: `crates/rx72-hal`。embedded-hal 1.0 のトレイトを実装する（下記）。
 
-## PAC（crates/rx72m-pac）
+## チップ系列ごとの crate（2026-11-12、#165）
+
+PAC と HAL は、周辺機能がほぼ同じチップをまとめて 1 crate にしている。チップは feature で 1 つだけ選ぶ
+（どちらも選ばないか両方選ぶと、PAC の build.rs がエラーで止める）。
+
+| crate | feature | 違い（M にだけあるもの） |
+|---|---|---|
+| `rx72-pac` / `rx72-hal` | `rx72m`（AP-RX72M-0A）、`rx72n` | ESC（EtherCAT スレーブ）、DSMIF、MSTPCRB.MSTPB11、MSTPCRD.MSTPD11、PACKCR.EPLLSEL、ELC.ELSR41〜44、ICU.PIARB、MPC.P70PFS |
+| `rx74-pac` / `rx74-hal` | `rx74m`（EK-RX74M）、`rx74n`（EK-RX74N） | ESC、DSMIF、SYSC の ESCCKCR / ESCCKDIVCR / DSMIFCKCR / DSMIFCKDIVCR、MSTPCRC.MSTPC29、MSTPCRD.MSTPD8〜9、ELC.ELSR53〜60、POEG の DERRn、PSCU と CGFSAR の対応ビット |
+
+e² studio の sfrx で比べると、どちらの組も M が N の上位集合で、共通のレジスタのアドレス・サイズはすべて同じ
+（N にだけあるモジュール・レジスタ・ビットはない）。そこで PAC は、feature で読む sfrx（`RX72M.sfrx` /
+`RX72N.sfrx`、`RX74M.sfrx` / `RX74N.sfrx`）を切り替える。HAL は ESC と DSMIF を使わないので、どちらの
+feature でも同じコードになる。EK-RX74M のテストは今のところ `rx74n` でビルドしたものをそのまま動かしている
+（RX74N のレジスタはすべて同じアドレスにある）。
+
+## PAC（crates/rx72-pac）
 
 build.rs が次を行う。
 
-1. `RX72M_SFRX`、なければ `~/.eclipse/com.renesas.platform_*/DebugComp/RX/IoFiles/RX72M.sfrx`
+1. `RX72M_SFRX`（`rx72n` では `RX72N_SFRX`、以下同じ）、なければ `~/.eclipse/com.renesas.platform_*/DebugComp/RX/IoFiles/RX72M.sfrx`
    （WSL では `/mnt/c/Users/*/.eclipse/...` も）を探す。見つからなければ、e² studio を入れるか
    `RX72M_SFRX` を指定するよう求めてビルドを止める。
 2. sfrx（モジュール 156 個、入れ子のモジュール 208 個、レジスタ 8441 個、ビットフィールド付き）を SVD にする。
@@ -34,15 +50,15 @@ RX74N の SYSC / BUS（ベース 8701_9006h / 8701_D002h）がずれていた。
 sfrx の制約: すべて読み書き可、リセット値なし（`reset()` / `write()` は 0 から）、説明なし、割り込みベクタ
 なし（rx-rt の `interrupt!` にハードウェアマニュアルのベクタ番号を書く）。実機にしかない動き（CMCR の bit 7）も
 載っていない。生成されるソースは約 23 MB。デバッグ情報付きでコンパイルすると 10 分以上かかるので、
-使う側で `[profile.*.package.rx72m-pac] debug = false` にする（test/rust/hw-pac の Cargo.toml）。
+使う側で `[profile.*.package.rx72-pac] debug = false` にする（test/rust/hw-pac の Cargo.toml）。
 
 確認: test/rust/hw-pac（ボード、scripts/hw-build.sh の rt グループ）が PAC で SYSTEM（PRCR、MSTPCRA）、
 CMT、ICU を操作し、CMT0 の割り込みと critical_section::with を確かめる（11 チェック、release / dev とも通る）。
 
-## PAC（crates/rx74n-pac）
+## PAC（crates/rx74-pac）
 
-rx72m-pac と同じ作りで、`RX74N.sfrx` から生成する。生成処理は `crates/sfrx-pac` に共通化した。
-`RX74N.sfrx` は RX FSP のパックを e² studio に入れると `IoFiles` に置かれる（NOTES-hw.md）。`RX74N_SFRX` でも指定できる。
+rx72-pac と同じ作りで、`RX74N.sfrx`（`rx74m` では `RX74M.sfrx`）から生成する。生成処理は `crates/sfrx-pac` に共通化した。
+どちらも RX FSP のパックを e² studio に入れると `IoFiles` に置かれる（NOTES-hw.md）。`RX74N_SFRX` / `RX74M_SFRX` でも指定できる。
 
 sfrx にはモジュール 283 個、レジスタ 33,277 個があり、半分は非セキュア側の別名（`_NS`）。リセット後はセキュアなので、`_NS` のモジュールは生成しない。
 それでも生成されるソースは約 47 MB（CANFD が半分以上）で、ビルドに 3 分ほどかかる。
@@ -63,7 +79,7 @@ RX72M と名前が違う: SYSTEM は SYSC と MSTPREG に分かれ（`p.sysc.prc
 ボードのマニュアルのジャンパ表では XTAL と X1 の間（E25）が Open と読めたが、水晶として動く。Renesas の RX FSP の
 ボード設定（Renesas.RX_board_rx74n_ek パック）もメインクロックを水晶、PLL を 24 MHz / 3 x150 / 2 = 600 MHz にしている。
 
-## HAL（crates/rx74n-hal）
+## HAL（crates/rx74-hal）
 
 リセット後は MOCO 8 MHz で、分周はすべて 1、SCICLK も MOCO（`Clocks::after_reset()`）。全部 root ワールド（Flat-Project）で
 セキュア側のアドレスを使う。
@@ -91,7 +107,7 @@ RX72M と名前が違う: SYSTEM は SYSC と MSTPREG に分かれ（`p.sysc.prc
 - `spi`: `Spi::rspia0(p.rspia0, pins.pa05, pins.pa06, pins.pa07, MODE_0, 1_000_000, &clocks)`。RSPIA0
   （MSTPCRB.MSTPB19）を Arduino コネクタ J13 の PA05 = RSPCK0-B（D13）/ PA06 = MOSI0-B（D11）/ PA07 = MISO0-B（D12）
   でマスタにし、`SpiBus<u8>` を実装する。PSEL は 10h（ハードウェアマニュアル表 22.20。テキストに起こした表の段がずれて
-  いて、最初 1Fh（CLKOUT の行）と読み違えた）。API とテストは rx72m-hal の `spi` と同じ（クロック同期式の 3 線、SPCMD0、
+  いて、最初 1Fh（CLKOUT の行）と読み違えた）。API とテストは rx72-hal の `spi` と同じ（クロック同期式の 3 線、SPCMD0、
   8 ビット、MSB ファースト、`set_loopback`、`free`）。RX72M の RSPI との違い:
   - 制御レジスタは 32 ビット（SPCR、SPCMDm）、送受信は 4 段の FIFO。SPSR.SPTEF / SPRF は FIFO のしきい値で立ち、
     SPSCLR に 1 を書く（か DTC / DMAC）まで消えないので、FIFO の段数（SPTFSR.FREE、SPRFSR.FILL）を見る。
@@ -226,7 +242,7 @@ MOSCWTCR の待ち時間が過ぎたことを示すだけで、発振してい�
 | メインクロック | EXTAL / XTAL | 24 MHz 水晶（PLL で ICLK 240 MHz）。サブクロック 32.768 kHz |
 | スイッチ | SW1 | リセットのみ。ユーザー用のスイッチはない |
 
-## HAL（crates/rx72m-hal）
+## HAL（crates/rx72-hal）
 
 - `clock`: `Config::pll_240mhz_from_24mhz().configure(&p.system)` でメインクロック（水晶 24 MHz、MOFCR.MODRV2 =
   00b、MOSCWTCR = 53h）を起動し、MOOVF を待って MEMWAIT = 1（ICLK 120 MHz 超）、PLL x10（PLLCR.STC = 19）、
@@ -380,7 +396,7 @@ CN8 に USB シリアル変換（FTDI、3.3 V、Windows では COM8）をつな�
 ## 例: examples/blinky（2026-10-28）
 
 LD1 / LD2 を 2 Hz で交互に点滅させる。点滅の処理 `blink` は embedded-hal 1.0 の `StatefulOutputPin` /
-`OutputPin` / `DelayNs` だけで書いた汎用の関数で、`main` が rx72m-hal の端子（PJ0 / PJ1）と CMT2 の `Delay`
+`OutputPin` / `DelayNs` だけで書いた汎用の関数で、`main` が rx72-hal の端子（PJ0 / PJ1）と CMT2 の `Delay`
 を渡す（クロックは PLL 240 MHz）。コードフラッシュに置くので、デバッガを外したあともリセットや電源の入れ直しで動く。
 
 - ビルド: `scripts/hw-build.sh examples`（`build/hw/examples/blinky.elf`、約 4.6 KB）
@@ -392,7 +408,7 @@ LD1 / LD2 を 2 Hz で交互に点滅させる。点滅の処理 `blink` は emb
 ## 例: examples/serial-echo（2026-11-04）
 
 CN8（SCI2、115200 bps 8N1）に届いたバイトをそのまま送り返す。エコーの処理 `echo` は `embedded-io` の
-`Read` / `Write` だけで書いた汎用の関数で、`main` が rx72m-hal の `Serial`（クロックは PLL 240 MHz）を渡す。
+`Read` / `Write` だけで書いた汎用の関数で、`main` が rx72-hal の `Serial`（クロックは PLL 240 MHz）を渡す。
 受信エラーは `! framing error` のような 1 行で知らせ、エコーを続ける。`RX_BYTES` / `RX_ERRORS` が数える。
 
 - 配線: USB シリアル変換（3.3 V）の TXD を CN8 の 1 番（RXD2）、RXD を 2 番（TXD2）、GND を GND に。

@@ -1,4 +1,4 @@
-//! rx72m-hal on the AP-RX72M-0A board: the clock set-up (24 MHz crystal,
+//! rx72-hal on the AP-RX72M-0A board: the clock set-up (24 MHz crystal,
 //! PLL 240 MHz) and GPIO (the monitor LEDs LD1 / LD2 on PJ0 / PJ1, a
 //! pull-up on the unconnected PJ5). The LEDs blink at 5 Hz for about two
 //! seconds of CMT0 time (PCLKB / 512), so the run takes about 2 s when PCLKB
@@ -15,9 +15,9 @@ use core::panic::PanicInfo;
 use core::ptr::write_volatile;
 
 use embedded_hal::digital::{InputPin, OutputPin, StatefulOutputPin};
-use rx72m_hal::clock::Config;
-use rx72m_hal::gpio::Parts;
-use rx72m_hal::pac::Peripherals;
+use rx72_hal::clock::Config;
+use rx72_hal::gpio::Parts;
+use rx72_hal::pac::Peripherals;
 
 #[unsafe(no_mangle)]
 static mut checks: u32 = 0;

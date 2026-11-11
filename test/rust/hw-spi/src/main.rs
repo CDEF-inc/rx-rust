@@ -1,4 +1,4 @@
-//! rx72m-hal on the AP-RX72M-0A board: RSPI2 as an SPI master on CN9
+//! rx72-hal on the AP-RX72M-0A board: RSPI2 as an SPI master on CN9
 //! (P56 = RSPCKC, P54 = MOSIC, P55 = MISOC). The bit rate choice, the MPC
 //! pin functions, the internal loopbacks (SPPCR.SPLP2 / SPLP) in the four
 //! SPI modes at 1 MHz and 30 MHz, the idle levels of RSPCK and MOSI on the
@@ -18,10 +18,10 @@ use core::panic::PanicInfo;
 use core::ptr::{read_volatile, write_volatile};
 
 use embedded_hal::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, SpiBus};
-use rx72m_hal::clock::{Clocks, Config};
-use rx72m_hal::gpio::Parts;
-use rx72m_hal::pac::{Peripherals, Rspi2};
-use rx72m_hal::spi::{BitRate, Spi};
+use rx72_hal::clock::{Clocks, Config};
+use rx72_hal::gpio::Parts;
+use rx72_hal::pac::{Peripherals, Rspi2};
+use rx72_hal::spi::{BitRate, Spi};
 
 #[unsafe(no_mangle)]
 static mut checks: u32 = 0;

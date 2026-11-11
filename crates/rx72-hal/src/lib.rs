@@ -1,5 +1,8 @@
-//! embedded-hal 1.0 implementation for the Renesas RX72M (written for the
-//! 176-pin R5F572MNDDFC of the AP-RX72M-0A board).
+//! embedded-hal 1.0 implementation for the Renesas RX72M and RX72N (written
+//! for the 176-pin R5F572MNDDFC of the AP-RX72M-0A board). The feature
+//! `rx72m` or `rx72n` (exactly one) picks the chip; the two differ only in
+//! the RX72M's EtherCAT slave controller and DSMIF, which this crate does
+//! not use (see rx72-pac).
 //!
 //! - [`clock`]: the main oscillator and the PLL (ICLK up to 240 MHz).
 //! - [`gpio`]: port pins as `InputPin` / `OutputPin` / `StatefulOutputPin`,
@@ -11,8 +14,8 @@
 //!   voltage and the temperature sensor.
 //! - [`pwm`]: MTU6 PWM on PJ1 (the LED LD2) as `SetDutyCycle`.
 //!
-//! Register access goes through [`pac`] (rx72m-pac, generated from e2
-//! studio's RX72M.sfrx) where its types fit, and directly by address for
+//! Register access goes through [`pac`] (rx72-pac, generated from e2
+//! studio's RX72M.sfrx / RX72N.sfrx) where its types fit, and directly by address for
 //! the uniform port registers, the A/D converter units and MTU6.
 //! Read-modify-write of shared registers runs in a critical section; the
 //! application provides the implementation (rx-rt's `critical-section`
@@ -22,7 +25,7 @@
 
 pub use embedded_hal;
 pub use embedded_io;
-pub use rx72m_pac as pac;
+pub use rx72_pac as pac;
 
 pub mod adc;
 pub mod clock;

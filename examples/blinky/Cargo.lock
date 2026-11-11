@@ -23,7 +23,7 @@ version = "0.1.0"
 dependencies = [
  "embedded-hal",
  "rx-rt",
- "rx72m-hal",
+ "rx72-hal",
 ]
 
 [[package]]
@@ -272,17 +272,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "rx72m-hal"
+name = "rx72-hal"
 version = "0.1.0"
 dependencies = [
  "critical-section",
  "embedded-hal",
  "embedded-io",
- "rx72m-pac",
+ "rx72-pac",
 ]
 
 [[package]]
-name = "rx72m-pac"
+name = "rx72-pac"
 version = "0.1.0"
 dependencies = [
  "critical-section",

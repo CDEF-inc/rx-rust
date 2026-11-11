@@ -175,11 +175,11 @@ pub fn test_main_env_args_abort(tests: &[&TestDescAndFn]) -> ExitCode {
 /// the run take hours).
 #[cfg(feature = "rx74n")]
 fn pll_480mhz() {
-    let p = rx74n_hal::pac::Peripherals::take().unwrap();
-    rx74n_hal::clock::Config::pll_480mhz_from_24mhz().configure(&p.sysc, &p.sram, &p.mram);
+    let p = rx74_hal::pac::Peripherals::take().unwrap();
+    rx74_hal::clock::Config::pll_480mhz_from_24mhz().configure(&p.sysc, &p.sram, &p.mram);
 }
 
-// rx74n-pac's `Peripherals::take` needs a critical section; nothing here
+// rx74-pac's `Peripherals::take` needs a critical section; nothing here
 // uses interrupts.
 #[cfg(feature = "rx74n")]
 mod critical_section_impl {
