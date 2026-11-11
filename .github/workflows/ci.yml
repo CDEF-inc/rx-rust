@@ -33,6 +33,7 @@ env:
 jobs:
   keys:
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     outputs:
       rustc: ${{ steps.k.outputs.rustc }}
       lldb: ${{ steps.k.outputs.lldb }}
@@ -161,6 +162,7 @@ jobs:
   dist:
     needs: [keys, build]
     runs-on: ubuntu-22.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - run: bash scripts/ci.sh deps test dist
@@ -192,18 +194,20 @@ jobs:
       matrix:
         image: ["ubuntu:22.04", "debian:12"]
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     container: ${{ matrix.image }}
     steps:
       # The container gets the runner's DNS servers, which stopped resolving
       # the Ubuntu archive hosts on 2026-11-11 (see ci.sh deps). If the
-      # install fails, use public DNS servers and try again.
+      # install fails or hangs, use public DNS servers and try again.
       - run: |
           apt_install() {
-            apt-get update -qq && apt-get install -y -qq -o Acquire::Retries=3 \
-              --no-install-recommends ca-certificates xz-utils gcc libc6-dev > /dev/null
+            timeout -k 30 300 apt-get update -qq &&
+              timeout -k 30 600 apt-get install -y -qq -o Acquire::Retries=3 \
+                --no-install-recommends ca-certificates xz-utils gcc libc6-dev > /dev/null
           }
           apt_install || {
-            echo "apt-get install failed: retrying with public DNS" >&2
+            echo "apt-get install failed or timed out: retrying with public DNS" >&2
             printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
             apt_install
           }
