@@ -194,7 +194,19 @@ jobs:
     runs-on: ubuntu-22.04
     container: ${{ matrix.image }}
     steps:
-      - run: apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-certificates xz-utils gcc libc6-dev > /dev/null
+      # The container gets the runner's DNS servers, which stopped resolving
+      # the Ubuntu archive hosts on 2026-11-11 (see ci.sh deps). If the
+      # install fails, use public DNS servers and try again.
+      - run: |
+          apt_install() {
+            apt-get update -qq && apt-get install -y -qq -o Acquire::Retries=3 \
+              --no-install-recommends ca-certificates xz-utils gcc libc6-dev > /dev/null
+          }
+          apt_install || {
+            echo "apt-get install failed: retrying with public DNS" >&2
+            printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
+            apt_install
+          }
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
