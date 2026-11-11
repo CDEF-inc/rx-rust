@@ -115,7 +115,9 @@ if [ -x "$root/build/lldb/bin/lldb" ]; then
   run "lldb lit" "$root/build/lldb/bin/llvm-lit" -q \
     "$root"/rust/src/llvm-project/lldb/test/Shell/Disassemble/TestDisassembleRX.test \
     "$root"/rust/src/llvm-project/clang/test/Preprocessor/init-rx.c \
-    "$root"/rust/src/llvm-project/clang/test/CodeGen/rx-mangle.c
+    "$root"/rust/src/llvm-project/clang/test/CodeGen/rx-mangle.c \
+    "$root"/rust/src/llvm-project/clang/test/CodeGen/RX \
+    "$root"/rust/src/llvm-project/clang/test/Driver/rx-toolchain.c
 else
   echo "(no build/lldb: LLDB not tested)"
 fi
@@ -151,6 +153,13 @@ for cpu in "${cpus[@]}"; do
     run "$cpu codegen va -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/va.ll" "$C/va_main.c"
     run "$cpu codegen jt -O$o" env OPT=$o bash "$S/run-codegen-test.sh" "$C/jt.ll" "$C/jt_main.c"
   done
+  # C compiled by clang (build/lldb's) and by GCC, calling each other
+  # (test/clang).
+  if [ -x "$root/build/lldb/bin/clang" ]; then
+    for o in 0 2; do
+      run "$cpu clang-gcc abi -O$o" env OPT=$o bash "$S/run-clang-test.sh"
+    done
+  fi
   attrs=; [ "$cpu" = rx62n ] && attrs=+fpu
   for o in 0 1 2 3; do
     run "$cpu codegen fpu -O$o" env OPT=$o ATTRS=$attrs bash "$S/run-codegen-test.sh" "$C/fpu.ll" "$C/fpu_main.c"
