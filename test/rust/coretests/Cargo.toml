@@ -1,6 +1,9 @@
-# Runs library/coretests (the tests of `core`) on QEMU. libtest and std do
-# not build for rx-none-elf, so `std` and `test` are small stand-ins (std/,
-# test/): see test/src/lib.rs. scripts/run-coretests.sh builds and runs it.
+# Runs library/coretests (the tests of `core`) on QEMU, or with the `rx74n`
+# feature on the EK-RX74N / EK-RX74M. libtest and std do not build for
+# rx-none-elf, so `std` and `test` are small stand-ins (std/, test/): see
+# test/src/lib.rs. scripts/run-coretests.sh builds and runs it on QEMU,
+# scripts/hw-build.sh builds it for the board (in two parts, see
+# scripts/coretests-part.sh).
 [package]
 name = "coretests-rx"
 version = "0.0.0"
@@ -13,14 +16,28 @@ autobenches = false
 name = "coretests"
 path = "../../../rust/library/coretests/tests/lib.rs"
 
-[dev-dependencies]
+# Normal dependencies (the package has only the test), so that the
+# features below can reach std and test.
+[dependencies]
 rand = { version = "0.9.0", default-features = false }
 rand_xorshift = { version = "0.4.0", default-features = false }
 std = { package = "rx-std-shim", path = "std" }
 test = { package = "rx-test-shim", path = "test" }
 
+[features]
+# For the RX74N board: the output goes to a RAM buffer that
+# scripts/hw/run.py reads, the clock is switched to PLL1 (480 MHz), and
+# the program ends at _done.
+rx74n = ["std/log-buffer", "test/rx74n"]
+
 [profile.dev]
 opt-level = 1
+
+# The generated PAC (rx74n feature) is about 23 MB of source; without
+# debug info rustc takes about half a minute on it.
+[profile.dev.package.rx74n-pac]
+debug = false
+opt-level = "s"
 
 # As in library/coretests/Cargo.toml.
 [lints.rust.unexpected_cfgs]

@@ -503,6 +503,45 @@ pub mod thread {
     pub fn park() {}
 }
 
+/// On the board (`log-buffer`): the output goes round `coretests_log`, so
+/// it keeps the last 192 KB (the end, with the failures and the summary,
+/// is what matters; some tests print a lot). `coretests_log_len` counts
+/// every byte written; scripts/hw/run.py reads the buffer after the run.
+#[cfg(feature = "log-buffer")]
+pub mod io {
+    use core::fmt::{self, Write};
+
+    const SIZE: usize = 192 * 1024;
+
+    #[unsafe(no_mangle)]
+    #[allow(non_upper_case_globals)]
+    static mut coretests_log: [u8; SIZE] = [0; SIZE];
+    #[unsafe(no_mangle)]
+    #[allow(non_upper_case_globals)]
+    static mut coretests_log_len: usize = 0;
+
+    struct Log;
+
+    impl Write for Log {
+        fn write_str(&mut self, s: &str) -> fmt::Result {
+            unsafe {
+                let buf = &raw mut coretests_log;
+                for &b in s.as_bytes() {
+                    (*buf)[coretests_log_len % SIZE] = b;
+                    coretests_log_len += 1;
+                }
+            }
+            Ok(())
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn _print(args: fmt::Arguments<'_>) {
+        let _ = Log.write_fmt(args);
+    }
+}
+
+#[cfg(not(feature = "log-buffer"))]
 pub mod io {
     use core::fmt::{self, Write};
     use core::ptr::{read_volatile, write_volatile};

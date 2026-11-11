@@ -155,6 +155,9 @@ bash scripts/run-rust-test.sh     # -Zbuild-std=core でテスト crate をビ�
     llvm-project#37 でプロローグが SP を揃え直すようにして通った（NOTES-codegen.md「スタックの再整列」）。
   - 失敗してよいテストは `test/rust/coretests/expected-failures` に書き、それ以外の失敗と、書いてあるのに通ったテスト（XPASS）を
     エラーにする。
+- 実機（EK-RX74M）でも全件通る（NOTES-hw.md の「coretests」）。コード MRAM に入らないので `num` と残りの 2 本に分ける。
+  `PART=+num` / `PART=-num` で QEMU でも同じ分け方で走らせられる。ヒープはリンカスクリプトが決める
+  （`coretests_heap_start` / `_end`。使うのは約 470 KB）。
 
 ## 注意・未対応
 - `scripts/run-rust-test.sh` は、`RX_CPU` が無ければ `-C target-cpu=rxv1` でビルドして QEMU の rx62n で走らせる

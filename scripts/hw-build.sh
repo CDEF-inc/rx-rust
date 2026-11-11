@@ -10,7 +10,7 @@
 # HW_BOARD=rx74m builds the same: the RX74M (EK-RX74M) has every RX74N
 # register at the same address and runs these tests as they are.
 #
-#   hw-build.sh [insns] [rom] [codegen] [rust] [rt] [examples] [lldb]
+#   hw-build.sh [insns] [rom] [codegen] [rust] [rt] [examples] [lldb] [coretests]
 #                                                   default: all seven
 #
 #   insns    test/qemu instruction tests, in RAM       -> build/hw/insns
@@ -30,6 +30,10 @@
 #            default list)
 #   lldb     test/rust/lldb-demo (dev), in the code flash -> build/hw/lldb
 #            (MRAM), for scripts/hw-lldb-check.sh (not hw-run.sh's)
+#   coretests  library/coretests (RX74N only; not in the default list) -> build/hw-rx74n/coretests
+#            in two parts that fit in the 1 MB code MRAM: coretests-num.elf
+#            and coretests-rest.elf (test/rust/coretests, rx74n feature).
+#            Run them with HW_TIMEOUT=900 hw-run.sh build/hw-rx74n/coretests/*.elf
 #
 # Each NAME.elf gets a NAME.sym with the symbols the runner needs. The
 # start-up code, harness and linker scripts are in test/hw. RX_LD picks the
@@ -99,7 +103,7 @@ defs=(--defsym V2=1 --defsym V3=1 --defsym V3E=$v3e --defsym FPU=1 --defsym DFPU
 
 # sym ELF: write the runner's symbols next to the ELF
 sym() {
-  "$G/rx-elf-nm" "$1" | grep -E ' _(start|rx_reset|done|checks|failures|first_failure|got_value|want_value|exit_code|finished|faillog|loopback|eeprom)$' > "${1%.elf}.sym"
+  "$G/rx-elf-nm" "$1" | grep -E ' _(start|rx_reset|done|checks|failures|first_failure|got_value|want_value|exit_code|finished|faillog|loopback|eeprom|coretests_log|coretests_log_len)$' > "${1%.elf}.sym"
 }
 
 # insn_tests DIR START LDSCRIPT NAME...: instruction tests from test/qemu
@@ -220,8 +224,32 @@ for g in "${groups[@]}"; do
        "$root/rust/build/$host/stage0/bin/cargo" build -q --target-dir "$tdir")
       cp "$tdir/rx-none-elf/debug/lldb-demo" "$d/lldb-demo.elf"
       echo "built $d/lldb-demo.elf" ;;
+    coretests)
+      # library/coretests (test/rust/coretests with the rx74n feature), in
+      # two parts that each fit in the code MRAM: `num` and the rest.
+      [ "$board" = rx74n ] || { echo "coretests: RX74N only" >&2; exit 2; }
+      d=$out/coretests; mkdir -p "$d"
+      for part in num:+num rest:-num; do
+        name=${part%%:*}
+        src=$out/coretests-src-$name
+        bash "$root/scripts/coretests-part.sh" "${part#*:}" "$src"
+        tdir=$(target_dir "$out/coretests-target-$name")
+        exe=$(cd "$src" &&
+          RUSTC=$root/rust/build/$host/stage1/bin/rustc RUSTC_BOOTSTRAP=1 \
+          RUSTFLAGS="-C link-arg=-Tcoretests-rx74n.x -C target-cpu=$cpu $linker_flag" \
+          PATH=$G:$PATH \
+          "$root/rust/build/$host/stage0/bin/cargo" test -q --no-run --release \
+            --features rx74n --target-dir "$tdir" \
+            --message-format=json-render-diagnostics 2> "$d/coretests-$name.build.log" |
+          sed -n 's/.*"executable":"\([^"]*\)".*/\1/p' | tail -1)
+        [ -n "$exe" ] || { grep -E '^error' -A12 "$d/coretests-$name.build.log" | head -60
+                           exit 1; }
+        cp "$exe" "$d/coretests-$name.elf"
+        sym "$d/coretests-$name.elf"
+        echo "built $d/coretests-$name.elf"
+      done ;;
     *)
-      echo "unknown group $g (insns, rom, codegen, rust, rt, examples, lldb)" >&2
+      echo "unknown group $g (insns, rom, codegen, rust, rt, examples, lldb, coretests)" >&2
       exit 2 ;;
   esac
 done
