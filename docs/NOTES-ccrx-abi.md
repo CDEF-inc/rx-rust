@@ -58,6 +58,29 @@ rx-none-elf は 8 バイト（Rust の f64 = c_double のため）。CC-RX と�
 - rustc: `llvm_abiname` に `ccrx` / `gnu` を足した（CDEF-inc/rust#45）。rx-none-elf は既定（CC-RX）。
   GNURX の規約はターゲット JSON の `"llvm-abiname": "gnu"` で。
 
+## オブジェクトに記録する規約とリンク時の検査（2026-11-13）
+規約を CC-RX のものに変えたが、オブジェクトからはどちらの規約で作ったか分からず、混ぜてリンクしても何も言われなかった
+（11-12 版以前の LLVM で作ったオブジェクトは GNURX の規約）。CDEF-inc/llvm-project#46 で、規約をオブジェクトに記録し、
+ld.lld が食い違いをエラーにするようにした。
+
+- 記録: バックエンドがすべてのオブジェクトに ELF の note を書く（セクション `.note.rx.abi`、SHT_NOTE、メモリに置かない。
+  owner `"RX"`、type 1、記述子は規約と版（1））。規約の値は
+  - 1（CC-RX）/ 2（GNURX）: そのオブジェクトが規約に依存する。定義した関数か、オブジェクトの外の関数を呼ぶところのどれかが、
+    もう一方の規約では引数の置き場所が変わる（LowerFormalArguments と LowerCall で両方の規約の割り当てを比べる）。
+    ローカルな関数とその直接の呼び出しは数えない。
+  - 3（どちらでもない）: どの関数も両方の規約で同じ。違いはスタックに行った引数の後にしか出ないので、ほとんどのコード
+    （実行時ルーチンなど）はこれ。
+- 検査（ld.lld）: CC-RX に依存するオブジェクトと、GNURX に依存するオブジェクト、または古い LLVM のオブジェクト（note が無く
+  `.comment` が `clang version` / `rustc version`）を一緒にリンクするとエラー。note の無いほかのオブジェクト（GCC、CC-RX、
+  アセンブラ）は検査しない。`ld -r` の出力は note を全部持ち、まとめて検査される。
+  - `-z rx-abi-check=warning` で警告に、`-z rx-abi-check=none` で検査なし（既定は `error`）。rustc からは
+    `-C link-arg=-zrx-abi-check=warning`。
+- 限界: GNU ld と CC-RX の rlink は検査しない（rlink は知らないセクションとして無視するか警告する）。GCC のオブジェクトとの
+  食い違いは見つけられない（GCC のオブジェクトに note が無い）。
+- テスト: llvm-project の `llvm/test/CodeGen/RX/abi-note.ll` と `lld/test/ELF/rx-abi-note.s`、rx-rust の
+  `scripts/check-abi-note.sh`（`test/abi-note`。llc と rustc のオブジェクトで、印の値、混ぜたときのエラー、古い rustc の
+  オブジェクト（note を消したもの）、`-z rx-abi-check=warning`、GCC のオブジェクトを確かめる。run-all-tests.sh から）。
+
 ## テスト
 - llvm-project: llvm/test/CodeGen/RX/arg-placement-ccrx.ll（マニュアルの例 1 と CC-RX 3.08 の出力どおりの置き方、
   拡張）、arg-placement.ll と struct.ll は `-target-abi=gnu` で GNURX の置き方、clang/test/CodeGen/RX/abi.c（3 通りの
