@@ -6,10 +6,13 @@ comes out on stdout, and the exit status after the RX-EXIT marker becomes
 this script's. The test-suite's TEST_SUITE_RUN_UNDER
 (scripts/run-test-suite.sh).
 
-    test-suite-run.py ELF [ARGS...] [< INPUT]
+    test-suite-run.py [--cpu MODEL] ELF [ARGS...] [< INPUT]
 
-QEMU is the emulator (default ../qemu/build/qemu-system-rx next to this
-repository), QEMU_CPU its -cpu model, QEMU_FLAGS more options (default
+--cpu is QEMU's -cpu model (default QEMU_CPU, else QEMU's rx62n). lit does
+not pass the environment on to the tests, so run-test-suite.sh gives it in
+TEST_SUITE_RUN_UNDER. QEMU is the emulator (default
+../qemu/build/qemu-system-rx next to this repository), QEMU_FLAGS more
+options (default
 "-icount shift=3,sleep=off": the program's clock counts the instructions it
 ran, 8 ns each), TEST_TIMEOUT the seconds before it is stopped (default
 1800, exit status 124).
@@ -43,13 +46,17 @@ def args_block(argv, stdin):
 
 
 def main():
-    elf = sys.argv[1]
+    args = sys.argv[1:]
+    cpu = os.environ.get("QEMU_CPU")
+    if args[:1] == ["--cpu"]:
+        cpu, args = args[1], args[2:]
+    elf = args[0]
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     qemu = os.environ.get("QEMU") or os.path.join(
         root, "..", "qemu", "build", "qemu-system-rx")
     timeout = float(os.environ.get("TEST_TIMEOUT", "1800"))
     stdin = b"" if sys.stdin.isatty() else sys.stdin.buffer.read()
-    argv = [os.path.basename(elf)] + sys.argv[2:]
+    argv = [os.path.basename(elf)] + args[1:]
     with tempfile.TemporaryDirectory() as tmp:
         bios = os.path.join(tmp, "bios.bin")
         with open(bios, "wb") as f:
@@ -62,8 +69,8 @@ def main():
                "-serial", "stdio",
                "-device", "loader,file=%s,cpu-num=0" % elf,
                "-device", "loader,file=%s,addr=0x%x,force-raw=on" % (block, ARGS_ADDR)]
-        if os.environ.get("QEMU_CPU"):
-            cmd[1:1] = ["-cpu", os.environ["QEMU_CPU"]]
+        if cpu:
+            cmd[1:1] = ["-cpu", cpu]
         # The guest's time (CMT, the program's clock()) follows the
         # instructions it ran, 8 ns each, whatever else the host runs.
         cmd += os.environ.get("QEMU_FLAGS", "-icount shift=3,sleep=off").split()

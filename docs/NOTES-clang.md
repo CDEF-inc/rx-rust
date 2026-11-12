@@ -116,7 +116,8 @@ GNURX=/path/to/GNURX/rx-elf/rx-elf CLANG=build/lldb/bin/clang scripts/run-test-s
   imported にし、起動コード・システムコール・リンカスクリプトを全プログラムのリンクの依存に加える（変えると再リンクされる）。
 - `-DSMALL_PROBLEM_SIZE=ON`。テストごとの上限は 1800 秒（`TEST_TIMEOUT`）。24 並列で約 1 時間。
 
-結果（rx62n、-O2、SingleSource 411 本）: 387 通過、失敗 15、ビルドできない 9。
+結果（-O2、SingleSource 411 本）: 387 通過、失敗 15、ビルドできない 9。rx62n / rxv2 / rxv3 / rxv3e（`RX_CPU`。
+rxv3 / rxv3e は DFPU も使う）で、通らないテストまで同じ。ライブラリはどのコアでも GNURX の `64-bit-double`（RXv1 + FPU）。
 - C++ の例外（11）: RX バックエンドは例外を扱わない（`ExceptionsType = None`、CFI / LSDA を出さない）。throw は terminate。
 - RAM（3）: Shootout-strcat と Shootout-C++-strcat（60 MB のバッファ）、smallpt（18 MB の画像）。gdbsim の SDRAM は 16 MB。
 - 時間切れ（1）: himenobmtxpa（QEMU と soft-float の double で 30 分を超える）。
@@ -127,7 +128,10 @@ GNURX=/path/to/GNURX/rx-elf/rx-elf CLANG=build/lldb/bin/clang scripts/run-test-s
   fatal error。
 
 ## 残っていること
-- C++ の例外（上記）: RXMCAsmInfo の `ExceptionsType`、フレームの CFI、例外ポインタ / セレクタのレジスタ。
+- C++ の例外（上記、#170）: RXMCAsmInfo の `ExceptionsType`、フレームの CFI、例外ポインタ / セレクタのレジスタ。
+- TLS（#171）: clang が RX で受け付けない。GCC と同じく emulated TLS（libgcc の `__emutls_get_address`）にする。
+- 64 ビットの atomic（#172）: `__atomic_*_8` の実装が無い（GNURX に libatomic が無い）。
+- test-suite の環境の制約（#173）: RAM 16 MB、30 分の上限、newlib に無いもの（pthread、`err.h`、fenv、`infinity()`）。
 - rustc の callconv/rx.rs も GCC に合わせた（CDEF-inc/rust#42、rx-rust#161）: char / short の引数を拡張せず、bool は i8、
   可変長の位置の構造体は byval（NOTES-rustc.md、test/rust/cabi-smoke）。
 - `__attribute__((interrupt))` / `fast_interrupt` は未対応（バックエンドにも無い。Rust は rx-rt の asm で入口を作る）。
