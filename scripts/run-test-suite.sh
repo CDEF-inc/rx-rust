@@ -33,13 +33,21 @@ case ${MCPU:-rxv1} in
 esac
 OUT=${OUT:-$root/build/test-suite-${RX_CPU:-rx62n}$(echo "$OPT" | tr -d ' ')}
 JOBS=${JOBS:-$(nproc)}
-bin=$(dirname "$CLANG")
-lit=${LIT:-$bin/llvm-lit}
 T=$root/test/test-suite
 subdirs=("$@"); [ ${#subdirs[@]} -gt 0 ] || subdirs=(SingleSource)
 
+# Absolute paths: CMake wants the compilers so, and ninja links from $OUT.
 mkdir -p "$OUT/rt"
-target="--target=rx-none-elf -mcpu=$ccpu --gcc-toolchain=$GNURX"
+OUT=$(cd "$OUT" && pwd)
+CLANG=$(cd "$(dirname "$CLANG")" && pwd)/$(basename "$CLANG")
+TEST_SUITE=$(cd "$TEST_SUITE" && pwd)
+bin=$(dirname "$CLANG")
+lit=${LIT:-$bin/llvm-lit}
+# GNURX's Windows installation has spaces in its path ("GCC for Renesas
+# RX ..."), which the flags below (and CMake's, parsed again) would split:
+# reach it through a link without them.
+ln -sfn "$(cd "$GNURX" && pwd)" "$OUT/rt/gnurx"
+target="--target=rx-none-elf -mcpu=$ccpu --gcc-toolchain=$OUT/rt/gnurx"
 # Rebuilt when changed: every program depends on them (host-tools.cmake).
 [ "$T/start.s" -nt "$OUT/rt/start.o" ] &&
   "$CLANG" $target -c "$T/start.s" -o "$OUT/rt/start.o"
@@ -58,7 +66,7 @@ cmake -G Ninja -S "$TEST_SUITE" -B "$OUT" \
   -DCMAKE_C_STANDARD_LIBRARIES=-lm -DCMAKE_CXX_STANDARD_LIBRARIES=-lm \
   -DTEST_SUITE_SUBDIRS="$(IFS=';'; echo "${subdirs[*]}")" \
   -DTEST_SUITE_USER_MODE_EMULATION=ON \
-  -DTEST_SUITE_RUN_UNDER="python3 $root/scripts/test-suite-run.py" \
+  -DTEST_SUITE_RUN_UNDER="$root/scripts/test-suite-run.py" \
   -DTEST_SUITE_HOST_CC=cc \
   -DTEST_SUITE_LIT="$lit" \
   -DTEST_SUITE_COLLECT_CODE_SIZE=OFF \
@@ -66,6 +74,14 @@ cmake -G Ninja -S "$TEST_SUITE" -B "$OUT" \
   -DCMAKE_PROJECT_INCLUDE="$T/host-tools.cmake" \
   -DRX_TS_LINK_DEPENDS="$OUT/rt/start.o;$OUT/rt/syscalls.o;$T/rx-qemu-libc.ld" \
   > "$OUT/cmake.log"
+
+# With a subdirectory below SingleSource (e.g. SingleSource/Benchmarks/Shootout)
+# the test-suite leaves out SingleSource/lit.local.cfg, whose
+# traditional_output the tests' VERIFY lines need.
+for d in "$TEST_SUITE"/*/lit.local.cfg; do
+  top=$(basename "$(dirname "$d")")
+  [ -d "$OUT/$top" ] && [ ! -e "$OUT/$top/lit.local.cfg" ] && cp "$d" "$OUT/$top/"
+done
 
 # Keep going past programs that do not build (they count as failures).
 ninja -C "$OUT" -k 0 -j "$JOBS" > "$OUT/build.log" 2>&1 || true

@@ -124,7 +124,10 @@ GNURX=/path/to/GNURX/rx-elf/rx-elf CLANG=build/lldb/bin/clang scripts/run-test-s
   fatal error。
 
 ## 残っていること
-- C++ の例外（上記）: RXMCAsmInfo の `ExceptionsType`、フレームの CFI、例外ポインタ / セレクタのレジスタ。
+- C++ の例外（上記、#170）: RXMCAsmInfo の `ExceptionsType`、フレームの CFI、例外ポインタ / セレクタのレジスタ。
+- TLS（#171）: clang が RX で受け付けない。GCC と同じく emulated TLS（libgcc の `__emutls_get_address`）にする。
+- 64 ビットの atomic（#172）: `__atomic_*_8` の実装が無い（GNURX に libatomic が無い）。
+- test-suite の環境の制約（#173）: RAM 16 MB、30 分の上限、newlib に無いもの（pthread、`err.h`、fenv、`infinity()`）。
 - rustc の callconv/rx.rs も GCC に合わせた（CDEF-inc/rust#42、rx-rust#161）: char / short の引数を拡張せず、bool は i8、
   可変長の位置の構造体は byval（NOTES-rustc.md、test/rust/cabi-smoke）。
 - `__attribute__((interrupt))` / `fast_interrupt` は未対応（バックエンドにも無い。Rust は rx-rt の asm で入口を作る）。
