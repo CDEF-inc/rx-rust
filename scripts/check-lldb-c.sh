@@ -111,7 +111,7 @@ if [ "$debug" != 1 ]; then
   expect "no CFI: past the C caller"   "#2: 0x[0-9a-f]+ $name\\.elf\`_start \\+ 10\$"
   # From a C function past its prologue: Rust, C, _start.
   expect "no CFI: inside a C function" "#0: 0x[0-9a-f]+ $name\\.elf\`_c_struct_mix \\+ 4\$"
-  expect "no CFI: its Rust caller"     "#1: 0x[0-9a-f]+ $name\\.elf\`rs_call_c\\(k=300\\) at lib\\.rs:86"
+  expect "no CFI: its Rust caller"     "#1: 0x[0-9a-f]+ $name\\.elf\`rs_call_c\\(k=300\\) at lib\\.rs:87"
   expect "no CFI: then C's main"       "#2: 0x[0-9a-f]+ $name\\.elf\`_main \\+ [0-9]+\$"
   expect "no CFI: then _start"         "#3: 0x[0-9a-f]+ $name\\.elf\`_start \\+ 10\$"
   if grep -q 'frame #4' "$tmp/out"; then
@@ -120,19 +120,19 @@ if [ "$debug" != 1 ]; then
     echo "ok    no CFI: the backtrace ends at _start"
   fi
   expect "no CFI: finish"              "stop reason = step out"
-  expect "no CFI: finish returns"      "\\* frame #0: 0x[0-9a-f]+ $name\\.elf\`rs_call_c\\(k=300\\) at lib\\.rs:86"
+  expect "no CFI: finish returns"      "\\* frame #0: 0x[0-9a-f]+ $name\\.elf\`rs_call_c\\(k=300\\) at lib\\.rs:87"
 fi
 if [ "$debug" = 1 ]; then
 # Rust called from C: its arguments, and `finish` in the C caller.
-expect "Rust from C: backtrace"       "#0: 0x[0-9a-f]+ [^ ]*\`rs_s3\\(s=.*, y=300\\) at lib\\.rs:63"
-expect "Rust from C: the C caller"    "${f}main at main\\.c:71"
+expect "Rust from C: backtrace"       "#0: 0x[0-9a-f]+ [^ ]*\`rs_s3\\(y=300, s=.*\\) at lib\\.rs:64"
+expect "Rust from C: the C caller"    "${f}main at main\\.c:74"
 expect "Rust from C: argument"        '\(int\) y = 300'
 expect "Rust from C: struct argument" '\(rx_core_smoke::S3\) s = \(c = ",\\t\\U00000001"\)'
 expect "Rust from C: finish"          'Return value: \(int\) \$[0-9]+ = 600'
 # C called from Rust called from C.
-expect "backtrace: c_struct_mix"      "${f}c_struct_mix\\(a=.*, b=\\(a = 300, b = 3\\), c=300\\) at main\\.c:(29|30)"
-expect "backtrace: rs_call_c"         "${f}rs_call_c\\(k=300\\) at lib\\.rs:86"
-expect "backtrace: main"              "#2: 0x[0-9a-f]+ [^ ]*\`main at main\\.c:82"
+expect "backtrace: c_struct_mix"      "${f}c_struct_mix\\(b=\\(a = 300, b = 3\\), c=300, a=.*\\) at main\\.c:(32|33)"
+expect "backtrace: rs_call_c"         "${f}rs_call_c\\(k=300\\) at lib\\.rs:87"
+expect "backtrace: main"              "#2: 0x[0-9a-f]+ [^ ]*\`main at main\\.c:85"
 expect "backtrace: _start"            "#3: 0x[0-9a-f]+ [^ ]*\`_start \\+ 10"
 if grep -q 'frame #4' "$tmp/out"; then
   echo "FAIL  backtrace: goes on after _start"; status=1
