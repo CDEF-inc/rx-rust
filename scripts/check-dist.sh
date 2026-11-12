@@ -3,7 +3,7 @@
 # else from this repository's builds (no GNU tools either): unpacks it,
 # builds test/rust/qemu-demo (release and dev) with its rustc, cargo and
 # rust-lld and runs it on its qemu-system-rx (run-rust-rom.sh with
-# TOOLCHAIN), then runs its ld.lld and lldb.
+# TOOLCHAIN), then runs its ld.lld and lldb, and looks for its SBOM.
 #
 #   check-dist.sh ARCHIVE.tar.xz|ARCHIVE.zip
 #
@@ -40,4 +40,12 @@ for t in ld.lld lldb; do
     echo "FAIL  $t"; echo "$v"; status=1
   fi
 done
+# The SBOM (scripts/sbom.py): an SPDX 2.3 document that names the forks.
+s=$T/SBOM.spdx.json
+if [ -f "$s" ] && grep -q '"spdxVersion": "SPDX-2.3"' "$s" &&
+   grep -q '"name": "llvm-project"' "$s" && grep -q '"name": "qemu"' "$s"; then
+  echo "ok    SBOM: $(grep -c '"SPDXID"' "$s") SPDX ids"
+else
+  echo "FAIL  SBOM: no SPDX 2.3 SBOM.spdx.json"; status=1
+fi
 exit $status

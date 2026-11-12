@@ -50,7 +50,8 @@ jobs:
           {
             echo "rustc=rustc-$v-$rust-$s"
             echo "lldb=lldb-$v-$llvm-$s"
-            echo "qemu=qemu-$v-$qemu-$s"
+            # -p: the pack has qemu-windows.packages (for the SBOM).
+            echo "qemu=qemu-$v-$qemu-$s-p"
           } | tee -a "$GITHUB_OUTPUT"
 
   build:
@@ -98,6 +99,17 @@ jobs:
       - if: steps.hit.outputs.cache-hit != 'true' && matrix.part == 'qemu'
         shell: msys2 {0}
         run: bash scripts/build-windows.sh qemu
+      # The MSYS2 package and version of each DLL, for the SBOM
+      # (dist-toolchain-windows.sh).
+      - if: steps.hit.outputs.cache-hit != 'true' && matrix.part == 'qemu'
+        shell: msys2 {0}
+        run: |
+          for f in build/qemu-windows/*.dll; do
+            o=$(pacman -Qqo "/ucrt64/bin/$(basename "$f")" 2> /dev/null || true)
+            v=$([ -n "$o" ] && pacman -Q "$o" | cut -d' ' -f2 || true)
+            printf '%s\t%s\t%s\n' "$(basename "$f")" "$o" "$v"
+          done > build/qemu-windows.packages
+          cat build/qemu-windows.packages
       - if: steps.hit.outputs.cache-hit != 'true'
         shell: bash
         run: |
@@ -109,7 +121,7 @@ jobs:
           case ${{ matrix.part }} in
           rustc) p="build/llvm/bin/lld.exe build/llvm/bin/llvm-*.exe $h/stage1/bin $h/stage1/lib/rustlib/$host $h/stage0/bin/cargo.exe" ;;
           lldb) p="build/lldb/bin/lldb.exe build/lldb/bin/liblldb.dll" ;;
-          qemu) p="build/qemu-windows" ;;
+          qemu) p="build/qemu-windows build/qemu-windows.packages" ;;
           esac
           tar -cf build/ci/${{ matrix.part }}.tar $p
       - if: steps.hit.outputs.cache-hit != 'true'
@@ -152,5 +164,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: rx-toolchain-x86_64-windows
-          path: build/dist/rx-toolchain-x86_64-windows.zip
+          path: |
+            build/dist/rx-toolchain-x86_64-windows.zip
+            build/dist/rx-toolchain-x86_64-windows.spdx.json
           compression-level: 0

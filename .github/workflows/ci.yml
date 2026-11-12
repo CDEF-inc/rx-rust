@@ -182,7 +182,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: rx-toolchain-x86_64-linux
-          path: build/dist/rx-toolchain-x86_64-linux.tar.xz
+          path: |
+            build/dist/rx-toolchain-x86_64-linux.tar.xz
+            build/dist/rx-toolchain-x86_64-linux.spdx.json
           compression-level: 0
 
   # The archive on other distributions, with only a C compiler for build
