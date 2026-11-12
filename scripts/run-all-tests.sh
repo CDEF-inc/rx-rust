@@ -144,6 +144,7 @@ run "qemu dfpu-insns" "$S/run-qemu-test.sh" dfpu-insns rxv3 rxv3e
 run "qemu rxv3e-insns" "$S/run-qemu-test.sh" rxv3e-insns rxv3e
 run "qemu mem-insns" "$S/run-qemu-test.sh" mem-insns rx62n rxv1 rxv2 rxv3 rxv3e
 run "qemu cmt" "$S/run-qemu-test.sh" cmt rx62n rxv1 rxv2 rxv3 rxv3e
+run "qemu fast-int" "$S/run-qemu-test.sh" fast-int rx62n rxv1 rxv2 rxv3 rxv3e
 run "qemu memex-insns" "$S/run-qemu-test.sh" memex-insns rx62n rxv1 rxv2 rxv3 rxv3e
 
 C=$root/test/codegen
