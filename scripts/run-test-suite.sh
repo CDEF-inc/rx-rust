@@ -13,8 +13,9 @@
 #   CLANG       clang (default build/lldb/bin/clang); clang++ next to it
 #   GNURX       GNURX's rx-elf tree (the directory with bin/rx-elf-gcc and
 #               lib/gcc/rx-elf), for --gcc-toolchain
-#   RX_CPU      the QEMU core and clang's -mcpu (scripts/cpu.sh; default
-#               rx62n, for which clang gets GCC's -mcpu=rx600)
+#   RX_CPU      the QEMU core and clang's -mcpu: rx62n (default; clang gets
+#               GCC's -mcpu=rx600, RXv1 with the FPU), rxv2, rxv3 or rxv3e
+#               (scripts/cpu.sh); the runner gets the core as --cpu
 #   OPT         the optimization flags (default -O2)
 #   OUT         the build directory (default build/test-suite-$RX_CPU-O2)
 #   JOBS        parallel jobs (default nproc)
@@ -66,7 +67,7 @@ cmake -G Ninja -S "$TEST_SUITE" -B "$OUT" \
   -DCMAKE_C_STANDARD_LIBRARIES=-lm -DCMAKE_CXX_STANDARD_LIBRARIES=-lm \
   -DTEST_SUITE_SUBDIRS="$(IFS=';'; echo "${subdirs[*]}")" \
   -DTEST_SUITE_USER_MODE_EMULATION=ON \
-  -DTEST_SUITE_RUN_UNDER="$root/scripts/test-suite-run.py" \
+  -DTEST_SUITE_RUN_UNDER="$root/scripts/test-suite-run.py --cpu ${QEMU_CPU:-rx62n}" \
   -DTEST_SUITE_HOST_CC=cc \
   -DTEST_SUITE_LIT="$lit" \
   -DTEST_SUITE_COLLECT_CODE_SIZE=OFF \

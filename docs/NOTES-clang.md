@@ -113,7 +113,8 @@ GNURX=/path/to/GNURX/rx-elf/rx-elf CLANG=build/lldb/bin/clang scripts/run-test-s
   imported にし、起動コード・システムコール・リンカスクリプトを全プログラムのリンクの依存に加える（変えると再リンクされる）。
 - `-DSMALL_PROBLEM_SIZE=ON`。テストごとの上限は 1800 秒（`TEST_TIMEOUT`）。24 並列で約 1 時間。
 
-結果（rx62n、-O2、SingleSource 411 本）: 387 通過、失敗 15、ビルドできない 9。
+結果（-O2、SingleSource 411 本）: 387 通過、失敗 15、ビルドできない 9。rx62n / rxv2 / rxv3 / rxv3e（`RX_CPU`。
+rxv3 / rxv3e は DFPU も使う）で、通らないテストまで同じ。ライブラリはどのコアでも GNURX の `64-bit-double`（RXv1 + FPU）。
 - C++ の例外（11）: RX バックエンドは例外を扱わない（`ExceptionsType = None`、CFI / LSDA を出さない）。throw は terminate。
 - RAM（3）: Shootout-strcat と Shootout-C++-strcat（60 MB のバッファ）、smallpt（18 MB の画像）。gdbsim の SDRAM は 16 MB。
 - 時間切れ（1）: himenobmtxpa（QEMU と soft-float の double で 30 分を超える）。
