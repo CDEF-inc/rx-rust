@@ -48,7 +48,9 @@ lit=${LIT:-$bin/llvm-lit}
 # RX ..."), which the flags below (and CMake's, parsed again) would split:
 # reach it through a link without them.
 ln -sfn "$(cd "$GNURX" && pwd)" "$OUT/rt/gnurx"
-target="--target=rx-none-elf -mcpu=$ccpu --gcc-toolchain=$OUT/rt/gnurx"
+# newlib and libstdc++ are GNURX's, so clang uses GNURX's calling convention
+# and wchar_t (its default is CC-RX's; docs/NOTES-ccrx-abi.md).
+target="--target=rx-none-elf -mcpu=$ccpu -mabi=gnu --gcc-toolchain=$OUT/rt/gnurx"
 # Rebuilt when changed: every program depends on them (host-tools.cmake).
 [ "$T/start.s" -nt "$OUT/rt/start.o" ] &&
   "$CLANG" $target -c "$T/start.s" -o "$OUT/rt/start.o"
