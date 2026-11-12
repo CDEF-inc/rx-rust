@@ -21,6 +21,9 @@
 #              shared libraries qemu-system-rx needs beyond glibc (glib,
 #              pixman, ...; its RUNPATH points here)
 #   VERSIONS   the commits it was built from, and the glibc it needs
+#   SBOM.spdx.json, SBOM.cdx.json  the software bill of materials, as SPDX
+#              2.3 and as CycloneDX 1.6 (scripts/sbom.py), also written next
+#              to the archive as build/dist/NAME.spdx.json and NAME.cdx.json
 #
 # To use it: RUSTC=NAME/bin/rustc RUSTC_BOOTSTRAP=1 PATH=NAME/bin:$PATH
 # NAME/bin/cargo build ... (with -Zbuild-std=core). The binaries need the
@@ -29,7 +32,7 @@
 # Debian 12 and later. scripts/check-dist.sh tests an archive.
 #
 # QEMU picks the qemu-system-rx to pack (default ../qemu/build/qemu-system-rx).
-# Needs patchelf.
+# Needs patchelf and python3.
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 host=x86_64-unknown-linux-gnu
@@ -44,10 +47,13 @@ for t in lld llvm-objcopy llvm-objdump llvm-nm llvm-size llvm-readobj llvm-ar ll
 done
 [ -x "$QEMU" ] || { echo "no qemu-system-rx at $QEMU; set QEMU" >&2; exit 2; }
 command -v patchelf > /dev/null || { echo "needs patchelf (apt-get install patchelf)" >&2; exit 2; }
+command -v python3 > /dev/null || { echo "needs python3 (scripts/sbom.py)" >&2; exit 2; }
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 d=$tmp/$name
+lldb_xml=
+: > "$tmp/libs.txt"
 mkdir -p "$d/bin" "$d/lib/rustlib/src/rust"
 cp "$s1/bin/rustc" "$root/rust/build/$host/stage0/bin/cargo" "$d/bin/"
 cp "$s1"/lib/librustc_driver-*.so "$d/lib/"
@@ -65,6 +71,12 @@ for so in $(ldd "$QEMU" | awk '$2 == "=>" && $3 ~ /^\// {print $3}'); do
   esac
   cp -L "$so" "$d/lib/"
   patchelf --set-rpath '$ORIGIN' "$d/lib/$(basename "$so")"
+  # Its package, for the SBOM (dpkg knows the path before or after /usr
+  # merging).
+  pkg=$(dpkg-query -S "$so" 2> /dev/null || dpkg-query -S "$(readlink -f "$so")" 2> /dev/null || true)
+  pkg=${pkg%%:*}
+  ver=$([ -n "$pkg" ] && dpkg-query -W -f='${Version}' "$pkg" 2> /dev/null || true)
+  printf '%s\t%s\t%s\n' "$(basename "$so")" "$pkg" "$ver" >> "$tmp/libs.txt"
 done
 patchelf --set-rpath '$ORIGIN/../lib' "$d/bin/qemu-system-rx"
 # One lld: rustc's rust-lld (in the sysroot, from build-rustc.sh), and
@@ -90,6 +102,8 @@ if [ -x "$lldb/bin/lldb" ]; then
     exit 2
   fi
   cp "$lldb/bin/lldb" "$d/bin/"
+  # liblldb links libxml2 statically (build-lldb.sh), for the SBOM.
+  lldb_xml=$(sed -n 's/^xml_version=//p' "$root/scripts/build-lldb.sh")
   so=$(readlink "$lldb/lib/liblldb.so")              # liblldb.so.23.1
   strip -o "$d/lib/$(readlink -f "$lldb/lib/liblldb.so" | xargs basename)" \
     "$(readlink -f "$lldb/lib/liblldb.so")"
@@ -135,7 +149,19 @@ fi
 } > "$d/VERSIONS"
 cat "$d/VERSIONS"
 
+qemu_commit=$(awk '$1 == "qemu" {print $2}' "$d/VERSIONS")
+distro=$(. /etc/os-release && echo "$ID-$VERSION_ID")
+python3 "$root/scripts/sbom.py" --out "$d/SBOM.spdx.json" --cyclonedx "$d/SBOM.cdx.json" \
+  --name "$name" --root "$root" \
+  --rx-rust "$(git -C "$root" rev-parse HEAD)" --rust "$(git -C "$root/rust" rev-parse HEAD)" \
+  --llvm "$(git -C "$root/rust/src/llvm-project" rev-parse HEAD)" --qemu "$qemu_commit" \
+  --qemu-version "$("$QEMU" --version | head -1)" --rustc-version "$("$s1/bin/rustc" -V)" \
+  --cargo-version "$("$d/bin/cargo" -V)" \
+  ${lldb_xml:+--libxml2 "$lldb_xml"} --libs "$tmp/libs.txt" --libs-kind deb --distro "$distro"
+
 mkdir -p "$root/build/dist"
 out=$root/build/dist/$name.tar.xz
 tar -C "$tmp" -cf - "$name" | xz -T0 -6 > "$out"
-ls -l "$out"
+cp "$d/SBOM.spdx.json" "$root/build/dist/$name.spdx.json"
+cp "$d/SBOM.cdx.json" "$root/build/dist/$name.cdx.json"
+ls -l "$out" "$root/build/dist/$name".{spdx,cdx}.json
