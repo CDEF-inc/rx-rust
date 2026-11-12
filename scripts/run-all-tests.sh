@@ -98,6 +98,7 @@ run "check-mulh" bash "$S/check-mulh.sh"
 run "check-frame" bash "$S/check-frame.sh"
 run "check-fp" bash "$S/check-fp.sh"
 run "check-lld" bash "$S/check-lld.sh"
+run "check-abi-note" bash "$S/check-abi-note.sh"
 run "lld lit" "$root/build/llvm/bin/llvm-lit" -q \
   "$root"/rust/src/llvm-project/lld/test/ELF/rx-*
 # The RX backend's lit tests in llvm-project (MC encodings, disassembler,
