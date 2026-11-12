@@ -3,7 +3,7 @@
 RX の ABI を文書で定めているのは CC-RX のマニュアル（R20UT3248JJ0115 Rev.1.15、「9.1 関数呼び出しインタフェース」）だけで、
 命令セットのマニュアル（RXv3e, R01US0745JJ0101）には無い。clang と rustc はこれまで GNURX（rx-elf-gcc）に合わせていたが、
 CC-RX と比べると関数呼び出しで 2 点違っていたので、CC-RX に合わせたものを既定にし、GNURX のものも選べるようにした
-（CDEF-inc/llvm-project の `rx/ccrx-abi`）。
+（CDEF-inc/llvm-project#45）。
 
 ## 比べたもの
 同じプローブ（char / short の引数、64 ビットの引数、構造体の大きさ別、戻り値、可変長、ビットフィールド、型の大きさ）を
@@ -55,7 +55,7 @@ rx-none-elf は 8 バイト（Rust の f64 = c_double のため）。CC-RX と�
   CC-RX と GNURX はどちらも自然境界なので、ここに今回の違いを載せると意味が変わる。だから使わない（clang はどちらでも立てる）。
   CC-RX のオブジェクトはこのビットを立てず、Renesas 独自のビットを立てる（例: 0x10802、`-dbl_size=8` で 0x20802）が、
   ld.lld はそのままリンクする。
-- rustc: `llvm_abiname` に `ccrx` / `gnu` を足した（CDEF-inc/rust の `rx/ccrx-abi`）。rx-none-elf は既定（CC-RX）。
+- rustc: `llvm_abiname` に `ccrx` / `gnu` を足した（CDEF-inc/rust#45）。rx-none-elf は既定（CC-RX）。
   GNURX の規約はターゲット JSON の `"llvm-abiname": "gnu"` で。
 
 ## テスト
@@ -81,8 +81,15 @@ rx-none-elf は 8 バイト（Rust の f64 = c_double のため）。CC-RX と�
     （テストが違いを見つけることの確認）。
 - `scripts/run-clang-test.sh`（GCC と）は clang に `-mabi=gnu` を付けるようにした（全通過。呼ぶ側の拡張は GCC に無害）。
 
+## Rust と GCC の C（rx-rust のテスト）
+rustc の rx-none-elf も CC-RX の規約になった（rust サブモジュールが CDEF-inc/rust#45 を含む）。rx-rust の Rust のテストは
+GCC でコンパイルした C と組むので、いつもスタックに行く構造体の後に引数がある関数は、Rust（CC-RX）と GCC（GNURX）で
+置き場所が食い違う。test/rust/cabi-smoke の `rs_after_s3(struct s3, u8)` と core-smoke の `rs_s3(struct s3, int)` /
+`c_struct_mix(struct s3, struct s8, int)` がそれで（新しい rustc で cabi-smoke 1 件、core-smoke 10 件が失敗）、構造体を
+最後に回した（`rs_before_s3(u8, struct s3)`、`rs_s3(int, struct s3)`、`c_struct_mix(struct s8, int, struct s3)`）。
+どちらの rustc でも通る。GCC の C と組む Rust のコードで同じ形の関数を使うなら、引数の順を変えるか、ターゲット JSON に
+`"llvm-abiname": "gnu"` を書く。
+
 ## 残っていること
-- rustc 側の ABI が CC-RX になるのは、rx-rust の rust サブモジュールがこの変更を含む rustc を指してから。そのとき
-  test/rust/cabi-smoke（GCC の main.c と組む）の `rs_after_s3(struct s3, u8)` は u8 の置き場所が CC-RX（R1）と GNURX（R2）で
-  違うので直す。Rust と CC-RX の組み合わせのテストもそのとき足す。
+- Rust と CC-RX の組み合わせの実行テスト（test/ccrx の Rust 版）。
 - `_Complex char` など GNU 拡張の型は CC-RX に無い（または試していない）ので、GNURX の扱い（収まればレジスタ）のまま。

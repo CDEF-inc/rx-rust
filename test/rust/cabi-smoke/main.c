@@ -16,7 +16,7 @@ int rs_i16(short);
 u32 rs_bool(_Bool);
 int rs_mix4(unsigned char, signed char, unsigned short, short);
 int rs_after_i64(i64, unsigned char, short);
-u32 rs_after_s3(struct s3, unsigned char);
+u32 rs_before_s3(unsigned char, struct s3);
 unsigned char rs_ret_u8(u32);
 signed char rs_ret_i8(u32);
 unsigned short rs_ret_u16(u32);
@@ -68,7 +68,7 @@ NOINLINE int fwd_mix4(u32 a, u32 b, u32 c, u32 d) {
 NOINLINE int fwd_after_i64(i64 a, u32 b, u32 c) {
   return rs_after_i64(a, b, c);
 }
-NOINLINE u32 fwd_after_s3(struct s3 s, u32 b) { return rs_after_s3(s, b); }
+NOINLINE u32 fwd_before_s3(u32 b, struct s3 s) { return rs_before_s3(b, s); }
 
 /* An unsigned char loaded with a sign-extending mov.b. */
 NOINLINE u32 load_u8(const unsigned char *p) { return rs_u8(*p); }
@@ -102,7 +102,7 @@ int main(void) {
              (unsigned short)(0x8000 + k) * 3 - (short)(0xff00 + k) * 7);
   check(fwd_after_i64(0x1122334455667788LL, 0xcafe0080 | k, 0xbeef8000 | k),
         0x55667788 ^ ((0x80 | k) << 8) ^ (int)((0x8000 | k) << 16));
-  check(fwd_after_s3((struct s3){{1, 2, k}}, 0x77777700 | (0xf0 + k)),
+  check(fwd_before_s3(0x77777700 | (0xf0 + k), (struct s3){{1, 2, k}}),
         1 + 20 + k * 100 + (0xf0 + k) * 1000);
 
   check(load_u8((const unsigned char *)&byte), 0x80);

@@ -57,9 +57,10 @@ pub extern "C" fn rs_after_i64(a: i64, b: u8, c: i16) -> i32 {
     (a as i32) ^ ((b as i32) << 8) ^ ((c as i32) << 16)
 }
 
-/// `s` on the stack (3 bytes), `b` in R2.
+/// `b` in R1, `s` on the stack (3 bytes). After `s` the two conventions
+/// differ (CC-RX would put a `u8` in R1, GNURX in R2), so it comes first.
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_after_s3(s: S3, b: u8) -> u32 {
+pub extern "C" fn rs_before_s3(b: u8, s: S3) -> u32 {
     s.c[0] as u32 + (s.c[1] as u32) * 10 + (s.c[2] as u32) * 100 + (b as u32) * 1000
 }
 

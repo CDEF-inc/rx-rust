@@ -12,7 +12,10 @@ int rs_add(int, int);
 u64 rs_mul64(u64, u64);
 u64 rs_muldiv128(u64, u64, u64);
 double rs_f64(double, float);
-int rs_s3(struct s3, int);
+/* The 3-byte structure, always on the stack, comes last: CC-RX's convention
+   (rustc's default) and GCC's put the arguments after it in different
+   registers (docs/NOTES-ccrx-abi.md). */
+int rs_s3(int, struct s3);
 int rs_s8(struct s8, int);
 struct s20 rs_ret20(int);
 struct s8 rs_ret8(int);
@@ -26,7 +29,7 @@ u32 rs_rmw16(unsigned short), rs_get16(void);
 i64 rs_checked(i64, i64);
 
 /* Called from Rust. */
-int c_struct_mix(struct s3 a, struct s8 b, int c) {
+int c_struct_mix(struct s8 b, int c, struct s3 a) {
   return a.c[0] + a.c[1] * 10 + a.c[2] * 100 + b.a * 3 - b.b + c * 1000;
 }
 struct s20 c_ret20(int a) { struct s20 s = {{a, 0, 0, 0, a * 7}}; return s; }
@@ -68,7 +71,7 @@ int main(void) {
     double d = rs_f64(k * 0.25, 2.5f);
     check((int)(d * 4), (int)((k * 0.25 * 1.5 + 2.5 - 0.25) * 4));
     struct s3 x3 = {{(unsigned char)k, 9, (unsigned char)(k >> 8)}};
-    check(rs_s3(x3, k), x3.c[0] + x3.c[2] * 256 + k);
+    check(rs_s3(k, x3), x3.c[0] + x3.c[2] * 256 + k);
     struct s8 x8 = {k, 11};
     check(rs_s8(x8, 3), k * 3 - 11);
     struct s20 r20 = rs_ret20(k);
@@ -79,7 +82,7 @@ int main(void) {
     check(r8.b, -k);
     struct s3 y3 = {{(unsigned char)k, 7, (unsigned char)(k >> 8)}};
     struct s8 y8 = {k, 3};
-    check(rs_call_c(k), c_struct_mix(y3, y8, k) + k * 7 + (int)(k * 0.5));
+    check(rs_call_c(k), c_struct_mix(y8, k, y3) + k * 7 + (int)(k * 0.5));
     check(rs_checked(k, 1000000000000LL) == -1, k > 9223372 || k < -9223372);
   }
 
