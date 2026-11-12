@@ -54,12 +54,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "hw-board"
+version = "0.1.0"
+dependencies = [
+ "rx-rt",
+ "rx72-hal",
+ "rx74-hal",
+]
+
+[[package]]
 name = "hw-spi"
 version = "0.1.0"
 dependencies = [
  "embedded-hal",
+ "hw-board",
  "rx-rt",
- "rx72-hal",
 ]
 
 [[package]]
@@ -283,6 +292,25 @@ dependencies = [
 
 [[package]]
 name = "rx72-pac"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "sfrx-pac",
+ "vcell",
+]
+
+[[package]]
+name = "rx74-hal"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "embedded-hal",
+ "embedded-io",
+ "rx74-pac",
+]
+
+[[package]]
+name = "rx74-pac"
 version = "0.1.0"
 dependencies = [
  "critical-section",

@@ -119,7 +119,7 @@ def run(r, elf, seconds):
     if v["failures"]:
         first = " first=%d got=%#x want=%#x" % (
             v["first_failure"], v["got_value"], v["want_value"])
-    # hw-uart / hw-spi: whether a loopback was found wired; hw-i2c-rx74n:
+    # hw-uart / hw-spi: whether a loopback was found wired; hw-i2c:
     # whether the EEPROM answered
     for k in ("loopback", "eeprom"):
         if k in syms:

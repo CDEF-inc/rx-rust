@@ -54,13 +54,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "hw-board"
+version = "0.1.0"
+dependencies = [
+ "rx-rt",
+ "rx72-hal",
+]
+
+[[package]]
 name = "hw-uart"
 version = "0.1.0"
 dependencies = [
  "embedded-hal",
  "embedded-io",
+ "hw-board",
  "rx-rt",
- "rx72-hal",
 ]
 
 [[package]]

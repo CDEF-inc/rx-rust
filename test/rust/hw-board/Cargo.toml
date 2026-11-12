@@ -1,0 +1,21 @@
+[package]
+name = "hw-board"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "The board, its HAL and memory.x, and the result variables of the board tests"
+
+[lib]
+test = false
+bench = false
+
+[dependencies]
+rx-rt = { path = "../../../crates/rx-rt", features = ["critical-section"] }
+rx72-hal = { path = "../../../crates/rx72-hal", optional = true }
+rx74-hal = { path = "../../../crates/rx74-hal", optional = true }
+
+[features]
+# The board: exactly one of these.
+ap-rx72m = ["dep:rx72-hal", "rx72-hal/rx72m"]
+ek-rx74n = ["dep:rx74-hal", "rx74-hal/rx74n"]
+ek-rx74m = ["dep:rx74-hal", "rx74-hal/rx74m"]

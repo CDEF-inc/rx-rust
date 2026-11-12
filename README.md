@@ -79,7 +79,7 @@ crates/rx72-pac/   RX72M / RX72N PAC, generated at build time from e² studio's 
 crates/rx72-hal/   RX72M / RX72N HAL: clocks, GPIO, delay, UART, SPI, ADC, PWM
 crates/rx74-pac/   RX74M / RX74N PAC, from RX74M.sfrx / RX74N.sfrx
 crates/rx74-hal/   RX74M / RX74N HAL: clocks, GPIO, delay, UART, SPI, ADC, PWM, I2C
-examples/       board examples: blinky, serial-echo (AP-RX72M-0A), rx74n-serial-echo
+examples/       board examples: blinky (AP-RX72M-0A), serial-echo (all three boards)
 scripts/        build and test scripts
 test/mc/        assembler tests, compared with GNU as
 test/codegen/   LLVM IR + C tests run on QEMU (Rust/LLVM <-> GCC calls)
@@ -88,9 +88,9 @@ test/hw/        start-up code, harness and linker scripts for the boards
 test/rust/      Rust tests: coretests (library/coretests on QEMU), core-smoke, variadic-smoke and
                 cabi-smoke (with C drivers), qemu-demo, alloc-smoke,
                 float-smoke, isr-save, isr-bank, lldb-demo, hw-irq (also on the board);
-                board only: hw-pac, hw-hal, hw-uart, hw-spi, hw-adc, hw-pwm (RX72M) and
-                hw-pac-rx74n, hw-hal-rx74n, hw-clock-rx74n, hw-spi-rx74n, hw-adc-rx74n,
-                hw-pwm-rx74n, hw-i2c-rx74n (RX74N / RX74M)
+                board only, the board as a feature (hw-board): hw-pac, hw-hal,
+                hw-spi, hw-adc, hw-pwm (all boards), hw-uart (AP-RX72M-0A),
+                hw-clock, hw-i2c (EK-RX74N / EK-RX74M)
 docs/           design notes and plan (in Japanese)
 ```
 
@@ -288,10 +288,16 @@ HW_TIMEOUT=10 scripts/hw-run.sh build/hw/examples/blinky.elf  # in Git Bash
 
 ### Example: serial-echo
 
-[`examples/serial-echo`](examples/serial-echo) echoes what arrives on the
-board's serial connector CN8 (SCI2, 115200 bps 8N1), through the
-`embedded-io` `Read` / `Write` traits that rx72-hal's `Serial` implements;
-a receive error comes back as a line such as `! framing error`. Connect a
+[`examples/serial-echo`](examples/serial-echo) echoes what arrives on a
+board's serial port (115200 bps 8N1), through the `embedded-io` `Read` /
+`Write` traits that the HALs' `Serial` implements; a receive error comes
+back as a line such as `! framing error`. The board is a feature:
+`ap-rx72m`, `ek-rx74n` or `ek-rx74m` (`cargo build --release --features
+ek-rx74n`; scripts/hw-build.sh picks it from `HW_BOARD`). The crate's
+`.cargo/config.toml` builds for `target-cpu=rxv3`, which also runs on the
+RX74N / RX74M; scripts/hw-build.sh gives `rxv3e` there.
+
+On the AP-RX72M-0A it uses the serial connector CN8 (SCI2). Connect a
 3.3 V USB serial adapter to CN8 (its TXD to pin 1, its RXD to pin 2, and
 GND) and, while the runner keeps the program running, check it from
 Windows: a line, 4096 bytes back to back and a break.
@@ -305,13 +311,12 @@ So far it has only been checked with the debugger attached: after the
 runner detaches, nothing comes out of the serial port
 ([`docs/NOTES-hal.md`](docs/NOTES-hal.md)).
 
-[`examples/rx74n-serial-echo`](examples/rx74n-serial-echo) does the same on
-an EK-RX74N or EK-RX74M, on the USB serial port J27 (RSCI12, CPUCLK0
-600 MHz). It needs no adapter:
+On an EK-RX74N or EK-RX74M it uses the USB serial port J27 (RSCI12,
+CPUCLK0 600 MHz) and needs no adapter:
 
 ```sh
 HW_BOARD=rx74n scripts/hw-build.sh examples                                   # in WSL
-HW_BOARD=rx74n HW_TIMEOUT=60 scripts/hw-run.sh build/hw-rx74n/examples/rx74n-serial-echo.elf  # in Git Bash
+HW_BOARD=rx74n HW_TIMEOUT=60 scripts/hw-run.sh build/hw-rx74n/examples/serial-echo.elf  # in Git Bash
 powershell -File scripts/hw/serial-echo.ps1 -Port COM9                        # meanwhile
 ```
 

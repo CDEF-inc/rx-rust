@@ -12,39 +12,19 @@
 // The result variables keep the names the test scripts read.
 #![allow(non_upper_case_globals)]
 
-use core::panic::PanicInfo;
 use core::ptr::{read_volatile, write_volatile};
 
 use embedded_hal::delay::DelayNs;
 use embedded_io::{Read, ReadReady, Write};
-use rx72_hal::clock::Config;
-use rx72_hal::delay::Delay;
-use rx72_hal::gpio::Parts;
-use rx72_hal::pac::Peripherals;
-use rx72_hal::serial::{BaudSettings, Serial};
+use hw_board::hal::clock::Config;
+use hw_board::hal::delay::Delay;
+use hw_board::hal::gpio::Parts;
+use hw_board::hal::pac::Peripherals;
+use hw_board::hal::serial::{BaudSettings, Serial};
+use hw_board::check;
 
-#[unsafe(no_mangle)]
-static mut checks: u32 = 0;
-#[unsafe(no_mangle)]
-static mut failures: u32 = 0;
-#[unsafe(no_mangle)]
-static mut first_failure: u32 = 0;
-#[unsafe(no_mangle)]
-static mut finished: u32 = 0;
 #[unsafe(no_mangle)]
 static mut loopback: u32 = 0;
-
-fn check(id: u32, ok: bool) {
-    unsafe {
-        checks += 1;
-        if !ok {
-            if failures == 0 {
-                first_failure = id;
-            }
-            failures += 1;
-        }
-    }
-}
 
 fn rd8(a: usize) -> u8 {
     unsafe { read_volatile(a as *const u8) }
@@ -166,24 +146,5 @@ fn main() -> ! {
     check(13, rd8(0x0008_a044) & 0x38 == 0); // SSR ORER / FER / PER
     check(14, rd8(0x0008_c0c1) & 1 << 2 != 0); // PCR of P12
 
-    unsafe { write_volatile(&raw mut finished, 1) };
-    done()
-}
-
-// The end of the test (the board runner's breakpoint).
-#[unsafe(no_mangle)]
-#[inline(never)]
-extern "C" fn done() -> ! {
-    loop {
-        rx_rt::interrupt::wait();
-    }
-}
-
-#[panic_handler]
-fn panic(_: &PanicInfo) -> ! {
-    unsafe {
-        failures += 1;
-        first_failure = 999;
-    }
-    loop {}
+    hw_board::finish()
 }

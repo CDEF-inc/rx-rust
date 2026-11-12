@@ -1,15 +1,14 @@
-# Checks examples/serial-echo on the board through a USB serial adapter on
-# CN8, from Windows (PowerShell 5.1 or later, .NET's SerialPort):
+# Checks examples/serial-echo on the board, from Windows (PowerShell 5.1 or
+# later, .NET's SerialPort): on the AP-RX72M-0A through a USB serial adapter
+# on CN8, on the EK-RX74N / EK-RX74M through J27 (-Port set to that port):
 #
 #   powershell -File scripts/hw/serial-echo.ps1 [-Port COM8] [-Baud 115200]
-#
-# It also checks examples/rx74n-serial-echo on the EK-RX74N's J27, with -Port
-# set to that board's port.
 #
 # Run it while the runner keeps the example running (after the runner
 # detaches nothing comes out of the board yet; docs/NOTES-hal.md):
 #   scripts/hw-build.sh examples                                    (WSL)
 #   HW_TIMEOUT=60 scripts/hw-run.sh build/hw/examples/serial-echo.elf (Git Bash)
+# (HW_BOARD=rx74n or rx74m for both, and build/hw-rx74n/examples there.)
 #
 # Checks: a line comes back as sent; 4096 bytes (every byte value, 16 times)
 # sent at full speed come back complete and in order (no overrun); a break
