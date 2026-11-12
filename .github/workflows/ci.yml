@@ -185,6 +185,7 @@ jobs:
           path: |
             build/dist/rx-toolchain-x86_64-linux.tar.xz
             build/dist/rx-toolchain-x86_64-linux.spdx.json
+            build/dist/rx-toolchain-x86_64-linux.cdx.json
           compression-level: 0
 
   # The archive on other distributions, with only a C compiler for build

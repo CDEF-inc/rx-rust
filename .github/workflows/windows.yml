@@ -167,4 +167,5 @@ jobs:
           path: |
             build/dist/rx-toolchain-x86_64-windows.zip
             build/dist/rx-toolchain-x86_64-windows.spdx.json
+            build/dist/rx-toolchain-x86_64-windows.cdx.json
           compression-level: 0

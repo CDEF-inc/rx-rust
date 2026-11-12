@@ -40,12 +40,20 @@ for t in ld.lld lldb; do
     echo "FAIL  $t"; echo "$v"; status=1
   fi
 done
-# The SBOM (scripts/sbom.py): an SPDX 2.3 document that names the forks.
+# The SBOMs (scripts/sbom.py): SPDX 2.3 and CycloneDX 1.6 documents that
+# name the forks.
 s=$T/SBOM.spdx.json
 if [ -f "$s" ] && grep -q '"spdxVersion": "SPDX-2.3"' "$s" &&
    grep -q '"name": "llvm-project"' "$s" && grep -q '"name": "qemu"' "$s"; then
-  echo "ok    SBOM: $(grep -c '"SPDXID"' "$s") SPDX ids"
+  echo "ok    SBOM (SPDX): $(grep -c '"SPDXID"' "$s") SPDX ids"
 else
   echo "FAIL  SBOM: no SPDX 2.3 SBOM.spdx.json"; status=1
+fi
+s=$T/SBOM.cdx.json
+if [ -f "$s" ] && grep -q '"bomFormat": "CycloneDX"' "$s" && grep -q '"specVersion": "1.6"' "$s" &&
+   grep -q '"name": "llvm-project"' "$s" && grep -q '"name": "qemu"' "$s"; then
+  echo "ok    SBOM (CycloneDX): $(grep -c '"bom-ref"' "$s") bom-refs"
+else
+  echo "FAIL  SBOM: no CycloneDX 1.6 SBOM.cdx.json"; status=1
 fi
 exit $status

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Writes the SBOM of a dist-toolchain archive: an SPDX 2.3 JSON document.
+"""Writes the SBOM of a dist-toolchain archive: an SPDX 2.3 JSON document
+(--out) and the same as a CycloneDX 1.6 JSON BOM (--cyclonedx).
 
-  sbom.py --out FILE --name NAME --root ROOT --rx-rust COMMIT --rust COMMIT
-          --llvm COMMIT --qemu COMMIT --qemu-version TEXT --rustc-version TEXT
-          --cargo-version TEXT [--libxml2 VERSION] [--libs FILE --libs-kind
-          deb|msys2 [--distro ID]]
+  sbom.py --out FILE [--cyclonedx FILE] --name NAME --root ROOT
+          --rx-rust COMMIT --rust COMMIT --llvm COMMIT --qemu COMMIT
+          --qemu-version TEXT --rustc-version TEXT --cargo-version TEXT
+          [--libxml2 VERSION] [--libs FILE --libs-kind deb|msys2
+          [--distro ID]]
 
 scripts/dist-toolchain.sh and scripts/dist-toolchain-windows.sh call it. It
 lists what the archive holds:
@@ -154,11 +156,76 @@ def package(name, spdxid, version, supplier, download, license_declared,
     return p
 
 
+def cyclonedx(doc):
+    """The SPDX document `doc` as a CycloneDX 1.6 BOM: the archive is the
+    metadata's component, every other package a component (bom-ref = its
+    SPDX id), and the DEPENDS_ON relationships (and what the archive
+    contains directly) its dependencies."""
+    top = doc["documentDescribes"][0]
+    pkgs = {p["SPDXID"]: p for p in doc["packages"]}
+
+    def component(p):
+        sid = p["SPDXID"]
+        library = re.match(r"SPDXRef-Package-(crate|deb|msys2|lib|libxml2)\b", sid)
+        c = {"type": "library" if library else "application",
+             "bom-ref": sid, "name": p["name"]}
+        if p["versionInfo"] != "NOASSERTION":
+            c["version"] = p["versionInfo"]
+        if p["supplier"].startswith("Organization: "):
+            c["supplier"] = {"name": p["supplier"][len("Organization: "):]}
+        if p.get("comment"):
+            c["description"] = p["comment"]
+        if p["licenseDeclared"] != "NOASSERTION":
+            c["licenses"] = [{"expression": p["licenseDeclared"]}]
+        for ck in p.get("checksums", []):
+            c.setdefault("hashes", []).append(
+                {"alg": "SHA-256", "content": ck["checksumValue"]})
+        for r in p.get("externalRefs", []):
+            if r["referenceType"] == "purl":
+                c["purl"] = r["referenceLocator"]
+        dl = p["downloadLocation"]
+        if dl != "NOASSERTION":
+            vcs = dl.startswith("git+")
+            if vcs:  # git+URL@REV -> URL#REV
+                url, _, rev = dl[4:].rpartition("@")
+                dl = f"{url}#{rev}"
+            c["externalReferences"] = [{"type": "vcs" if vcs else "distribution",
+                                        "url": dl}]
+        return c
+
+    deps = {}
+    for r in doc["relationships"]:
+        a, t, b = r["spdxElementId"], r["relationshipType"], r["relatedSpdxElement"]
+        if t == "DEPENDS_ON" or (t == "CONTAINS" and a == top):
+            deps.setdefault(a, []).append(b)
+    # What the archive contains through a dependency is not listed again.
+    nested = {b for a, bs in deps.items() if a != top for b in bs}
+    if top in deps:
+        deps[top] = [b for b in deps[top] if b not in nested]
+    meta = component(pkgs[top])
+    meta["type"] = "application"
+    return {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.6",
+        "serialNumber": f"urn:uuid:{uuid.uuid4()}",
+        "version": 1,
+        "metadata": {
+            "timestamp": doc["creationInfo"]["created"],
+            "tools": {"components": [{"type": "application", "name": "rx-rust scripts/sbom.py"}]},
+            "component": meta,
+            "supplier": {"name": ORG[len("Organization: "):]},
+        },
+        "components": [component(p) for sid, p in pkgs.items() if sid != top],
+        "dependencies": [{"ref": sid, "dependsOn": deps.get(sid, [])} for sid in pkgs],
+    }
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     for a in ("out", "name", "root", "rx-rust", "rust", "llvm", "qemu",
               "qemu-version", "rustc-version", "cargo-version"):
         ap.add_argument("--" + a, required=True)
+    ap.add_argument("--cyclonedx", help="also write a CycloneDX 1.6 JSON BOM here")
     ap.add_argument("--libxml2")
     ap.add_argument("--libs")
     ap.add_argument("--libs-kind", choices=("deb", "msys2"))
@@ -313,6 +380,12 @@ def main():
         json.dump(doc, f, indent=1)
         f.write("\n")
     print(f"{a.out}: {len(pkgs)} packages")
+    if a.cyclonedx:
+        bom = cyclonedx(doc)
+        with open(a.cyclonedx, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(bom, f, indent=1)
+            f.write("\n")
+        print(f"{a.cyclonedx}: {len(bom['components'])} components")
 
 
 if __name__ == "__main__":

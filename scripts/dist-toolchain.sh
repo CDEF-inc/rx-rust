@@ -21,8 +21,9 @@
 #              shared libraries qemu-system-rx needs beyond glibc (glib,
 #              pixman, ...; its RUNPATH points here)
 #   VERSIONS   the commits it was built from, and the glibc it needs
-#   SBOM.spdx.json  the software bill of materials (SPDX 2.3, scripts/sbom.py),
-#              also written next to the archive as build/dist/NAME.spdx.json
+#   SBOM.spdx.json, SBOM.cdx.json  the software bill of materials, as SPDX
+#              2.3 and as CycloneDX 1.6 (scripts/sbom.py), also written next
+#              to the archive as build/dist/NAME.spdx.json and NAME.cdx.json
 #
 # To use it: RUSTC=NAME/bin/rustc RUSTC_BOOTSTRAP=1 PATH=NAME/bin:$PATH
 # NAME/bin/cargo build ... (with -Zbuild-std=core). The binaries need the
@@ -150,7 +151,8 @@ cat "$d/VERSIONS"
 
 qemu_commit=$(awk '$1 == "qemu" {print $2}' "$d/VERSIONS")
 distro=$(. /etc/os-release && echo "$ID-$VERSION_ID")
-python3 "$root/scripts/sbom.py" --out "$d/SBOM.spdx.json" --name "$name" --root "$root" \
+python3 "$root/scripts/sbom.py" --out "$d/SBOM.spdx.json" --cyclonedx "$d/SBOM.cdx.json" \
+  --name "$name" --root "$root" \
   --rx-rust "$(git -C "$root" rev-parse HEAD)" --rust "$(git -C "$root/rust" rev-parse HEAD)" \
   --llvm "$(git -C "$root/rust/src/llvm-project" rev-parse HEAD)" --qemu "$qemu_commit" \
   --qemu-version "$("$QEMU" --version | head -1)" --rustc-version "$("$s1/bin/rustc" -V)" \
@@ -161,4 +163,5 @@ mkdir -p "$root/build/dist"
 out=$root/build/dist/$name.tar.xz
 tar -C "$tmp" -cf - "$name" | xz -T0 -6 > "$out"
 cp "$d/SBOM.spdx.json" "$root/build/dist/$name.spdx.json"
-ls -l "$out" "$root/build/dist/$name.spdx.json"
+cp "$d/SBOM.cdx.json" "$root/build/dist/$name.cdx.json"
+ls -l "$out" "$root/build/dist/$name".{spdx,cdx}.json

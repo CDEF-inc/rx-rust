@@ -14,8 +14,9 @@
 #              and proc macros; bin/rust-lld), rustlib/src/rust/library (core
 #              etc. for -Zbuild-std)
 #   VERSIONS   the commits it was built from
-#   SBOM.spdx.json  the software bill of materials (SPDX 2.3, scripts/sbom.py),
-#              also written next to the zip as build/dist/NAME.spdx.json
+#   SBOM.spdx.json, SBOM.cdx.json  the software bill of materials, as SPDX
+#              2.3 and as CycloneDX 1.6 (scripts/sbom.py), also written next
+#              to the zip as build/dist/NAME.spdx.json and NAME.cdx.json
 #
 # To use it: put NAME\bin on PATH and set RUSTC=NAME\bin\rustc.exe and
 # RUSTC_BOOTSTRAP=1. Linking build scripts needs the MSVC linker (Visual
@@ -91,6 +92,7 @@ cat "$d/VERSIONS"
 py=python3
 python3 -c '' 2> /dev/null || py=python
 "$py" "$(cygpath -m "$root/scripts/sbom.py")" --out "$(cygpath -m "$d/SBOM.spdx.json")" \
+  --cyclonedx "$(cygpath -m "$d/SBOM.cdx.json")" \
   --name "$name" --root "$(cygpath -m "$root")" \
   --rx-rust "$(git -C "$root" rev-parse HEAD)" --rust "$(git -C "$root/rust" rev-parse HEAD)" \
   --llvm "$(git -C "$root/rust/src/llvm-project" rev-parse HEAD)" \
@@ -104,4 +106,5 @@ rm -f "$out"
 # Windows's own tar (bsdtar); Git Bash's cannot write a zip.
 (cd "$tmp" && "$SYSTEMROOT/System32/tar.exe" -a -cf "$(cygpath -w "$out")" "$name")
 cp "$d/SBOM.spdx.json" "$root/build/dist/$name.spdx.json"
-ls -l "$out" "$root/build/dist/$name.spdx.json"
+cp "$d/SBOM.cdx.json" "$root/build/dist/$name.cdx.json"
+ls -l "$out" "$root/build/dist/$name".{spdx,cdx}.json
