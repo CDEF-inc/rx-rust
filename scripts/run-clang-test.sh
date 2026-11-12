@@ -32,7 +32,8 @@ esac
 # -fwrapv: the test values overflow int on purpose.
 opt="-O${OPT:-2} -std=gnu11 -fwrapv -Wall"
 GCC="$G/rx-elf-gcc -mcpu=rx600 -m64bit-doubles $opt"
-CC="$CLANG --target=rx-none-elf -mcpu=$ccpu $opt ${CLANG_FLAGS:-}"
+# GCC's calling convention: clang defaults to CC-RX's (run-ccrx-test.sh).
+CC="$CLANG --target=rx-none-elf -mcpu=$ccpu -mabi=gnu $opt ${CLANG_FLAGS:-}"
 case ${RX_LD:-lld} in
   lld) ld=--ld-path=$root/build/llvm/bin/ld.lld ;;
   bfd) ld=-fuse-ld=bfd ;;

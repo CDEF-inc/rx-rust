@@ -49,16 +49,19 @@ clang --target=rx-none-elf --gcc-toolchain=gnu/install -T my.ld foo.o bar_gcc.o 
   - 例: `struct { char a; int b : 3; }` は 8 バイト、`struct { char c; long long x : 3; }` は 12 バイト（アラインメント 4）。
 
 ## 呼び出し規約（clang の `CodeGen/Targets/RX.cpp`）
-GCC の `rx_function_arg` などに合わせた。構造体の扱いは rustc の callconv/rx.rs と同じ。
-- 引数は R1〜R4 に累積バイト数で詰め、各引数は 4 に切り上げて数える。収まらない引数はスタックへ、カウンタはどの引数でも進む。
+既定は CC-RX の規約（`-mabi=ccrx`）、`-mabi=gnu` で GCC の `rx_function_arg` など（以下はその GNURX の規約）。違いと
+CC-RX とのテストは NOTES-ccrx-abi.md。構造体の扱いは rustc の callconv/rx.rs と同じ。
+- 引数は R1〜R4 に累積バイト数で詰め、各引数は 4 に切り上げて数える。収まらない引数はスタックへ、カウンタはどの引数でも進む
+  （CC-RX の規約ではレジスタに置いた引数だけ進むので、後の引数が空いたレジスタに入る）。
 - 構造体: サイズが 4 の倍数でレジスタに収まるなら `[N x i32]`（4 バイトなら i32）、それ以外とスタックに行くものは byval
   （型の自然境界。char だけの構造体は 1 境界で詰まる）。空の構造体は場所を取らない。
 - 戻り値: サイズ 1〜16 で 4 の倍数の構造体は R1〜R4、それ以外（空の構造体も）は sret（R15。引数に数えない）。
 - `_Complex` は GCC では集約型ではない: 収まればそのモードのままレジスタ（`_Complex char` は R1 の下位 16 ビット）、
   戻り値はサイズによらずレジスタ。
-- **char / short / _Bool の引数は拡張しない**（GCC は呼ぶ側で拡張せず、呼ばれた側が `movu.b r1, r1` などで拡張する。
-  `rx_promote_function_mode` は戻り値だけ int にする）。clang は引数に zeroext / signext を付けず、_Bool は i8。
-  戻り値には付ける（呼ばれた側が拡張する）。
+- **char / short / _Bool の引数は呼ぶ側も呼ばれた側も拡張する**（どちらの規約でも）。GCC は呼ぶ側で拡張せず、呼ばれた側が
+  `movu.b r1, r1` などで拡張する（`rx_promote_function_mode` は戻り値だけ int にする）。CC-RX は呼ぶ側が拡張し、呼ばれた側は
+  それを当てにする。clang は引数に zeroext / signext を付け（_Bool は i8）、バックエンドは呼ばれた側で拡張し直す。
+  戻り値にも付ける（呼ばれた側が拡張する）。
 - **スタック上の char / short は自分の大きさと境界**: `f(int, int, int, int, char e, char f, short h, int i)` は e が +0、f が +1、
   h が +2、i が +4。バックエンドはどれも 4 バイトにしていたので直した（RXISelLowering の analyzeRXArguments。
   llvm/test/CodeGen/RX/stack-small-args.ll）。rustc の u8 / u16 のスタック引数もこれで GCC と同じ置き方になる。
@@ -69,7 +72,7 @@ GCC の `rx_function_arg` などに合わせた。構造体の扱いは rustc �
 ## テスト
 - llvm-project: clang/test/CodeGen/RX（abi.c、varargs.c、layout.c、32bit-doubles.c）、clang/test/Driver/rx-toolchain.c
   （Inputs/basic_rx_tree が GCC の木）、clang/test/Preprocessor/init-rx.c、llvm/test/CodeGen/RX/stack-small-args.ll。
-- `scripts/run-clang-test.sh`（`test/clang`）: caller.c と callee.c を clang と rx-elf-gcc でコンパイルし、4 通りに組み合わせて
+- `scripts/run-clang-test.sh`（`test/clang`）: caller.c と callee.c を clang（`-mabi=gnu`）と rx-elf-gcc でコンパイルし、4 通りに組み合わせて
   （GCC→clang、clang→GCC、clang 同士、GCC 同士）clang のドライバでリンクし QEMU で走らせる。スカラー（char / short の
   レジスタ・スタック、戻り値の拡張）、i64 / double / float、25 種の構造体をそれぞれ先頭・int 3 個の後・long long 2 個の後
   （スタック）に置いた引数と戻り値、小さな構造体を詰めたスタック、sret と R1〜R4、`_Complex`、可変長（構造体を含む）、

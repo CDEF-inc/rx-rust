@@ -23,7 +23,9 @@ drv=$(realpath "${2:-$root/test/codegen/main.c}")
 G=$root/gnu/install/bin
 # LLVM's double is always 64 bits, so everything is built for GCC's
 # -m64bit-doubles ABI (and linked with that libgcc multilib).
-LLC="$root/build/llvm/bin/llc -mtriple=rx-none-elf -mcpu=${MCPU:-rxv1}"
+# The C drivers are GCC's, so llc uses GNURX's calling convention (the
+# backend's default is CC-RX's; docs/NOTES-ccrx-abi.md).
+LLC="$root/build/llvm/bin/llc -mtriple=rx-none-elf -target-abi=gnu -mcpu=${MCPU:-rxv1}"
 LLC="$LLC -mattr=+64bit-doubles${ATTRS:+,$ATTRS} -O${OPT:-2}"
 GCCFLAGS="-mcpu=rx600 -m64bit-doubles"
 # GNU as accepts RXv2 / RXv3 / DFPU instructions only with -mcpu.

@@ -32,7 +32,8 @@ pub struct S20 {
 }
 
 unsafe extern "C" {
-    fn c_struct_mix(a: S3, b: S8, c: i32) -> i32;
+    // The structure always on the stack comes last (see main.c).
+    fn c_struct_mix(b: S8, c: i32, a: S3) -> i32;
     fn c_ret20(a: i32) -> S20;
     fn c_double(x: f64) -> f64;
 }
@@ -59,7 +60,7 @@ pub extern "C" fn rs_f64(x: f64, y: f32) -> f64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rs_s3(s: S3, y: i32) -> i32 {
+pub extern "C" fn rs_s3(y: i32, s: S3) -> i32 {
     s.c[0] as i32 + s.c[2] as i32 * 256 + y
 }
 
@@ -83,7 +84,7 @@ pub extern "C" fn rs_ret8(a: i32) -> S8 {
 pub extern "C" fn rs_call_c(k: i32) -> i32 {
     let s3 = S3 { c: [k as u8, 7, (k >> 8) as u8] };
     let s8 = S8 { a: k, b: 3 };
-    let r = unsafe { c_struct_mix(s3, s8, k) };
+    let r = unsafe { c_struct_mix(s8, k, s3) };
     let s20 = unsafe { c_ret20(k) };
     let d = unsafe { c_double(k as f64) };
     r + s20.a[4] + d as i32
