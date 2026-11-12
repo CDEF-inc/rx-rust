@@ -169,6 +169,13 @@ for cpu in "${cpus[@]}"; do
     for o in 0 2; do
       run "$cpu clang-gcc abi -O$o" env OPT=$o bash "$S/run-clang-test.sh"
     done
+    # clang against CC-RX (test/ccrx), whose objects only Windows can build
+    # (scripts/build-ccrx-objs.sh): run when CCRX_OBJS names their directory.
+    if [ -n "${CCRX_OBJS:-}" ]; then
+      for o in 0 2; do
+        run "$cpu clang-ccrx abi -O$o" env OPT=$o bash "$S/run-ccrx-test.sh" "$CCRX_OBJS"
+      done
+    fi
   fi
   attrs=; [ "$cpu" = rx62n ] && attrs=+fpu
   for o in 0 1 2 3; do
