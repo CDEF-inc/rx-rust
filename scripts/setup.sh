@@ -1,5 +1,5 @@
 #!/bin/bash
-# Fetches the rust submodule (CDEF-inc/rust, branch rx-none-elf) and the
+# Fetches the rust submodule (CDEF-inc/rust, branch rx-1.100) and the
 # submodules of it that the build needs (the LLVM fork with the RX backend
 # and library/backtrace), then writes rust/bootstrap.toml. With
 # SETUP_DEPTH=N (CI) only the last N commits of each are fetched.

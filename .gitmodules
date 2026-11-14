@@ -1,4 +1,4 @@
 [submodule "rust"]
 	path = rust
 	url = https://github.com/CDEF-inc/rust.git
-	branch = rx-none-elf
+	branch = rx-1.100
