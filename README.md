@@ -23,7 +23,7 @@ delay, a UART, SPI, PWM and an ADC; the RX74N HAL also has I2C.
 | lld RX target | same, `lld/ELF/Arch/RX.cpp` | links like GNU ld (same relocations, e_flags and layout); `rx-none-elf`'s default linker (`rust-lld`), GNU ld with `-C linker=rx-elf-ld` (see [`docs/NOTES-lld.md`](docs/NOTES-lld.md)) |
 | clang for RX | same, `clang/lib/{Basic,CodeGen}/Targets/RX.cpp`, `clang/lib/Driver/ToolChains/RX.cpp` | compiles C for `--target=rx-none-elf` with GCC's (GNURX's) ABI, types and macros; links with ld.lld or GNU ld against an rx-elf GCC's libgcc and newlib; its objects call GCC's both ways on QEMU; llvm-test-suite's SingleSource passes 387 of 411 on QEMU with GNURX's newlib (`scripts/run-test-suite.sh`; no C++ exceptions yet; see [`docs/NOTES-clang.md`](docs/NOTES-clang.md)) |
 | LLDB RX support | same, `lldb/source/Plugins/ABI/RX` (and a clang `RXTargetInfo` for its type system) | breakpoints, backtraces (from the compiler's CFI), variables, stepping on QEMU's gdbstub and, through a bridge to e2-server-gdb, on the RX72M; see [`docs/NOTES-lldb.md`](docs/NOTES-lldb.md) |
-| rustc `rx-none-elf` target, callconv, `asm!` | [CDEF-inc/rust](https://github.com/CDEF-inc/rust/tree/rx-none-elf) `rx-none-elf` | `core` and `alloc` build; tier 3 |
+| rustc `rx-none-elf` target, callconv, `asm!` | [CDEF-inc/rust](https://github.com/CDEF-inc/rust/tree/rx-1.100) `rx-1.100` (Rust 1.100.0) | `core` and `alloc` build; tier 3 |
 | Startup code, vector tables, linker script | [`crates/rx-rt`](crates/rx-rt) | boots from the reset vector and takes interrupts (peripheral, software, nested, register banks) on QEMU and the boards; `critical-section` implementation |
 | RX72M / RX72N HAL (embedded-hal 1.0) | [`crates/rx72-hal`](crates/rx72-hal) | clocks (PLL 240 MHz), GPIO and pin functions, `DelayNs` (CMT2), SCI2 UART (`embedded-io`), SPI (RSPI2), ADC (S12AD: self-diagnosis, internal reference, temperature sensor), PWM (MTU6); checked on the AP-RX72M-0A (see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
 | RX74M / RX74N HAL (embedded-hal 1.0) | [`crates/rx74-hal`](crates/rx74-hal) | clocks (PLL 480 or 600 MHz), GPIO and pin functions, `DelayNs` (CMT2), RSCI12 UART (`embedded-io`), SPI (RSPIA0), ADC (ADC16H), PWM (GPTW8), I2C (RI3C0 in I2C mode; read from the EK-RX74M's EEPROM); checked on the EK-RX74N and the EK-RX74M |
@@ -71,7 +71,7 @@ board, calling functions in expressions, Rust type names: #79-#87).
 ## Layout
 
 ```
-rust/           submodule: CDEF-inc/rust (rx-none-elf), which has
+rust/           submodule: CDEF-inc/rust (rx-1.100, Rust 1.100.0), which has
                 src/llvm-project -> CDEF-inc/llvm-project (rx/23.1)
 crates/rx-rt/      runtime: reset handler, vector tables, link.x
 crates/sfrx-pac/   PAC generator (sfrx -> SVD -> svd2rust) for the PACs' build.rs
@@ -330,7 +330,7 @@ with the chip as a feature (`rx72m` / `rx72n`, `rx74m` / `rx74n`)
 and build for `target-cpu=rxv3` or `rxv3e`; the PACs need e² studio's
 `.sfrx` files (see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)). The target and
 its ABI are described in
-[`src/doc/rustc/src/platform-support/rx-none-elf.md`](https://github.com/CDEF-inc/rust/blob/rx-none-elf/src/doc/rustc/src/platform-support/rx-none-elf.md).
+[`src/doc/rustc/src/platform-support/rx-none-elf.md`](https://github.com/CDEF-inc/rust/blob/rx-1.100/src/doc/rustc/src/platform-support/rx-none-elf.md).
 
 ### Floating point
 
