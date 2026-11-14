@@ -97,8 +97,9 @@ linker_flag=${RX_LD:+-C linker=$(realpath "$RX_LD")}
 host=x86_64-unknown-linux-gnu
 s1=$root/rust/build/$host/stage1
 
-# cargo rebuilds only when `rustc -vV` changes, and the stage1 rustc says
-# 1.100.0-dev whatever it was built from (#88). So the Rust target
+# cargo rebuilds only when `rustc -vV` changes, and that names only the rust
+# commit (#88): a rebuild with a changed LLVM or uncommitted changes says the
+# same. So the Rust target
 # directories are keyed on the compiler itself (librustc_driver, which has
 # the LLVM backend, and rust-lld), and those of older compilers are removed.
 rustc_id=$(stat -c '%n %s %Y' "$s1"/lib/librustc_driver-*.so \

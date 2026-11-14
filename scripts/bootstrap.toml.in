@@ -16,6 +16,10 @@ extended = false
 jobs = 4
 
 [rust]
+# The channel of the rust branch (src/ci/channel): "stable" on rx-1.100, so
+# rustc says 1.100.0 (with its commit) instead of 1.100.0-dev. Unstable
+# features (-Zbuild-std, asm! on RX) then need RUSTC_BOOTSTRAP=1.
+channel = "auto-detect"
 download-rustc = false
 lld = false
 # build/llvm only has the libraries, llc and llvm-mc.
