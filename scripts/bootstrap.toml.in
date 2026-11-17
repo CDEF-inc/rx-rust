@@ -14,6 +14,10 @@ docs = false
 extended = false
 # rustc crates need 1-3 GB of memory each.
 jobs = 4
+# Appended to rustc -V ("rustc 1.100.0 (b216d1858 2026-11-14) (CDEF-inc RX
+# fork)"), so this toolchain is not taken for an official Rust release. It is
+# also part of the crate IDs: crates built by another rustc do not mix in.
+description = "CDEF-inc RX fork"
 
 [rust]
 # The channel of the rust branch (src/ci/channel): "stable" on rx-1.100, so
