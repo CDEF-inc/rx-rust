@@ -124,6 +124,10 @@ def run(r, elf, seconds):
     for k in ("loopback", "i2c_bus", "eeprom"):
         if k in syms:
             first += " %s=%d" % (k, r.word(syms[k]))
+    # hw-i2c: its measurements (23 words)
+    if "i2c_values" in syms:
+        words = struct.unpack("<23I", r.read(syms["i2c_values"], 92))
+        first += " i2c_values=" + ",".join("%x" % w for w in words)
     print("[%s/%s] checks=%d failures=%d%s (%.1f s)"
           % (name, BOARD, v["checks"], v["failures"], first, el))
     if "faillog" in syms and v["failures"]:

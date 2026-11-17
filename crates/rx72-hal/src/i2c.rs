@@ -141,6 +141,24 @@ impl embedded_hal::i2c::Error for Error {
     }
 }
 
+/// The set-up after a RIIC reset (ICCR1.IICRST with ICE = 0): the internal
+/// reset, with the pins driven, during the register settings.
+fn configure(riic: &pac::Riic0, timing: Timing) {
+    riic.iccr1().write(|w| unsafe { w.bits(ICE | IICRST | SOWP) });
+    // No slave addresses (the reset value matches the general call and
+    // SARL0 = 0).
+    riic.icser().write(|w| unsafe { w.bits(0) });
+    riic.icmr1().write(|w| unsafe { w.bits(timing.cks << 4 | BCWP) });
+    riic.icbrh().write(|w| unsafe { w.bits(BR_RESERVED | timing.brh) });
+    riic.icbrl().write(|w| unsafe { w.bits(BR_RESERVED | timing.brl) });
+    riic.icmr2().write(|w| unsafe { w.bits(TMO_HL) });
+    // ACKBT writable from now on, ACK, no WAIT, one filter stage.
+    riic.icmr3().write(|w| unsafe { w.bits(ACKWP) });
+    riic.icfer().write(|w| unsafe { w.bits(ICFER) });
+    riic.icier().write(|w| unsafe { w.bits(0) });
+    riic.iccr1().write(|w| unsafe { w.bits(ICE | SOWP) });
+}
+
 /// RIIC0 as an I2C master.
 pub struct I2c {
     riic: pac::Riic0,
@@ -169,20 +187,7 @@ impl I2c {
         riic.iccr1().write(|w| unsafe { w.bits(IICRST | SOWP) });
         let scl = scl.into_function(PSEL_RIIC);
         let sda = sda.into_function(PSEL_RIIC);
-        // The internal reset, with the pins driven, during the set-up.
-        riic.iccr1().write(|w| unsafe { w.bits(ICE | IICRST | SOWP) });
-        // No slave addresses (the reset value matches the general call and
-        // SARL0 = 0).
-        riic.icser().write(|w| unsafe { w.bits(0) });
-        riic.icmr1().write(|w| unsafe { w.bits(timing.cks << 4 | BCWP) });
-        riic.icbrh().write(|w| unsafe { w.bits(BR_RESERVED | timing.brh) });
-        riic.icbrl().write(|w| unsafe { w.bits(BR_RESERVED | timing.brl) });
-        riic.icmr2().write(|w| unsafe { w.bits(TMO_HL) });
-        // ACKBT writable from now on, ACK, no WAIT, one filter stage.
-        riic.icmr3().write(|w| unsafe { w.bits(ACKWP) });
-        riic.icfer().write(|w| unsafe { w.bits(ICFER) });
-        riic.icier().write(|w| unsafe { w.bits(0) });
-        riic.iccr1().write(|w| unsafe { w.bits(ICE | SOWP) });
+        configure(&riic, timing);
         I2c { riic, timing, busy_polls: clocks.iclk / 1000, scl, sda }
     }
 
@@ -356,13 +361,16 @@ impl I2c {
     }
 
     /// After an error: a STOP if RIIC0 is still the master, else (or if
-    /// that STOP times out) an internal reset, which releases the pins and
-    /// keeps the settings (ICCR1.IICRST with ICE = 1).
+    /// that STOP times out) a RIIC reset and the set-up again. Only the RIIC
+    /// reset clears BBSY (an internal reset keeps it), so a bus seen busy
+    /// through a stuck SCL is free again for the next transfer.
     fn recover(&mut self) {
         let s = self.sr2();
         if s & (AL | TMOF) != 0 || self.cr2() & MST == 0 || self.stop(false).is_err() {
-            self.riic.iccr1().write(|w| unsafe { w.bits(ICE | IICRST | SOWP) });
-            self.riic.iccr1().write(|w| unsafe { w.bits(ICE | SOWP) });
+            self.riic.iccr1().write(|w| unsafe { w.bits(SOWP) });
+            self.riic.iccr1().write(|w| unsafe { w.bits(IICRST | SOWP) });
+            configure(&self.riic, self.timing);
+            return;
         }
         self.clear(NACKF | AL | TMOF | START | STOP);
         self.set_icmr3(false, false);

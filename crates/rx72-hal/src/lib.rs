@@ -14,6 +14,8 @@
 //!   voltage and the temperature sensor.
 //! - [`pwm`]: MTU6 PWM on PJ1 (the LED LD2) as `SetDutyCycle`.
 //! - [`i2c`]: RIIC0 as an I2C master (`I2c`) on P12 / P13.
+//! - [`sci_i2c`]: SCI6 in simple I2C mode (`I2c`) on P00 / P01, the
+//!   board's EEPROM.
 //!
 //! Register access goes through [`pac`] (rx72-pac, generated from e2
 //! studio's RX72M.sfrx / RX72N.sfrx) where its types fit, and directly by address for
@@ -35,5 +37,6 @@ pub mod gpio;
 pub mod i2c;
 mod mstp;
 pub mod pwm;
+pub mod sci_i2c;
 pub mod serial;
 pub mod spi;

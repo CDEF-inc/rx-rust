@@ -4,15 +4,15 @@
 //! set-up (module stop, the RIIC registers, the pin functions). What is on
 //! CN8 decides the rest (`i2c_bus`):
 //!
-//! - 0: something drives SCL high but SDA has no I2C pull-up: the USB
-//!   serial adapter of serial-echo (its TXD on P12). The bus checks are
-//!   skipped, so that the RIIC does not pull its TXD low.
+//! - 0: anything else, such as the USB serial adapter of serial-echo (its
+//!   TXD drives P12 high, and SDA has only its weak RXD pull-up). The bus
+//!   checks are skipped, so that the RIIC does not pull its TXD low.
 //! - 1: nothing: the internal pull-ups carry the bus. A NACK from an
 //!   address nobody answers, for a write, a read and a write of no bytes,
 //!   and the bus free afterwards.
 //! - 2: a bus with pull-ups: the NACK checks, a scan of addresses 08h-77h
 //!   (the ACKs in `i2c_values`), and if an EEPROM with one address byte
-//!   answers at 50h (`eeprom` = 1; a 24C01-24C16, such as the board's own
+//!   answers at 50h (`eeprom` bit 0; a 24C01-24C16, such as the board's own
 //!   24LC16B on P00 / P01 when CN2 pin 26 is wired to CN8 pin 1 and CN2
 //!   pin 25 to CN8 pin 2): the reads of hw-i2c on the EK-RX74M, read only.
 //!   A 16-byte read from 00h with a repeated START, random and
@@ -22,9 +22,16 @@
 //!   CMT0 at PCLKB / 8).
 //!
 //! The kind of bus is found with the pins as GPIO: each is driven low for
-//! a moment, then left as an input without the pull-up for over 2 us. A
-//! pull-up of an I2C bus (a few kilohms) brings it high again; a floating
-//! pin stays low, and the adapter's RXD pull-up (on SDA) is too weak.
+//! a moment, then left as an input without the pull-up, and PIDR is polled
+//! until it reads high. Pull-ups of an I2C bus bring both pins back within
+//! [`FAST_RISE`] polls (the board's EEPROM bus, measured as a reference,
+//! takes none); a floating pin stays low.
+//!
+//! Then, on every run, SCI6 in simple I2C mode reads the board's own
+//! EEPROM on P00 / P01 (24LC16B at 50h, JSW6 ON): the register set-up, 16
+//! bytes from 00h (the board's MAC addresses in the first 12, so not
+//! blank), random reads that match them, an address NACK from 33h, and a
+//! current-address read after it (`eeprom` bit 1 when the read works).
 //! Booted from the code flash by scripts/hw-run.sh; the results are in
 //! `checks` / `failures` / `first_failure` / `finished`, the measurements
 //! in `i2c_values`.
@@ -32,30 +39,60 @@
 use core::ptr::{read_volatile, write_volatile};
 
 use embedded_hal::digital::InputPin;
-use embedded_hal::i2c::Error as _;
-use embedded_hal::i2c::{ErrorKind, I2c as _, NoAcknowledgeSource, Operation};
+use embedded_hal::i2c::{I2c as _, NoAcknowledgeSource, Operation};
 use hw_board::hal::clock::Config;
 use hw_board::hal::gpio::Parts;
-use hw_board::hal::i2c::{I2c, Speed, Timing};
+use hw_board::hal::i2c::{Error, I2c, Speed, Timing};
 use hw_board::hal::pac::Peripherals;
+use hw_board::hal::sci_i2c::{Error as SciError, Rate, SciI2c};
 use hw_board::check;
 
 #[unsafe(no_mangle)]
 static mut eeprom: u32 = 0;
 #[unsafe(no_mangle)]
 static mut i2c_bus: u32 = 0;
-// [0] the levels after the discharge (bit 0 SCL, bit 1 SDA); [1] ICCR1
+// [0] the polls until P12 / P13 rise (bits 15:0 / 31:16); [1] ICCR1
 // after the set-up; [2] / [3] CMT0 counts of the 16-byte read at 100 /
 // 400 kHz; [4..8] the first 16 bytes of the EEPROM (little-endian words);
-// [8..12] the addresses that answered the scan (bit n of word n / 32).
+// [8..12] the addresses that answered the scan (bit n of word n / 32);
+// [12..15] the results of the write, read and probe to 33h (`code`);
+// [15] ICCR2 / ICSR2 after them (bits 15:8 / 7:0); [16..20] the first 16
+// bytes of the EEPROM through SCI6; [20] / [21] the results of that read
+// and of the probe of 33h through SCI6 (`code_sci`); [22] the
+// polls until P01 / P00 rise.
 #[unsafe(no_mangle)]
-static mut i2c_values: [u32; 12] = [0; 12];
+static mut i2c_values: [u32; 23] = [0; 23];
 
 const EEPROM: u8 = 0x50;
 const NOBODY: u8 = 0x33;
+/// The most polls for a pin to rise through I2C pull-ups.
+const FAST_RISE: u32 = 2;
 
 fn record(i: usize, v: u32) {
     unsafe { write_volatile(&raw mut i2c_values[i], v) };
+}
+
+/// 0 Ok, 1 / 2 / 3 NACK on the address / data / unknown, 4 arbitration
+/// lost, 5 timeout.
+fn code<T>(r: &Result<T, Error>) -> u32 {
+    match r {
+        Ok(_) => 0,
+        Err(Error::NoAcknowledge(NoAcknowledgeSource::Address)) => 1,
+        Err(Error::NoAcknowledge(NoAcknowledgeSource::Data)) => 2,
+        Err(Error::NoAcknowledge(_)) => 3,
+        Err(Error::ArbitrationLoss) => 4,
+        Err(Error::Timeout) => 5,
+    }
+}
+
+fn code_sci<T>(r: &Result<T, SciError>) -> u32 {
+    match r {
+        Ok(_) => 0,
+        Err(SciError::NoAcknowledge(NoAcknowledgeSource::Address)) => 1,
+        Err(SciError::NoAcknowledge(NoAcknowledgeSource::Data)) => 2,
+        Err(SciError::NoAcknowledge(_)) => 3,
+        Err(SciError::Timeout) => 5,
+    }
 }
 
 fn rd8(a: usize) -> u8 {
@@ -77,19 +114,39 @@ fn main() -> ! {
     let clocks = Config::pll_240mhz_from_24mhz().configure(&p.system);
     let pins = Parts::take().unwrap();
 
-    // --- what is on CN8: discharge each pin, release it, read it
-    let scl = pins.p12.into_push_pull_output();
-    let sda = pins.p13.into_push_pull_output();
-    pause();
-    let mut scl_in = scl.into_input();
-    let mut sda_in = sda.into_input();
-    pause();
-    let (scl_up, sda_up) = (scl_in.is_high().unwrap(), sda_in.is_high().unwrap());
-    record(0, scl_up as u32 | (sda_up as u32) << 1);
-    let bus = match (scl_up, sda_up) {
-        (true, true) => 2,
-        (false, false) => 1,
-        _ => 0,
+    // --- what is on CN8: the polls of PIDR until each pin reads high again
+    // after a discharge, without the pull-up ([0] = P12 | P13 << 16). The
+    // board's EEPROM bus (P01 = SSCL6, P00 = SSDA6) is measured the same way
+    // as a reference ([22] = P01 | P00 << 16): its pull-ups bring both back
+    // within the first poll. With the USB serial adapter, its TXD drives
+    // SCL (0 polls) but SDA has only its RXD pull-up (9 polls on the board).
+    macro_rules! rise {
+        ($pin:expr) => {{
+            let o = $pin.into_push_pull_output();
+            pause();
+            let mut i = o.into_input();
+            let mut n = 0u32;
+            while n < 0xffff && i.is_low().unwrap() {
+                n += 1;
+            }
+            (n, i)
+        }};
+    }
+    let (r12, scl_in) = rise!(pins.p12);
+    let (r13, sda_in) = rise!(pins.p13);
+    let (r01, p01) = rise!(pins.p01);
+    let (r00, p00) = rise!(pins.p00);
+    record(0, r12 | r13 << 16);
+    record(22, r01 | r00 << 16);
+    // Both back at once: pull-ups (2); both still low after the polls of
+    // over 1 ms: floating (1); anything else (one side driven, or a slow
+    // pull-up): not a bus to test (0).
+    let bus = if r12 <= FAST_RISE && r13 <= FAST_RISE {
+        2
+    } else if r12 == 0xffff && r13 == 0xffff {
+        1
+    } else {
+        0
     };
     unsafe { write_volatile(&raw mut i2c_bus, bus) };
     // The internal pull-ups stay on in the RIIC function.
@@ -135,11 +192,15 @@ fn main() -> ! {
         let mut b = [0u8; 2];
         let w = i2c.write(NOBODY, &[0, 0]);
         let r = i2c.read(NOBODY, &mut b);
-        let addr_nack = ErrorKind::NoAcknowledge(NoAcknowledgeSource::Address);
-        check(10, w.is_err_and(|e| e.kind() == addr_nack));
-        check(11, r.is_err_and(|e| e.kind() == addr_nack));
         // A write of no bytes (a probe) also sees the NACK.
-        check(12, i2c.write(NOBODY, &[]).is_err_and(|e| e.kind() == addr_nack));
+        let pr = i2c.write(NOBODY, &[]);
+        record(12, code(&w));
+        record(13, code(&r));
+        record(14, code(&pr));
+        record(15, (rd8(0x0008_8301) as u32) << 8 | rd8(0x0008_8309) as u32);
+        check(10, code(&w) == 1);
+        check(11, code(&r) == 1);
+        check(12, code(&pr) == 1);
         // BBSY clears the bus free time (6.1 us) after the STOP; allow 1 ms.
         let free = (0..100_000).any(|_| rd8(0x0008_8301) & 0x80 == 0);
         check(13, free);
@@ -219,6 +280,51 @@ fn main() -> ! {
     }
 
     let _ = i2c.free();
+
+    // --- SCI6 in simple I2C mode on P00 = SSDA6 / P01 = SSCL6: the board's
+    // EEPROM (24LC16B at 50h, JSW6 ON). SMR.CKS = 0, BRR = 18: 60 MHz /
+    // (32 x 19) = 98.7 kHz.
+    let rate = Rate::new(60_000_000, 100_000);
+    check(26, rate == Some(Rate { cks: 0, brr: 18 }) && rate.unwrap().hz(60_000_000) == 98_684);
+    let mut sci = SciI2c::sci6(p.sci6, p00, p01, &clocks);
+    // SMR, BRR, SCMR (SDIR), SIMR1 (IICDL 18h, IICM), SIMR2 (IICACKT,
+    // IICCSC, IICINTM), SIMR3 released; PSEL 0Ah; ODR0 B0 / B2
+    check(
+        27,
+        rd8(0x0008_a0c0) == 0
+            && rd8(0x0008_a0c1) == 18
+            && rd8(0x0008_a0c6) == 0xfa
+            && rd8(0x0008_a0c9) == 0xc1
+            && rd8(0x0008_a0ca) == 0x23
+            && rd8(0x0008_a0cb) == 0xf0
+            && rd8(0x0008_c140) == 0x0a
+            && rd8(0x0008_c141) == 0x0a
+            && rd8(0x0008_c080) & 0b101 == 0b101,
+    );
+    let mut all = [0u8; 16];
+    let r = sci.write_read(EEPROM, &[0x00], &mut all);
+    record(20, code_sci(&r));
+    for k in 0..4 {
+        record(16 + k, u32::from_le_bytes(all[4 * k..4 * k + 4].try_into().unwrap()));
+    }
+    check(28, r.is_ok());
+    if r.is_ok() {
+        unsafe { write_volatile(&raw mut eeprom, read_volatile(&raw const eeprom) | 2) };
+    }
+    // The first 12 bytes hold the board's MAC addresses, so they are not
+    // blank (FFh).
+    check(29, all[..12].iter().any(|&b| b != 0xff));
+    let mut one = [0u8; 1];
+    let mut four = [0u8; 4];
+    let ok = sci.write_read(EEPROM, &[0x01], &mut one).is_ok() && one[0] == all[1];
+    check(30, ok && sci.write_read(EEPROM, &[0x06], &mut four).is_ok() && four == all[6..10]);
+    // Nobody at 33h: an address NACK; then the EEPROM still answers, and
+    // a current-address read continues after the last byte read (0Ah).
+    let r = sci.write(NOBODY, &[]);
+    record(21, code_sci(&r));
+    check(31, r == Err(SciError::NoAcknowledge(NoAcknowledgeSource::Address)));
+    check(32, sci.read(EEPROM, &mut four).is_ok() && four == all[10..14]);
+    let _ = sci.free();
     p.cmt.cmstr0().write(|w| w.str0().clear_bit());
     hw_board::finish()
 }
