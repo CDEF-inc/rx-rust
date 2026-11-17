@@ -21,11 +21,17 @@
 //!   Fast mode, and the time of the 16-byte read in both modes (timed with
 //!   CMT0 at PCLKB / 8).
 //!
-//! The kind of bus is found with the pins as GPIO: each is driven low for
-//! a moment, then left as an input without the pull-up, and PIDR is polled
-//! until it reads high. Pull-ups of an I2C bus bring both pins back within
-//! [`FAST_RISE`] polls (the board's EEPROM bus, measured as a reference,
-//! takes none); a floating pin stays low.
+//! The kind of bus is found from SDA (P13) alone, as GPIO: it is driven
+//! low for a moment, then left as an input without the pull-up, and PIDR is
+//! polled until it reads high. SCL (P12) is only read, never driven: the
+//! adapter's TXD drives it, and driving it low would fight that output.
+//! P13 is our TXD2 and the adapter's RXD, an input on its side, so it may
+//! be driven. An I2C pull-up brings SDA back within [`FAST_RISE`] polls
+//! (the board's EEPROM bus, measured as a reference, takes none) and SCL
+//! reads high; the adapter's RXD pull-up takes 6-9 polls; a floating pin
+//! stays low. An adapter with an RXD pull-up as strong as an I2C one would
+//! be taken for a bus, and the RIIC would then pull its TXD low until the
+//! timeout.
 //!
 //! Then, on every run, SCI6 in simple I2C mode reads the board's own
 //! EEPROM on P00 / P01 (24LC16B at 50h, JSW6 ON): the register set-up, 16
@@ -51,7 +57,7 @@ use hw_board::check;
 static mut eeprom: u32 = 0;
 #[unsafe(no_mangle)]
 static mut i2c_bus: u32 = 0;
-// [0] the polls until P12 / P13 rise (bits 15:0 / 31:16); [1] ICCR1
+// [0] the polls until P13 rises, and bit 16 P12 high; [1] ICCR1
 // after the set-up; [2] / [3] CMT0 counts of the 16-byte read at 100 /
 // 400 kHz; [4..8] the first 16 bytes of the EEPROM (little-endian words);
 // [8..12] the addresses that answered the scan (bit n of word n / 32);
@@ -114,12 +120,12 @@ fn main() -> ! {
     let clocks = Config::pll_240mhz_from_24mhz().configure(&p.system);
     let pins = Parts::take().unwrap();
 
-    // --- what is on CN8: the polls of PIDR until each pin reads high again
-    // after a discharge, without the pull-up ([0] = P12 | P13 << 16). The
-    // board's EEPROM bus (P01 = SSCL6, P00 = SSDA6) is measured the same way
-    // as a reference ([22] = P01 | P00 << 16): its pull-ups bring both back
-    // within the first poll. With the USB serial adapter, its TXD drives
-    // SCL (0 polls) but SDA has only its RXD pull-up (9 polls on the board).
+    // --- what is on CN8: the polls of PIDR until SDA (P13) reads high again
+    // after a discharge, without the pull-up, and the level of SCL (P12),
+    // which is only read ([0] = polls | SCL high << 16). The board's EEPROM
+    // bus (P01 = SSCL6, P00 = SSDA6) is measured the same way as a reference
+    // ([22] = P01 | P00 << 16): its pull-ups bring both back within the
+    // first poll.
     macro_rules! rise {
         ($pin:expr) => {{
             let o = $pin.into_push_pull_output();
@@ -132,18 +138,19 @@ fn main() -> ! {
             (n, i)
         }};
     }
-    let (r12, scl_in) = rise!(pins.p12);
+    let mut scl_in = pins.p12.into_input();
     let (r13, sda_in) = rise!(pins.p13);
+    let scl_high = scl_in.is_high().unwrap();
     let (r01, p01) = rise!(pins.p01);
     let (r00, p00) = rise!(pins.p00);
-    record(0, r12 | r13 << 16);
+    record(0, r13 | (scl_high as u32) << 16);
     record(22, r01 | r00 << 16);
-    // Both back at once: pull-ups (2); both still low after the polls of
-    // over 1 ms: floating (1); anything else (one side driven, or a slow
-    // pull-up): not a bus to test (0).
-    let bus = if r12 <= FAST_RISE && r13 <= FAST_RISE {
+    // SDA back at once and SCL high: pull-ups (2); SDA still low after the
+    // polls of over 1 ms: floating (1); anything else (a slow pull-up, or
+    // SCL low): not a bus to test (0).
+    let bus = if r13 <= FAST_RISE && scl_high {
         2
-    } else if r12 == 0xffff && r13 == 0xffff {
+    } else if r13 == 0xffff {
         1
     } else {
         0
