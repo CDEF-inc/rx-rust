@@ -18,7 +18,6 @@
 | 項目 | いまの動き | 影響 | issue |
 |---|---|---|---|
 | tidy・UI テスト・platform-support ドキュメント | 未対応 | 上流化する場合だけ必要 | #53 |
-| rx72-hal の I2C（RIIC） | 未実装。UART 受信・SPI・PWM・ADC は済み（rx74-hal には I2C がある） | RX72M で I2C を使うとき | #54 |
 | AP-RX72M-0A の単体起動 | E2 Lite を外してリセットすると、コードフラッシュのプログラムが動かない。原因は未特定 | デバッガなしで動かすとき | — |
 | EK-RX74N の non-secure ワールド | 実機では未実行（QEMU では動く） | TrustZone 相当の分離を使うとき | — |
 | LLDB | 配布物の lldb で rustc の表示整形を使う（#150）、enum の variant への `expr` で落ちる（#151、RX 特有ではない）、`_rx_isr_common` の中での非同期停止の巻き戻し（#152）、実機での割り込みフレームと rtsd のステップ（#153）、試験の範囲（#87） | デバッグ | #150〜#153、#87 |
@@ -138,5 +137,5 @@
 - [x] UART の受信と相手機器との通信: `examples/serial-echo`（USB シリアル変換で 4096 バイトとブレークまで。
   デバッガをつないだ状態、NOTES-hal.md）
 - [x] rx72-hal の SPI（RSPI）・PWM（MTU）・ADC（S12AD）、rx74-hal の SPI・PWM・ADC・I2C（2026-11-08、NOTES-hal.md）
-- [ ] rx72-hal の I2C（RIIC）（NOTES-hal.md の「予定」）
+- [x] rx72-hal の I2C（RIIC）（2026-11-17、RIIC0 を CN8 に。NOTES-hal.md）
 - [ ] AP-RX72M-0A で、E2 Lite を外してリセットしたときにコードフラッシュから起動すること

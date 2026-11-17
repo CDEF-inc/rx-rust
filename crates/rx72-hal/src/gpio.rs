@@ -5,7 +5,8 @@
 //! [`Pin`] in [`Input`] mode, the state after reset. A pin changes mode with
 //! `into_*`: [`Output`] (push-pull, PDR = 1), [`Input`] or [`PullUpInput`]
 //! (PCR = 1), all general I/O port modes (PMR = 0), [`Function`]
-//! (`into_function(psel)`: MPC PFS.PSEL, PMR = 1) for a peripheral, or
+//! (`into_function(psel)`: MPC PFS.PSEL, PMR = 1; `into_open_drain_function`
+//! also sets the N-channel open-drain output, ODR) for a peripheral, or
 //! [`Analog`] (`into_analog`: PFS.ASEL = 1) for the A/D converter on the
 //! pins that have an analog input ([`AnalogCapable`]).
 //!
@@ -29,6 +30,9 @@ const PODR: usize = 0x0008_c020;
 const PIDR: usize = 0x0008_c040;
 const PMR: usize = 0x0008_c060;
 const PCR: usize = 0x0008_c0c0;
+/// ODR0 / ODR1 of port 0 (2 per port: 0x8C080 + 2 * port, the second for pins
+/// 4-7), bit 2 * (pin % 4) for N-channel open drain.
+const ODR: usize = 0x0008_c080;
 
 /// Input (PDR = 0, no pull-up).
 pub struct Input;
@@ -74,6 +78,11 @@ pub trait AnalogCapable<const P: usize, const N: u8> {}
 
 /// Writes PFS of the pin, through the PWPR write protection (B0WI = 0,
 /// PFSWE = 1, then back).
+/// The output type: CMOS, or N-channel open drain (`open_drain`).
+fn set_open_drain(p: usize, n: u8, open_drain: bool) {
+    modify(ODR, 2 * p + n as usize / 4, 2 * (n % 4), open_drain);
+}
+
 fn write_pfs(p: usize, n: u8, v: u8) {
     critical_section::with(|_| unsafe {
         write_volatile(PWPR, 0x00);
@@ -112,6 +121,7 @@ where
         modify(PMR, P, N, false);
         self.leave_analog();
         modify(PCR, P, N, false);
+        set_open_drain(P, N, false);
         modify(PODR, P, N, high);
         modify(PDR, P, N, true);
         Pin::new()
@@ -127,6 +137,7 @@ where
         modify(PMR, P, N, false);
         modify(PDR, P, N, false);
         modify(PCR, P, N, false);
+        set_open_drain(P, N, false);
         self.leave_analog();
         Pin::new()
     }
@@ -136,6 +147,7 @@ where
         modify(PMR, P, N, false);
         modify(PDR, P, N, false);
         modify(PCR, P, N, true);
+        set_open_drain(P, N, false);
         self.leave_analog();
         Pin::new()
     }
@@ -145,8 +157,19 @@ where
     /// The PSEL values are in the hardware manual's MPC chapter; the drivers
     /// in this crate set their own pins.
     pub fn into_function(self, psel: u8) -> Pin<P, N, Function> {
+        self.function(psel, false)
+    }
+
+    /// A peripheral function with an N-channel open-drain output (ODR), for
+    /// the pins of a bus such as SCI's simple I2C.
+    pub fn into_open_drain_function(self, psel: u8) -> Pin<P, N, Function> {
+        self.function(psel, true)
+    }
+
+    fn function(self, psel: u8, open_drain: bool) -> Pin<P, N, Function> {
         assert!(psel < 64);
         modify(PMR, P, N, false);
+        set_open_drain(P, N, open_drain);
         write_pfs(P, N, psel);
         modify(PMR, P, N, true);
         Pin::new()
@@ -163,6 +186,7 @@ where
         modify(PMR, P, N, false);
         modify(PDR, P, N, false);
         modify(PCR, P, N, false);
+        set_open_drain(P, N, false);
         write_pfs(P, N, 0x80);
         Pin::new()
     }

@@ -144,10 +144,14 @@ def segments(path):
             yield paddr, d[off:off + filesz] + b"\0" * (memsz - filesz)
 
 
-def symbols(path):
-    """Read NAME.sym (rx-elf-nm output) next to NAME.elf."""
+def symbols(path, sizes=None):
+    """Read NAME.sym (rx-elf-nm output, with -S the sizes too) next to
+    NAME.elf: the addresses, and the sizes into `sizes` if given."""
     syms = {}
     for line in open(path[:-4] + ".sym"):
-        a, _, name = line.split()
-        syms[name.lstrip("_")] = int(a, 16)
+        f = line.split()
+        name = f[-1].lstrip("_")
+        syms[name] = int(f[0], 16)
+        if sizes is not None and len(f) == 4:
+            sizes[name] = int(f[1], 16)
     return syms

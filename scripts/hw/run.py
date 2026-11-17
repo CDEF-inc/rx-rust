@@ -73,7 +73,8 @@ def save_log(r, syms, elf):
 
 def run(r, elf, seconds):
     name = os.path.basename(elf)[:-4]
-    syms = symbols(elf)
+    sizes = {}
+    syms = symbols(elf, sizes)
     r.mon("prg_download_start_on_connect")
     for addr, data in segments(elf):
         r.write(addr, data)
@@ -119,11 +120,16 @@ def run(r, elf, seconds):
     if v["failures"]:
         first = " first=%d got=%#x want=%#x" % (
             v["first_failure"], v["got_value"], v["want_value"])
-    # hw-uart / hw-spi: whether a loopback was found wired; hw-i2c:
-    # whether the EEPROM answered
-    for k in ("loopback", "eeprom"):
+    # hw-uart / hw-spi: whether a loopback was found wired; hw-i2c: the
+    # kind of bus on the AP-RX72M-0A and whether the EEPROM answered
+    for k in ("loopback", "i2c_bus", "eeprom"):
         if k in syms:
             first += " %s=%d" % (k, r.word(syms[k]))
+    # hw-i2c: its measurements, the size of the array (nm -S)
+    if "i2c_values" in syms and "i2c_values" in sizes:
+        n = sizes["i2c_values"] // 4
+        words = struct.unpack("<%dI" % n, r.read(syms["i2c_values"], 4 * n))
+        first += " i2c_values=" + ",".join("%x" % w for w in words)
     print("[%s/%s] checks=%d failures=%d%s (%.1f s)"
           % (name, BOARD, v["checks"], v["failures"], first, el))
     if "faillog" in syms and v["failures"]:

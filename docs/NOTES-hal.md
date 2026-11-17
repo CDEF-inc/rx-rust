@@ -33,7 +33,7 @@ feature でも同じコードになる。EK-RX74M のテストは今のところ
 依存し、そこにボードの HAL（`hw_board::hal`）、memory.x（`RX_MEMORY_X`、なければボードのもの）、結果の変数
 （`checks` / `failures` / `first_failure` / `finished`）と `check` / `finish`、`_done`、panic handler がある。
 両方のボードで動くテストは src/rx72.rs と src/rx74.rs に分かれ、src/main.rs が feature で片方を選ぶ（hw-pac は違いが小さいので 1 つのファイルで cfg）。
-片方のボードだけのテスト（hw-uart は AP-RX72M-0A、hw-clock と hw-i2c は EK-RX74N / EK-RX74M）は、
+片方のボードだけのテスト（hw-uart は AP-RX72M-0A、hw-clock は EK-RX74N / EK-RX74M）は、
 そのボードの feature だけを持つ。scripts/hw-build.sh は `HW_BOARD` から feature を決める（rx74m でも ek-rx74n）。
 
 ## PAC（crates/rx72-pac）
@@ -262,6 +262,8 @@ MOSCWTCR の待ち時間が過ぎたことを示すだけで、発振してい�
   ポートのレジスタは全ポート同じ並びなので、アドレスで直接扱う。同じレジスタの読み書きは critical-section の中。
   周辺機能の端子設定（MPC の PFS）は、それを使うドライバで扱う。
   `into_function(psel)` は MPC の PFS.PSEL を書き（PWPR の B0WI = 0、PFSWE = 1 で保護を外して戻す）、PMR = 1 にする。
+  `into_open_drain_function(psel)` は同じうえで出力を N チャネルオープンドレインにする（ODR0 / ODR1、0x8C080 + 2 ×
+  ポート、端子ごとに 2 ビット）。ほかの `into_*` は ODR を CMOS に戻す。
   P35（NMI）は入力専用（PDR / PODR / PMR / PCR のビットがない）なので、`into_*` は `IoCapable`（P35 以外の
   136 本に実装）を持つ端子だけにあり、P35 は `InputPin` としてだけ使える（P35 の `into_*` はコンパイルエラー）。
   `into_analog()` は A/D のアナログ入力を持つ端子（`AnalogCapable`: P40〜P47 = AN000〜AN007、PE2〜PE7 = AN100〜AN105、
@@ -380,6 +382,74 @@ MOSCWTCR の待ち時間が過ぎたことを示すだけで、発振してい�
 - 100 kHz（1 分周、周期 1200）の 50 %: 49.8 % / 51.9 %、10 ms に立ち上がりが 1000 回。
 - 終わったあとは 1 kHz・5 % で LD2 が薄く光る。
 
+- `i2c`: `I2c::riic0(p.riic0, pins.p12, pins.p13, Speed::Standard, &clocks)`。RIIC0（MSTPCRB.MSTPB21）を
+  P12 = SCL0 / P13 = SDA0（PSEL 0Fh、表 23.5）でマスタにし、embedded-hal の `I2c`（7 ビットアドレス、
+  `transaction`）を実装する。AP-RX72M-0A ではこの 2 本がシリアル用の CN8 の 1 番（RXD2）と 2 番（TXD2）で、
+  5 番が VDD、6 番が GND なので、I2C の機器は CN8 につなぐ。ボードの EEPROM（24LC16B）は SCI6 の P00 / P01
+  （簡易 I2C）にあり、RIIC の端子にはつながっていない。RIIC1（P21 / P20、SD カード）と RIIC2（P16 / P17、USB）は
+  コネクタに出ていない。
+  - ICSR2 をポーリングする（43.3.3 / 43.3.4、ICIER = 0）。送信は 1 バイトずつ、前のバイトの ACK（TEND）か NACK
+    （NACKF）を待ってから次を書くので、NACK がアドレスかデータか分かる。ICFER.NACKE で NACK のあとの転送は止まり、
+    ストップコンディションを出す。受信は ICMR3.WAIT = 1（バイトごとに ICDRR を読むまで SCL を Low に保つ）で、最後の
+    バイトの NACK（ACKWP を立てたうえで ACKBT）と、ストップコンディションまたはリスタートの要求を、SCL を放す前に
+    書く。アドレスが NACK された読み出しは、SP のあとに ICDRR をダミーで読む（図 43.9。書き込みのあとでも害はないので、
+    SP のあとは常に読む）。0 バイトの読み出しは 1 バイト
+    読んで捨てる（最後のバイトは NACK するため）。
+  - IICφ = PCLKB / 2^CKS。SCL の High / Low 幅は ICBRH / ICBRL + 1 サイクル（5 ビット、表 43.5 の式）。rx74-hal の
+    RI3C と同じく、I2C の規格の最小値に余裕を持たせて計算で決める: Standard は 4.1 / 6.0 us（PCLKB 60 MHz で CKS = 4、
+    ICBRH = 15、ICBRL = 22、96 kHz）、Fast は 0.7 / 1.8 us（CKS = 2、10、26、395 kHz）。表 43.5 の 60 MHz の値は
+    規格の最小値ちょうど（Standard の High 4.0 us、Fast の Low 1.33 us）。ストップコンディションのあとのバスフリー時間は
+    ICBRL の幅（43.10.3）で、4.7 / 1.3 us を満たす。ノイズフィルタ（1 段）と SCL 同期はリセット値のまま。
+  - SCL が止まったときはタイムアウト（ICFER.TMOE、16 ビットのロングモード、TMOH / TMOL）で終わる。マスタでバスが
+    ビジーのときと ST の要求中にだけ数える（43.11.1）ので、アイドルでは立たない。ST の前に BBSY が 20 ms ほど
+    消えなければ `Error::Timeout`。エラーのあとはマスタならストップコンディション、だめなら RIIC リセット
+    （ICE = 0 で IICRST）から設定し直す。内部リセット（ICE = 1 のまま IICRST）では BBSY が残り、SDA が Low のまま
+    止まったバスではビジーが解けないため。CN8 に USB シリアルを挿したまま RIIC を動かすと（検出を外して確認）、SCL が
+    アダプタの TXD で High に保たれて各転送がタイムアウト（約 17 ms）し、直後は SDA が RXD の弱いプルアップでゆっくり
+    戻るので BBSY = 1 が見える（その後ストップコンディションとして検出されて消える）。
+  - 初期化（図 43.4）: ICE = 0 で RIIC リセット、端子を RIIC に、ICE = 1 で内部リセットのまま ICSER = 0（リセット値は
+    ジェネラルコールと SARL0 = 0 に応答する）、ICMR1、ICBRH / ICBRL（予約ビットは 1）、ICMR2、ICMR3.ACKWP、ICFER、
+    ICIER = 0、IICRST = 0。ICCR1 には SOWP = 1 を書いて SCLO / SDAO を変えない。
+  - 端子の PCR はそのまま残す。`into_pull_up_input()` した端子を渡すと内蔵プルアップが効く（RIIC が Low にしていない
+    間は入力なので）。
+- `sci_i2c`: `SciI2c::sci6(p.sci6, pins.p00, pins.p01, &clocks)`。SCI6（MSTPCRB.MSTPB25）の簡易 I2C モードで、
+  P00 = SSDA6 / P01 = SSCL6（PSEL 0Ah、`into_open_drain_function` で N チャネルオープンドレイン）のボードの
+  EEPROM（24LC16B、50h、JSW6 ON。プルアップはボード上）を読み書きする `I2c`（7 ビットアドレス、約 100 kHz）。
+  - 42.7.4〜42.7.6 の手順（SIMR2.IICINTM = 1）をポーリングで: 開始 / 再開始 / 停止条件は SIMR3.IICSTIF、1 フレームの
+    終わりは TXI6（IR087）、受信したバイトは RXI6（IR086）。割り込みは ICU で禁止したまま、`serial` と同じく IR を見る。
+    送ったバイトの ACK は SISR.IICACKR。受信はダミーの FFh を TDR に書き、最後のバイトだけ SIMR2.IICACKT = 1（NACK）。
+    0 バイトの読み出しは 1 バイト読んで捨てる。
+  - SMR.CKS = 0、BRR = 18（60 MHz / (32 × 19) = 98.7 kHz。簡易 I2C の式 B = PCLK / (64 × 2^(2n−1) × (N+1))
+    で 100 kHz を超えない最速）。表 42.26 から High / Low は周期の約 47 % / 53 % で Standard を満たす。
+    SIMR1.IICDL = 18h（SSDA の遅延 23〜24 サイクル、約 0.4 us、SCL の立ち下がり 300 ns より長く）、SEMR.NFEN と
+    SNFR.NFCS = 001b（ノイズフィルタ）、SIMR2.IICCSC（クロック同期）。
+  - シングルマスタだけ（アービトレーションもバスビジーの検出もない）。待ちが ICLK / 1000 回のポーリング（PCLKB の
+    レジスタを読むので 20 ms ほど）で終わらなければ `Error::Timeout`。エラーのあとは停止条件、だめなら 42.7.7（TE = RE = 0、SIMR3 = F0h、RDR を読む、TE = RE = 1）。
+
+確認: test/rust/hw-i2c（ボード、rt グループ）。CN8 に何がつながっているかで RIIC の試験を変える（`i2c_bus`）。
+SDA（P13）だけを GPIO で一瞬 Low にし、プルアップなしの入力にして、PIDR が High になるまでのポーリング回数を数える。
+SCL（P12）は入力で読むだけで駆動しない（変換器の TXD が High を出しているので、Low を出すとぶつかる。P13 は変換器の
+RXD で入力なので駆動してよい）。I2C のプルアップなら SDA はすぐ（2 回以内）戻って SCL は High、何もなければ SDA は
+Low のまま。基準にボードの EEPROM のバス（P01 / P00）も同じように測ると 0 回だった。serial-echo の USB シリアル変換の
+RXD のプルアップは弱く、SDA は 4〜9 回かかった（2026-11-18、release / dev で何度か）。RXD のプルアップが I2C 並みに強い
+変換器だとバスと判定され、RIIC がタイムアウトまで TXD を Low に引く。
+最初は両端子を 2 us だけ Low にしてから読んでいたが、変換器をつないだままで 2（バス）と判定して RIIC の試験が SCL の
+タイムアウトで失敗した。次に両端子の回数で分けたが、SCL を Low にする時点で変換器の TXD とぶつかる（Codex のレビュー）
+ので、SDA だけで判定するようにした。
+- 0（それ以外。USB シリアル変換など）: バスの試験は飛ばす（RIIC が変換器の TXD を Low に引かないように）。
+- 1（何もない）: 内蔵プルアップでアドレス 33h の NACK（書き込み、読み出し、0 バイトの書き込み）と、そのあとのバスフリー。
+- 2（プルアップのあるバス）: 上の NACK、08h〜77h のスキャン、50h に 1 バイトアドレスの EEPROM（24C01〜24C16）が
+  あれば（`eeprom=1`）EK-RX74M の hw-i2c と同じ読み出しだけの試験（16 バイト、ランダム / カレントアドレス読み出し、
+  読み出し 2 つ、読み出し・書き込み・読み出しの transaction、Fast での同じ 16 バイトと時間）。ボードの 24LC16B を
+  使うには、CN2 の 26 番（P01 / SSCL6）を CN8 の 1 番に、25 番（P00 / SSDA6）を 2 番につなぐ（CN2 は未実装の
+  スルーホール。先頭 12 バイトは出荷時の MAC アドレス）。
+- 毎回、SCI6 の簡易 I2C でボードの EEPROM を読む（`eeprom` の bit 1）: レジスタの設定、00h から 16 バイト（先頭
+  12 バイトは MAC アドレスなので FFh ではない）、1 / 4 バイトのランダム読み出しの一致、33h のアドレス NACK、その後の
+  カレントアドレス読み出し。
+- 2026-11-18、AP-RX72M-0A（CN8 に USB シリアル変換をつないだまま、`i2c_bus=0`）: release / dev とも 15 確認すべて
+  通る（RIIC の設定 8 と SCI6 の 7）。EEPROM の先頭 16 バイトは `00 0C 7B 4C 03 2A 00 0C 7B 4C 03 2B 7B 4C 03 2B`
+  （MAC アドレス 00:0C:7B:4C:03:2A と :2B）。RIIC のバスの試験（CN8 に何もない場合とバスの場合）はまだ。
+
 ### UART の受信と相手機器との通信（2026-11-04）
 
 CN8 に USB シリアル変換（FTDI、3.3 V、Windows では COM8）をつなぎ、examples/serial-echo（下記）と
@@ -428,5 +498,5 @@ LD1 / LD2 を 2 Hz で交互に点滅させる。点滅の処理 `blink` は emb
 ## 予定
 
 1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）、~~UART（受信）~~（2026-11-04、デバッガをつないだ状態。上記）
-2. ~~SPI（RSPI）~~（2026-11-08、内部ループバック。CN9 に相手機器はまだつないでいない）、~~ADC（S12AD）~~（2026-11-08、自己診断・内部基準電圧・温度センサ。外部の電圧はまだ）、~~PWM（MTU）~~（2026-11-08、MTU6 を LD2 に。GPTW はまだ）、I2C（RIIC）
+2. ~~SPI（RSPI）~~（2026-11-08、内部ループバック。CN9 に相手機器はまだつないでいない）、~~ADC（S12AD）~~（2026-11-08、自己診断・内部基準電圧・温度センサ。外部の電圧はまだ）、~~PWM（MTU）~~（2026-11-08、MTU6 を LD2 に。GPTW はまだ）、~~I2C（RIIC）~~（2026-11-17、RIIC0 を CN8 に。上記）、~~簡易 I2C（SCI6）~~（2026-11-18、ボードの EEPROM）
 3. 必要なら async（embassy の time driver を CMT で）、embedded-hal-nb の serial
