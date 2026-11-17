@@ -119,9 +119,9 @@ def run(r, elf, seconds):
     if v["failures"]:
         first = " first=%d got=%#x want=%#x" % (
             v["first_failure"], v["got_value"], v["want_value"])
-    # hw-uart / hw-spi: whether a loopback was found wired; hw-i2c:
-    # whether the EEPROM answered
-    for k in ("loopback", "eeprom"):
+    # hw-uart / hw-spi: whether a loopback was found wired; hw-i2c: the
+    # kind of bus on the AP-RX72M-0A and whether the EEPROM answered
+    for k in ("loopback", "i2c_bus", "eeprom"):
         if k in syms:
             first += " %s=%d" % (k, r.word(syms[k]))
     print("[%s/%s] checks=%d failures=%d%s (%.1f s)"

@@ -33,7 +33,7 @@ feature でも同じコードになる。EK-RX74M のテストは今のところ
 依存し、そこにボードの HAL（`hw_board::hal`）、memory.x（`RX_MEMORY_X`、なければボードのもの）、結果の変数
 （`checks` / `failures` / `first_failure` / `finished`）と `check` / `finish`、`_done`、panic handler がある。
 両方のボードで動くテストは src/rx72.rs と src/rx74.rs に分かれ、src/main.rs が feature で片方を選ぶ（hw-pac は違いが小さいので 1 つのファイルで cfg）。
-片方のボードだけのテスト（hw-uart は AP-RX72M-0A、hw-clock と hw-i2c は EK-RX74N / EK-RX74M）は、
+片方のボードだけのテスト（hw-uart は AP-RX72M-0A、hw-clock は EK-RX74N / EK-RX74M）は、
 そのボードの feature だけを持つ。scripts/hw-build.sh は `HW_BOARD` から feature を決める（rx74m でも ek-rx74n）。
 
 ## PAC（crates/rx72-pac）
@@ -380,6 +380,46 @@ MOSCWTCR の待ち時間が過ぎたことを示すだけで、発振してい�
 - 100 kHz（1 分周、周期 1200）の 50 %: 49.8 % / 51.9 %、10 ms に立ち上がりが 1000 回。
 - 終わったあとは 1 kHz・5 % で LD2 が薄く光る。
 
+- `i2c`: `I2c::riic0(p.riic0, pins.p12, pins.p13, Speed::Standard, &clocks)`。RIIC0（MSTPCRB.MSTPB21）を
+  P12 = SCL0 / P13 = SDA0（PSEL 0Fh、表 23.5）でマスタにし、embedded-hal の `I2c`（7 ビットアドレス、
+  `transaction`）を実装する。AP-RX72M-0A ではこの 2 本がシリアル用の CN8 の 1 番（RXD2）と 2 番（TXD2）で、
+  5 番が VDD、6 番が GND なので、I2C の機器は CN8 につなぐ。ボードの EEPROM（24LC16B）は SCI6 の P00 / P01
+  （簡易 I2C）にあり、RIIC の端子にはつながっていない。RIIC1（P21 / P20、SD カード）と RIIC2（P16 / P17、USB）は
+  コネクタに出ていない。
+  - ICSR2 をポーリングする（43.3.3 / 43.3.4、ICIER = 0）。送信は 1 バイトずつ、前のバイトの ACK（TEND）か NACK
+    （NACKF）を待ってから次を書くので、NACK がアドレスかデータか分かる。ICFER.NACKE で NACK のあとの転送は止まり、
+    ストップコンディションを出す。受信は ICMR3.WAIT = 1（バイトごとに ICDRR を読むまで SCL を Low に保つ）で、最後の
+    バイトの NACK（ACKWP を立てたうえで ACKBT）と、ストップコンディションまたはリスタートの要求を、SCL を放す前に
+    書く。アドレスが NACK された読み出しは、SP のあとに ICDRR をダミーで読む（図 43.9。書き込みのあとでも害はないので、
+    SP のあとは常に読む）。0 バイトの読み出しは 1 バイト
+    読んで捨てる（最後のバイトは NACK するため）。
+  - IICφ = PCLKB / 2^CKS。SCL の High / Low 幅は ICBRH / ICBRL + 1 サイクル（5 ビット、表 43.5 の式）。rx74-hal の
+    RI3C と同じく、I2C の規格の最小値に余裕を持たせて計算で決める: Standard は 4.1 / 6.0 us（PCLKB 60 MHz で CKS = 4、
+    ICBRH = 15、ICBRL = 22、96 kHz）、Fast は 0.7 / 1.8 us（CKS = 2、10、26、395 kHz）。表 43.5 の 60 MHz の値は
+    規格の最小値ちょうど（Standard の High 4.0 us、Fast の Low 1.33 us）。ストップコンディションのあとのバスフリー時間は
+    ICBRL の幅（43.10.3）で、4.7 / 1.3 us を満たす。ノイズフィルタ（1 段）と SCL 同期はリセット値のまま。
+  - SCL が止まったときはタイムアウト（ICFER.TMOE、16 ビットのロングモード、TMOH / TMOL）で終わる。マスタでバスが
+    ビジーのときと ST の要求中にだけ数える（43.11.1）ので、アイドルでは立たない。ST の前に BBSY が 20 ms ほど
+    消えなければ `Error::Timeout`。エラーのあとはマスタならストップコンディション、だめなら内部リセット
+    （ICCR1.IICRST、ICE = 1 のまま。設定は残り、端子を放す）。
+  - 初期化（図 43.4）: ICE = 0 で RIIC リセット、端子を RIIC に、ICE = 1 で内部リセットのまま ICSER = 0（リセット値は
+    ジェネラルコールと SARL0 = 0 に応答する）、ICMR1、ICBRH / ICBRL（予約ビットは 1）、ICMR2、ICMR3.ACKWP、ICFER、
+    ICIER = 0、IICRST = 0。ICCR1 には SOWP = 1 を書いて SCLO / SDAO を変えない。
+  - 端子の PCR はそのまま残す。`into_pull_up_input()` した端子を渡すと内蔵プルアップが効く（RIIC が Low にしていない
+    間は入力なので）。
+
+確認: test/rust/hw-i2c（ボード、rt グループ）。CN8 に何がつながっているかで試験を変える（`i2c_bus`）。
+端子を GPIO で一瞬 Low にし、プルアップなしの入力にして 2 us 以上待って読む。I2C のプルアップ（数 kΩ）なら High に
+戻り、何もなければ Low のまま、serial-echo の USB シリアル変換は SCL（P12）を TXD で High にするが SDA（P13、変換器の
+RXD）のプルアップは弱い。
+- 0（USB シリアル変換）: バスの試験は飛ばす（RIIC が変換器の TXD を Low に引かないように）。
+- 1（何もない）: 内蔵プルアップでアドレス 33h の NACK（書き込み、読み出し、0 バイトの書き込み）と、そのあとのバスフリー。
+- 2（プルアップのあるバス）: 上の NACK、08h〜77h のスキャン、50h に 1 バイトアドレスの EEPROM（24C01〜24C16）が
+  あれば（`eeprom=1`）EK-RX74M の hw-i2c と同じ読み出しだけの試験（16 バイト、ランダム / カレントアドレス読み出し、
+  読み出し 2 つ、読み出し・書き込み・読み出しの transaction、Fast での同じ 16 バイトと時間）。ボードの 24LC16B を
+  使うには、CN2 の 26 番（P01 / SSCL6）を CN8 の 1 番に、25 番（P00 / SSDA6）を 2 番につなぐ（CN2 は未実装の
+  スルーホール。先頭 12 バイトは出荷時の MAC アドレス）。
+
 ### UART の受信と相手機器との通信（2026-11-04）
 
 CN8 に USB シリアル変換（FTDI、3.3 V、Windows では COM8）をつなぎ、examples/serial-echo（下記）と
@@ -428,5 +468,5 @@ LD1 / LD2 を 2 Hz で交互に点滅させる。点滅の処理 `blink` は emb
 ## 予定
 
 1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）、~~UART（受信）~~（2026-11-04、デバッガをつないだ状態。上記）
-2. ~~SPI（RSPI）~~（2026-11-08、内部ループバック。CN9 に相手機器はまだつないでいない）、~~ADC（S12AD）~~（2026-11-08、自己診断・内部基準電圧・温度センサ。外部の電圧はまだ）、~~PWM（MTU）~~（2026-11-08、MTU6 を LD2 に。GPTW はまだ）、I2C（RIIC）
+2. ~~SPI（RSPI）~~（2026-11-08、内部ループバック。CN9 に相手機器はまだつないでいない）、~~ADC（S12AD）~~（2026-11-08、自己診断・内部基準電圧・温度センサ。外部の電圧はまだ）、~~PWM（MTU）~~（2026-11-08、MTU6 を LD2 に。GPTW はまだ）、~~I2C（RIIC）~~（2026-11-17、RIIC0 を CN8 に。上記）
 3. 必要なら async（embassy の time driver を CMT で）、embedded-hal-nb の serial

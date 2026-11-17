@@ -22,7 +22,8 @@
 #   rust     test/rust/core-smoke (target-cpu=rxv3,  -> build/hw/rust
 #            release / dev), in RAM
 #   rt       rx-rt applications, test/rust/isr-save,    -> build/hw/rt
-#            isr-bank, hw-irq, hw-pac, hw-hal, hw-uart, hw-spi, hw-adc, hw-pwm
+#            isr-bank, hw-irq, hw-pac, hw-hal, hw-uart, hw-spi, hw-adc, hw-pwm,
+#            hw-i2c
 #            (the board tests with the board's feature),
 #            alloc-smoke, float-smoke (also with +flush-denormals: float-smoke-fd)
 #            (target-cpu=rxv3, release / dev), in the code flash with
@@ -55,7 +56,7 @@ case $board in
   rx72m)
     out=$root/build/hw cpu=rxv3 v3e=0 ram_ld=rx72m-ram.ld rom_ld=rx72m-rom.ld
     memory_x=rx72m-memory.x
-    board_tests=(hw-pac hw-hal hw-uart hw-spi hw-adc hw-pwm)
+    board_tests=(hw-pac hw-hal hw-uart hw-spi hw-adc hw-pwm hw-i2c)
     peripherals=(hw-irq "${board_tests[@]}"
                  "hw-irq:-relax:-C target-feature=+relax")
     all=(insns rom codegen rust rt examples lldb)
@@ -120,7 +121,7 @@ defs=(--defsym V2=1 --defsym V3=1 --defsym V3E=$v3e --defsym FPU=1 --defsym DFPU
 
 # sym ELF: write the runner's symbols next to the ELF
 sym() {
-  "$G/rx-elf-nm" "$1" | grep -E ' _(start|rx_reset|done|checks|failures|first_failure|got_value|want_value|exit_code|finished|faillog|loopback|eeprom|coretests_log|coretests_log_len)$' > "${1%.elf}.sym"
+  "$G/rx-elf-nm" "$1" | grep -E ' _(start|rx_reset|done|checks|failures|first_failure|got_value|want_value|exit_code|finished|faillog|loopback|i2c_bus|eeprom|coretests_log|coretests_log_len)$' > "${1%.elf}.sym"
 }
 
 # insn_tests DIR START LDSCRIPT NAME...: instruction tests from test/qemu

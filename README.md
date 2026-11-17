@@ -89,8 +89,8 @@ test/rust/      Rust tests: coretests (library/coretests on QEMU), core-smoke, v
                 cabi-smoke (with C drivers), qemu-demo, alloc-smoke,
                 float-smoke, isr-save, isr-bank, lldb-demo, hw-irq (also on the board);
                 board only, the board as a feature (hw-board): hw-pac, hw-hal,
-                hw-spi, hw-adc, hw-pwm (all boards), hw-uart (AP-RX72M-0A),
-                hw-clock, hw-i2c (EK-RX74N / EK-RX74M)
+                hw-spi, hw-adc, hw-pwm, hw-i2c (all boards), hw-uart (AP-RX72M-0A),
+                hw-clock (EK-RX74N / EK-RX74M)
 docs/           design notes and plan (in Japanese)
 ```
 
