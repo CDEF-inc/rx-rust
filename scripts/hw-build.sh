@@ -119,9 +119,9 @@ target_dir() {
 defs=(--defsym V2=1 --defsym V3=1 --defsym V3E=$v3e --defsym FPU=1 --defsym DFPU=1
       "${extra_defs[@]}")
 
-# sym ELF: write the runner's symbols next to the ELF
+# sym ELF: write the runner's symbols (with their sizes) next to the ELF
 sym() {
-  "$G/rx-elf-nm" "$1" | grep -E ' _(start|rx_reset|done|checks|failures|first_failure|got_value|want_value|exit_code|finished|faillog|loopback|i2c_bus|eeprom|i2c_values|coretests_log|coretests_log_len)$' > "${1%.elf}.sym"
+  "$G/rx-elf-nm" -S "$1" | grep -E ' _(start|rx_reset|done|checks|failures|first_failure|got_value|want_value|exit_code|finished|faillog|loopback|i2c_bus|eeprom|i2c_values|coretests_log|coretests_log_len)$' > "${1%.elf}.sym"
 }
 
 # insn_tests DIR START LDSCRIPT NAME...: instruction tests from test/qemu

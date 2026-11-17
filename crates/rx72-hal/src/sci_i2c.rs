@@ -11,10 +11,10 @@
 //!
 //! The simple I2C mode is single master: there is no arbitration and no
 //! bus-busy detection. A device stretching SCL is followed (SIMR2.IICCSC);
-//! a wait that does not end in about 1 ms is `Error::Timeout`, after which
-//! the bus is released as in 42.7.7.
+//! a wait that does not end in ICLK / 1000 polls (some 20 ms, as `i2c`'s
+//! bus-busy wait: a poll reads a PCLKB register) is `Error::Timeout`, after
+//! which the bus is released as in 42.7.7.
 
-use core::fmt;
 use core::ptr::{read_volatile, write_volatile};
 
 use embedded_hal::i2c::{
@@ -23,24 +23,21 @@ use embedded_hal::i2c::{
 
 use crate::clock::Clocks;
 use crate::gpio::{Function, Pin};
+use crate::i2c::{bytes_to_read, read_len, runs};
 use crate::mstp::{self, Mstpcr};
 use crate::pac;
 
 /// PFS.PSEL of SSDA6 / SSCL6 (the SCI function, as TXD6 / RXD6).
 const PSEL_SCI: u8 = 0b01010;
-/// PORT0.ODR0: B0 (P00) and B2 (P01) select N-channel open drain.
-const ODR0_PORT0: *mut u8 = 0x0008_c080 as _;
-const ODR_P00_P01: u8 = 1 << 0 | 1 << 2;
 
 // ICU interrupt request flags of RXI6 / TXI6 (vectors 86 / 87).
 const IR_RXI6: *mut u8 = 0x0008_7056 as _;
 const IR_TXI6: *mut u8 = 0x0008_7057 as _;
 
-// SCR
-const TIE: u8 = 1 << 7;
+// SCR: TIE, TE, RE (on); RIE added while receiving (the flows keep RXI off
+// while sending)
+const SCR_ON: u8 = 1 << 7 | 1 << 5 | 1 << 4;
 const RIE: u8 = 1 << 6;
-const TE: u8 = 1 << 5;
-const RE: u8 = 1 << 4;
 // SCMR: reserved bits 1 (F2h) with SDIR (MSB first), SINV = SMIF = 0
 const SCMR_I2C: u8 = 0xf2 | 1 << 3;
 // SEMR.NFEN; SNFR.NFCS = 001b (the noise filter on the clock / 1)
@@ -69,20 +66,9 @@ const IICACKR: u8 = 1 << 0;
 pub enum Error {
     /// No ACK for the address or a data byte (SISR.IICACKR).
     NoAcknowledge(NoAcknowledgeSource),
-    /// A condition or a frame did not complete in about 1 ms (SCL held low).
+    /// A condition or a frame did not complete (SCL held low).
     Timeout,
 }
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Error::NoAcknowledge(s) => write!(f, "no acknowledge ({s})"),
-            Error::Timeout => f.write_str("timeout"),
-        }
-    }
-}
-
-impl core::error::Error for Error {}
 
 impl embedded_hal::i2c::Error for Error {
     fn kind(&self) -> ErrorKind {
@@ -128,8 +114,8 @@ pub struct SciI2c {
     rate: Rate,
     /// The polls of a wait before `Error::Timeout`.
     polls: u32,
-    _sda: Pin<0x00, 0, Function>,
-    _scl: Pin<0x00, 1, Function>,
+    sda: Pin<0x00, 0, Function>,
+    scl: Pin<0x00, 1, Function>,
 }
 
 impl SciI2c {
@@ -145,11 +131,8 @@ impl SciI2c {
         let rate = Rate::new(clocks.pclkb, 100_000).expect("PCLKB out of range");
         mstp::start(Mstpcr::B, 25);
         sci.scr().write(|w| unsafe { w.bits(0) });
-        critical_section::with(|_| unsafe {
-            write_volatile(ODR0_PORT0, read_volatile(ODR0_PORT0) | ODR_P00_P01);
-        });
-        let sda = sda.into_function(PSEL_SCI);
-        let scl = scl.into_function(PSEL_SCI);
+        let sda = sda.into_open_drain_function(PSEL_SCI);
+        let scl = scl.into_open_drain_function(PSEL_SCI);
         sci.simr3().write(|w| unsafe { w.bits(RELEASED) });
         sci.smr().write(|w| unsafe { w.bits(rate.cks) });
         sci.scmr().write(|w| unsafe { w.bits(SCMR_I2C) });
@@ -157,11 +140,10 @@ impl SciI2c {
         sci.semr().write(|w| unsafe { w.bits(NFEN) });
         sci.snfr().write(|w| unsafe { w.bits(NFCS_1) });
         sci.simr1().write(|w| unsafe { w.bits(SIMR1_I2C) });
-        sci.simr2().write(|w| unsafe { w.bits(IICACKT | IICCSC | IICINTM) });
+        sci.simr2().write(|w| unsafe { w.bits(simr2(true)) });
         sci.spmr().write(|w| unsafe { w.bits(0) });
-        sci.scr().write(|w| unsafe { w.bits(TIE | TE | RE) });
-        let polls = clocks.iclk / 1000;
-        SciI2c { sci, rate, polls, _sda: sda, _scl: scl }
+        sci.scr().write(|w| unsafe { w.bits(SCR_ON) });
+        SciI2c { sci, rate, polls: clocks.iclk / 1000, sda, scl }
     }
 
     /// The bit rate setting in use.
@@ -169,20 +151,21 @@ impl SciI2c {
         self.rate
     }
 
-    /// Gives SCI6 and the pins back (SCI6 stopped, the pins left as they
-    /// are).
+    /// Gives SCI6 and the pins back (SCI6 stopped; the pins still open
+    /// drain until they change mode).
     pub fn free(self) -> (pac::Sci6, Pin<0x00, 0, Function>, Pin<0x00, 1, Function>) {
         self.sci.scr().write(|w| unsafe { w.bits(0) });
-        (self.sci, self._sda, self._scl)
+        (self.sci, self.sda, self.scl)
     }
 
     fn wait(&self, done: impl Fn() -> bool) -> Result<(), Error> {
-        for _ in 0..self.polls {
-            if done() {
-                return Ok(());
-            }
-        }
-        if done() { Ok(()) } else { Err(Error::Timeout) }
+        (0..=self.polls).any(|_| done()).then_some(()).ok_or(Error::Timeout)
+    }
+
+    /// SIMR2.IICACKT: the ACK (`nack` = false) or NACK sent for a received
+    /// byte; 1 also while receiving an ACK.
+    fn set_nack(&self, nack: bool) {
+        self.sci.simr2().write(|w| unsafe { w.bits(simr2(nack)) });
     }
 
     /// Generates a start, restart or stop condition and waits for it
@@ -206,11 +189,9 @@ impl SciI2c {
         Ok(self.sci.sisr().read().bits() & IICACKR == 0)
     }
 
-    /// Receives a byte, answering ACK, or NACK for the `last` one: a dummy
-    /// FFh to TDR, RXI6 for the byte, then TXI6 for the end of the frame.
-    fn receive(&mut self, last: bool) -> Result<u8, Error> {
-        let ackt = if last { IICACKT } else { 0 };
-        self.sci.simr2().write(|w| unsafe { w.bits(ackt | IICCSC | IICINTM) });
+    /// Receives a byte with the ACK or NACK set by `set_nack`: a dummy FFh
+    /// to TDR, RXI6 for the byte, then TXI6 for the end of the frame.
+    fn receive(&mut self) -> Result<u8, Error> {
         unsafe {
             write_volatile(IR_RXI6, 0);
             write_volatile(IR_TXI6, 0);
@@ -223,43 +204,31 @@ impl SciI2c {
     }
 
     fn run(&mut self, addr: u8, ops: &mut [Operation<'_>]) -> Result<(), Error> {
-        let mut i = 0;
         let mut started = false;
-        while i < ops.len() {
-            let read = matches!(ops[i], Operation::Read(_));
-            // The run of operations in the same direction.
-            let mut j = i;
-            while j < ops.len() && matches!(ops[j], Operation::Read(_)) == read {
-                j += 1;
-            }
+        for (read, run, _) in runs(ops) {
             self.condition(if started { RSTAREQ } else { STAREQ })?;
             started = true;
             // The ACK of the address is received (IICACKT = 1).
-            self.sci.simr2().write(|w| unsafe { w.bits(IICACKT | IICCSC | IICINTM) });
+            self.set_nack(true);
             if !self.send(addr << 1 | read as u8)? {
                 return Err(Error::NoAcknowledge(NoAcknowledgeSource::Address));
             }
             if read {
-                self.sci.scr().write(|w| unsafe { w.bits(TIE | RIE | TE | RE) });
-                let total: usize = ops[i..j]
-                    .iter()
-                    .map(|op| if let Operation::Read(r) = op { r.len() } else { 0 })
-                    .sum();
-                if total == 0 {
-                    self.receive(true)?;
-                }
-                let mut n = 0;
-                for op in &mut ops[i..j] {
-                    if let Operation::Read(r) = op {
-                        for b in r.iter_mut() {
-                            n += 1;
-                            *b = self.receive(n == total)?;
-                        }
+                // ACK for all but the last byte; a read of nothing reads one.
+                let wanted = read_len(run);
+                let total = wanted.max(1);
+                let mut dropped = 0u8;
+                let bytes = bytes_to_read(run).chain((wanted == 0).then_some(&mut dropped));
+                self.sci.scr().write(|w| unsafe { w.bits(SCR_ON | RIE) });
+                for (k, b) in bytes.enumerate() {
+                    if k == 0 || k + 1 == total {
+                        self.set_nack(k + 1 == total);
                     }
+                    *b = self.receive()?;
                 }
-                self.sci.scr().write(|w| unsafe { w.bits(TIE | TE | RE) });
+                self.sci.scr().write(|w| unsafe { w.bits(SCR_ON) });
             } else {
-                for op in &ops[i..j] {
+                for op in run.iter() {
                     if let Operation::Write(w) = op {
                         for &b in w.iter() {
                             if !self.send(b)? {
@@ -269,7 +238,6 @@ impl SciI2c {
                     }
                 }
             }
-            i = j;
         }
         if started {
             self.condition(STPREQ)?;
@@ -280,15 +248,20 @@ impl SciI2c {
     /// After an error: a stop condition; if that fails, the release of
     /// 42.7.7 (TE = RE = 0, SIMR3 = F0h, RDR read, TE = RE = 1).
     fn recover(&mut self) {
-        self.sci.scr().write(|w| unsafe { w.bits(TIE | TE | RE) });
-        self.sci.simr2().write(|w| unsafe { w.bits(IICACKT | IICCSC | IICINTM) });
+        self.sci.scr().write(|w| unsafe { w.bits(SCR_ON) });
+        self.set_nack(true);
         if self.condition(STPREQ).is_err() {
             self.sci.scr().write(|w| unsafe { w.bits(0) });
             self.sci.simr3().write(|w| unsafe { w.bits(RELEASED) });
             let _ = self.sci.rdr().read().bits();
-            self.sci.scr().write(|w| unsafe { w.bits(TIE | TE | RE) });
+            self.sci.scr().write(|w| unsafe { w.bits(SCR_ON) });
         }
     }
+}
+
+/// SIMR2: IICINTM (TXI / RXI), IICCSC (clock synchronization), IICACKT.
+fn simr2(nack: bool) -> u8 {
+    IICINTM | IICCSC | if nack { IICACKT } else { 0 }
 }
 
 impl ErrorType for SciI2c {

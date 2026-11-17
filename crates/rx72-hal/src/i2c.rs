@@ -141,6 +141,13 @@ impl embedded_hal::i2c::Error for Error {
     }
 }
 
+/// A RIIC reset (ICCR1.IICRST with ICE = 0): the registers to their reset
+/// values, BBSY cleared, the pins released.
+fn reset(riic: &pac::Riic0) {
+    riic.iccr1().write(|w| unsafe { w.bits(SOWP) });
+    riic.iccr1().write(|w| unsafe { w.bits(IICRST | SOWP) });
+}
+
 /// The set-up after a RIIC reset (ICCR1.IICRST with ICE = 0): the internal
 /// reset, with the pins driven, during the register settings.
 fn configure(riic: &pac::Riic0, timing: Timing) {
@@ -183,8 +190,7 @@ impl I2c {
         let timing = Timing::new(clocks.pclkb, speed).expect("PCLKB too fast");
         mstp::start(Mstpcr::B, 21);
         // A RIIC reset with the pins not driven, then the pins.
-        riic.iccr1().write(|w| unsafe { w.bits(SOWP) });
-        riic.iccr1().write(|w| unsafe { w.bits(IICRST | SOWP) });
+        reset(&riic);
         let scl = scl.into_function(PSEL_RIIC);
         let sda = sda.into_function(PSEL_RIIC);
         configure(&riic, timing);
@@ -294,42 +300,32 @@ impl I2c {
     /// Receives into the read operations `ops` (one run) after the address
     /// byte, then requests a STOP, or a repeated START if `then_restart`.
     fn read_bytes(&mut self, ops: &mut [Operation<'_>], then_restart: bool) -> Result<(), Error> {
-        let len = |op: &Operation<'_>| if let Operation::Read(b) = op { b.len() } else { 0 };
-        let wanted: usize = ops.iter().map(len).sum();
+        let wanted = read_len(ops);
         // A read of nothing still reads (and drops) one byte.
         let total = wanted.max(1);
-        let mut dropped = [0u8; 1];
+        let mut dropped = 0u8;
         // SCL held low after each byte until ICDRR is read; NACK for the
         // last byte. The dummy read starts the first byte.
         self.set_icmr3(true, total == 1);
         let _ = self.riic.icdrr().read().bits();
-        let mut n = 0;
-        let mut bufs = ops.iter_mut().filter_map(|op| match op {
-            Operation::Read(b) => Some(&mut **b),
-            Operation::Write(_) => None,
-        });
-        let mut spare = [&mut dropped[..]];
-        let bufs: &mut dyn Iterator<Item = &mut [u8]> =
-            if wanted == 0 { &mut spare.iter_mut().map(|b| &mut **b) } else { &mut bufs };
-        for buf in bufs {
-            for b in buf.iter_mut() {
-                self.wait(RDRF)?;
-                n += 1;
-                if n == total {
-                    // The end, requested before the last read releases SCL.
-                    if then_restart {
-                        self.clear(START);
-                        self.request(RS);
-                    } else {
-                        self.clear(STOP);
-                        self.request(SP);
-                    }
-                } else if n == total - 1 {
-                    // This read releases the last byte: NACK it.
-                    self.set_icmr3(true, true);
+        let bytes = bytes_to_read(ops).chain((wanted == 0).then_some(&mut dropped));
+        for (k, b) in bytes.enumerate() {
+            self.wait(RDRF)?;
+            let n = k + 1;
+            if n == total {
+                // The end, requested before the last read releases SCL.
+                if then_restart {
+                    self.clear(START);
+                    self.request(RS);
+                } else {
+                    self.clear(STOP);
+                    self.request(SP);
                 }
-                *b = self.riic.icdrr().read().bits();
+            } else if n == total - 1 {
+                // This read releases the last byte: NACK it.
+                self.set_icmr3(true, true);
             }
+            *b = self.riic.icdrr().read().bits();
         }
         // WAIT off after the last read (43.2.5), and ACK for the next read.
         self.set_icmr3(false, false);
@@ -367,8 +363,7 @@ impl I2c {
     fn recover(&mut self) {
         let s = self.sr2();
         if s & (AL | TMOF) != 0 || self.cr2() & MST == 0 || self.stop(false).is_err() {
-            self.riic.iccr1().write(|w| unsafe { w.bits(SOWP) });
-            self.riic.iccr1().write(|w| unsafe { w.bits(IICRST | SOWP) });
+            reset(&self.riic);
             configure(&self.riic, self.timing);
             return;
         }
@@ -377,39 +372,58 @@ impl I2c {
     }
 
     fn run(&mut self, addr: u8, ops: &mut [Operation<'_>]) -> Result<(), Error> {
-        let mut i = 0;
         let mut started = false;
         // Set when the previous read run requested the STOP or the
         // repeated START itself.
         let mut end_requested = false;
-        while i < ops.len() {
-            let read = matches!(ops[i], Operation::Read(_));
-            // The run of operations in the same direction.
-            let mut j = i;
-            while j < ops.len() && matches!(ops[j], Operation::Read(_)) == read {
-                j += 1;
-            }
+        for (read, run, last) in runs(ops) {
             self.address(addr, read, started, end_requested)?;
             if read {
-                let last = j == ops.len();
-                self.read_bytes(&mut ops[i..j], !last)?;
-                end_requested = true;
+                self.read_bytes(run, !last)?;
             } else {
-                for op in &ops[i..j] {
+                for op in run.iter() {
                     if let Operation::Write(w) = op {
                         self.write_bytes(w)?;
                     }
                 }
-                end_requested = false;
             }
+            end_requested = read;
             started = true;
-            i = j;
         }
         if started {
             self.stop(end_requested)?;
         }
         Ok(())
     }
+}
+
+fn is_read(op: &Operation<'_>) -> bool {
+    matches!(op, Operation::Read(_))
+}
+
+/// The operations of a transaction in runs of one direction: whether the
+/// run reads, the run, and whether it is the last one.
+pub(crate) fn runs<'a, 'b>(
+    ops: &'a mut [Operation<'b>],
+) -> impl Iterator<Item = (bool, &'a mut [Operation<'b>], bool)> {
+    let mut it = ops.chunk_by_mut(|a, b| is_read(a) == is_read(b)).peekable();
+    core::iter::from_fn(move || {
+        let run = it.next()?;
+        Some((is_read(&run[0]), run, it.peek().is_none()))
+    })
+}
+
+/// The number of bytes the read operations of `ops` take.
+pub(crate) fn read_len(ops: &[Operation<'_>]) -> usize {
+    ops.iter().map(|op| if let Operation::Read(b) = op { b.len() } else { 0 }).sum()
+}
+
+/// The bytes of the read operations of `ops`, in order.
+pub(crate) fn bytes_to_read<'a>(ops: &'a mut [Operation<'_>]) -> impl Iterator<Item = &'a mut u8> {
+    ops.iter_mut().flat_map(|op| match op {
+        Operation::Read(b) => &mut b[..],
+        Operation::Write(_) => &mut [][..],
+    })
 }
 
 /// A NACK on the address byte becomes NoAcknowledge(Address), on data

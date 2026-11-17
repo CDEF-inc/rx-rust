@@ -1,56 +1,32 @@
-//! rx72-hal on the AP-RX72M-0A board: RIIC0 as an I2C master on CN8
-//! (pin 1 = P12 = SCL0, pin 2 = P13 = SDA0, pin 5 = VDD, pin 6 = GND), with
-//! the PLL at 240 MHz (PCLKB 60 MHz). It checks the timing choice and the
-//! set-up (module stop, the RIIC registers, the pin functions). What is on
-//! CN8 decides the rest (`i2c_bus`):
+//! rx72-hal on the AP-RX72M-0A board, PLL 240 MHz (PCLKB 60 MHz): RIIC0 on CN8
+//! (P12 = SCL0, P13 = SDA0) and SCI6's simple I2C on the board's EEPROM
+//! (P00 = SSDA6, P01 = SSCL6). See docs/NOTES-hal.md.
 //!
-//! - 0: anything else, such as the USB serial adapter of serial-echo (its
-//!   TXD drives P12 high, and SDA has only its weak RXD pull-up). The bus
-//!   checks are skipped, so that the RIIC does not pull its TXD low.
-//! - 1: nothing: the internal pull-ups carry the bus. A NACK from an
-//!   address nobody answers, for a write, a read and a write of no bytes,
-//!   and the bus free afterwards.
-//! - 2: a bus with pull-ups: the NACK checks, a scan of addresses 08h-77h
-//!   (the ACKs in `i2c_values`), and if an EEPROM with one address byte
-//!   answers at 50h (`eeprom` bit 0; a 24C01-24C16, such as the board's own
-//!   24LC16B on P00 / P01 when CN2 pin 26 is wired to CN8 pin 1 and CN2
-//!   pin 25 to CN8 pin 2): the reads of hw-i2c on the EK-RX74M, read only.
-//!   A 16-byte read from 00h with a repeated START, random and
-//!   current-address reads of 1, 2 and 4 bytes that match it, transactions
-//!   of two reads and of a read, a write and a read, the same 16 bytes in
-//!   Fast mode, and the time of the 16-byte read in both modes (timed with
-//!   CMT0 at PCLKB / 8).
+//! RIIC0: the timing choice and the set-up always; the bus checks depend on
+//! what is on CN8 (`i2c_bus`), found from SDA alone so that SCL, which the
+//! USB serial adapter's TXD may drive, is never driven by the test:
+//! - 0: anything else (the adapter: its weak RXD pull-up is slow): skipped.
+//! - 1: nothing: with the internal pull-ups, the address NACK from 33h for a
+//!   write, a read and a probe, and the bus free afterwards.
+//! - 2: a bus with pull-ups: those, a scan of 08h-77h, and if a 1-byte-address
+//!   EEPROM answers at 50h (`eeprom` bit 0), the read-only EEPROM checks of
+//!   the EK-RX74M's hw-i2c in Standard and Fast mode.
 //!
-//! The kind of bus is found from SDA (P13) alone, as GPIO: it is driven
-//! low for a moment, then left as an input without the pull-up, and PIDR is
-//! polled until it reads high. SCL (P12) is only read, never driven: the
-//! adapter's TXD drives it, and driving it low would fight that output.
-//! P13 is our TXD2 and the adapter's RXD, an input on its side, so it may
-//! be driven. An I2C pull-up brings SDA back within [`FAST_RISE`] polls
-//! (the board's EEPROM bus, measured as a reference, takes none) and SCL
-//! reads high; the adapter's RXD pull-up takes 6-9 polls; a floating pin
-//! stays low. An adapter with an RXD pull-up as strong as an I2C one would
-//! be taken for a bus, and the RIIC would then pull its TXD low until the
-//! timeout.
-//!
-//! Then, on every run, SCI6 in simple I2C mode reads the board's own
-//! EEPROM on P00 / P01 (24LC16B at 50h, JSW6 ON): the register set-up, 16
-//! bytes from 00h (the board's MAC addresses in the first 12, so not
-//! blank), random reads that match them, an address NACK from 33h, and a
-//! current-address read after it (`eeprom` bit 1 when the read works).
-//! Booted from the code flash by scripts/hw-run.sh; the results are in
-//! `checks` / `failures` / `first_failure` / `finished`, the measurements
-//! in `i2c_values`.
+//! SCI6, always: the set-up, 16 bytes from 00h (the MAC addresses in the
+//! first 12, so not blank), random reads that match, the address NACK from
+//! 33h and a current-address read after it (`eeprom` bit 1).
 
 use core::ptr::{read_volatile, write_volatile};
 
+use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::InputPin;
-use embedded_hal::i2c::{I2c as _, NoAcknowledgeSource, Operation};
+use embedded_hal::i2c::{ErrorKind, I2c as _, NoAcknowledgeSource, Operation};
 use hw_board::hal::clock::Config;
-use hw_board::hal::gpio::Parts;
-use hw_board::hal::i2c::{Error, I2c, Speed, Timing};
+use hw_board::hal::delay::Delay;
+use hw_board::hal::gpio::{Input, IoCapable, Parts, Pin};
+use hw_board::hal::i2c::{I2c, Speed, Timing};
 use hw_board::hal::pac::Peripherals;
-use hw_board::hal::sci_i2c::{Error as SciError, Rate, SciI2c};
+use hw_board::hal::sci_i2c::{Rate, SciI2c};
 use hw_board::check;
 
 #[unsafe(no_mangle)]
@@ -62,12 +38,10 @@ static mut i2c_bus: u32 = 0;
 // 400 kHz; [4..8] the first 16 bytes of the EEPROM (little-endian words);
 // [8..12] the addresses that answered the scan (bit n of word n / 32);
 // [12..15] the results of the write, read and probe to 33h (`code`);
-// [15] ICCR2 / ICSR2 after them (bits 15:8 / 7:0); [16..20] the first 16
-// bytes of the EEPROM through SCI6; [20] / [21] the results of that read
-// and of the probe of 33h through SCI6 (`code_sci`); [22] the
-// polls until P01 / P00 rise.
+// [16..20] the first 16 bytes of the EEPROM through SCI6; [20] / [21] the
+// results of that read and of the probe of 33h through SCI6.
 #[unsafe(no_mangle)]
-static mut i2c_values: [u32; 23] = [0; 23];
+static mut i2c_values: [u32; 22] = [0; 22];
 
 const EEPROM: u8 = 0x50;
 const NOBODY: u8 = 0x33;
@@ -79,25 +53,16 @@ fn record(i: usize, v: u32) {
 }
 
 /// 0 Ok, 1 / 2 / 3 NACK on the address / data / unknown, 4 arbitration
-/// lost, 5 timeout.
-fn code<T>(r: &Result<T, Error>) -> u32 {
-    match r {
+/// lost, 5 other (the timeout), 6 anything else.
+fn code<T, E: embedded_hal::i2c::Error>(r: &Result<T, E>) -> u32 {
+    match r.as_ref().map_err(|e| e.kind()) {
         Ok(_) => 0,
-        Err(Error::NoAcknowledge(NoAcknowledgeSource::Address)) => 1,
-        Err(Error::NoAcknowledge(NoAcknowledgeSource::Data)) => 2,
-        Err(Error::NoAcknowledge(_)) => 3,
-        Err(Error::ArbitrationLoss) => 4,
-        Err(Error::Timeout) => 5,
-    }
-}
-
-fn code_sci<T>(r: &Result<T, SciError>) -> u32 {
-    match r {
-        Ok(_) => 0,
-        Err(SciError::NoAcknowledge(NoAcknowledgeSource::Address)) => 1,
-        Err(SciError::NoAcknowledge(NoAcknowledgeSource::Data)) => 2,
-        Err(SciError::NoAcknowledge(_)) => 3,
-        Err(SciError::Timeout) => 5,
+        Err(ErrorKind::NoAcknowledge(NoAcknowledgeSource::Address)) => 1,
+        Err(ErrorKind::NoAcknowledge(NoAcknowledgeSource::Data)) => 2,
+        Err(ErrorKind::NoAcknowledge(_)) => 3,
+        Err(ErrorKind::ArbitrationLoss) => 4,
+        Err(ErrorKind::Other) => 5,
+        Err(_) => 6,
     }
 }
 
@@ -105,13 +70,23 @@ fn rd8(a: usize) -> u8 {
     unsafe { read_volatile(a as *const u8) }
 }
 
-/// Over 2 us at 240 MHz (a volatile read takes several cycles; core::hint::
-/// spin_loop is nothing on RX).
-fn pause() {
-    let keep = 0u32;
-    for _ in 0..500 {
-        unsafe { read_volatile(&keep) };
+/// The polls of PIDR until the pin reads high again after being driven low
+/// for 2 us and released without the pull-up (at most FFFFh).
+fn rise<const P: usize, const N: u8, M>(
+    pin: Pin<P, N, M>,
+    delay: &mut Delay,
+) -> (u32, Pin<P, N, Input>)
+where
+    (): IoCapable<P, N>,
+{
+    let out = pin.into_push_pull_output();
+    delay.delay_us(2);
+    let mut pin = out.into_input();
+    let mut n = 0;
+    while n < 0xffff && pin.is_low().unwrap() {
+        n += 1;
     }
+    (n, pin)
 }
 
 #[unsafe(no_mangle)]
@@ -120,31 +95,16 @@ fn main() -> ! {
     let clocks = Config::pll_240mhz_from_24mhz().configure(&p.system);
     let pins = Parts::take().unwrap();
 
-    // --- what is on CN8: the polls of PIDR until SDA (P13) reads high again
-    // after a discharge, without the pull-up, and the level of SCL (P12),
-    // which is only read ([0] = polls | SCL high << 16). The board's EEPROM
-    // bus (P01 = SSCL6, P00 = SSDA6) is measured the same way as a reference
-    // ([22] = P01 | P00 << 16): its pull-ups bring both back within the
-    // first poll.
-    macro_rules! rise {
-        ($pin:expr) => {{
-            let o = $pin.into_push_pull_output();
-            pause();
-            let mut i = o.into_input();
-            let mut n = 0u32;
-            while n < 0xffff && i.is_low().unwrap() {
-                n += 1;
-            }
-            (n, i)
-        }};
-    }
+    let mut delay = Delay::new(p.cmt2, &clocks);
+
+    // --- what is on CN8: the rise of SDA (P13; the adapter's RXD, an input
+    // on its side), and the level of SCL (P12), only read ([0] = polls | SCL
+    // high << 16). I2C pull-ups bring SDA back at once (the board's EEPROM
+    // bus: 0 polls); the adapter's RXD pull-up took 4-9.
     let mut scl_in = pins.p12.into_input();
-    let (r13, sda_in) = rise!(pins.p13);
+    let (r13, sda_in) = rise(pins.p13, &mut delay);
     let scl_high = scl_in.is_high().unwrap();
-    let (r01, p01) = rise!(pins.p01);
-    let (r00, p00) = rise!(pins.p00);
     record(0, r13 | (scl_high as u32) << 16);
-    record(22, r01 | r00 << 16);
     // SDA back at once and SCL high: pull-ups (2); SDA still low after the
     // polls of over 1 ms: floating (1); anything else (a slow pull-up, or
     // SCL low): not a bus to test (0).
@@ -204,7 +164,6 @@ fn main() -> ! {
         record(12, code(&w));
         record(13, code(&r));
         record(14, code(&pr));
-        record(15, (rd8(0x0008_8301) as u32) << 8 | rd8(0x0008_8309) as u32);
         check(10, code(&w) == 1);
         check(11, code(&r) == 1);
         check(12, code(&pr) == 1);
@@ -293,7 +252,7 @@ fn main() -> ! {
     // (32 x 19) = 98.7 kHz.
     let rate = Rate::new(60_000_000, 100_000);
     check(26, rate == Some(Rate { cks: 0, brr: 18 }) && rate.unwrap().hz(60_000_000) == 98_684);
-    let mut sci = SciI2c::sci6(p.sci6, p00, p01, &clocks);
+    let mut sci = SciI2c::sci6(p.sci6, pins.p00, pins.p01, &clocks);
     // SMR, BRR, SCMR (SDIR), SIMR1 (IICDL 18h, IICM), SIMR2 (IICACKT,
     // IICCSC, IICINTM), SIMR3 released; PSEL 0Ah; ODR0 B0 / B2
     check(
@@ -310,7 +269,7 @@ fn main() -> ! {
     );
     let mut all = [0u8; 16];
     let r = sci.write_read(EEPROM, &[0x00], &mut all);
-    record(20, code_sci(&r));
+    record(20, code(&r));
     for k in 0..4 {
         record(16 + k, u32::from_le_bytes(all[4 * k..4 * k + 4].try_into().unwrap()));
     }
@@ -328,8 +287,8 @@ fn main() -> ! {
     // Nobody at 33h: an address NACK; then the EEPROM still answers, and
     // a current-address read continues after the last byte read (0Ah).
     let r = sci.write(NOBODY, &[]);
-    record(21, code_sci(&r));
-    check(31, r == Err(SciError::NoAcknowledge(NoAcknowledgeSource::Address)));
+    record(21, code(&r));
+    check(31, code(&r) == 1);
     check(32, sci.read(EEPROM, &mut four).is_ok() && four == all[10..14]);
     let _ = sci.free();
     p.cmt.cmstr0().write(|w| w.str0().clear_bit());

@@ -262,6 +262,8 @@ MOSCWTCR の待ち時間が過ぎたことを示すだけで、発振してい�
   ポートのレジスタは全ポート同じ並びなので、アドレスで直接扱う。同じレジスタの読み書きは critical-section の中。
   周辺機能の端子設定（MPC の PFS）は、それを使うドライバで扱う。
   `into_function(psel)` は MPC の PFS.PSEL を書き（PWPR の B0WI = 0、PFSWE = 1 で保護を外して戻す）、PMR = 1 にする。
+  `into_open_drain_function(psel)` は同じうえで出力を N チャネルオープンドレインにする（ODR0 / ODR1、0x8C080 + 2 ×
+  ポート、端子ごとに 2 ビット）。ほかの `into_*` は ODR を CMOS に戻す。
   P35（NMI）は入力専用（PDR / PODR / PMR / PCR のビットがない）なので、`into_*` は `IoCapable`（P35 以外の
   136 本に実装）を持つ端子だけにあり、P35 は `InputPin` としてだけ使える（P35 の `into_*` はコンパイルエラー）。
   `into_analog()` は A/D のアナログ入力を持つ端子（`AnalogCapable`: P40〜P47 = AN000〜AN007、PE2〜PE7 = AN100〜AN105、
@@ -411,8 +413,8 @@ MOSCWTCR の待ち時間が過ぎたことを示すだけで、発振してい�
   - 端子の PCR はそのまま残す。`into_pull_up_input()` した端子を渡すと内蔵プルアップが効く（RIIC が Low にしていない
     間は入力なので）。
 - `sci_i2c`: `SciI2c::sci6(p.sci6, pins.p00, pins.p01, &clocks)`。SCI6（MSTPCRB.MSTPB25）の簡易 I2C モードで、
-  P00 = SSDA6 / P01 = SSCL6（PSEL 0Ah、PORT0.ODR0 の B0 / B2 で N チャネルオープンドレイン）のボードの EEPROM
-  （24LC16B、50h、JSW6 ON。プルアップはボード上）を読み書きする `I2c`（7 ビットアドレス、約 100 kHz）。
+  P00 = SSDA6 / P01 = SSCL6（PSEL 0Ah、`into_open_drain_function` で N チャネルオープンドレイン）のボードの
+  EEPROM（24LC16B、50h、JSW6 ON。プルアップはボード上）を読み書きする `I2c`（7 ビットアドレス、約 100 kHz）。
   - 42.7.4〜42.7.6 の手順（SIMR2.IICINTM = 1）をポーリングで: 開始 / 再開始 / 停止条件は SIMR3.IICSTIF、1 フレームの
     終わりは TXI6（IR087）、受信したバイトは RXI6（IR086）。割り込みは ICU で禁止したまま、`serial` と同じく IR を見る。
     送ったバイトの ACK は SISR.IICACKR。受信はダミーの FFh を TDR に書き、最後のバイトだけ SIMR2.IICACKT = 1（NACK）。
@@ -421,15 +423,15 @@ MOSCWTCR の待ち時間が過ぎたことを示すだけで、発振してい�
     で 100 kHz を超えない最速）。表 42.26 から High / Low は周期の約 47 % / 53 % で Standard を満たす。
     SIMR1.IICDL = 18h（SSDA の遅延 23〜24 サイクル、約 0.4 us、SCL の立ち下がり 300 ns より長く）、SEMR.NFEN と
     SNFR.NFCS = 001b（ノイズフィルタ）、SIMR2.IICCSC（クロック同期）。
-  - シングルマスタだけ（アービトレーションもバスビジーの検出もない）。待ちが約 1 ms で終わらなければ
-    `Error::Timeout`。エラーのあとは停止条件、だめなら 42.7.7（TE = RE = 0、SIMR3 = F0h、RDR を読む、TE = RE = 1）。
+  - シングルマスタだけ（アービトレーションもバスビジーの検出もない）。待ちが ICLK / 1000 回のポーリング（PCLKB の
+    レジスタを読むので 20 ms ほど）で終わらなければ `Error::Timeout`。エラーのあとは停止条件、だめなら 42.7.7（TE = RE = 0、SIMR3 = F0h、RDR を読む、TE = RE = 1）。
 
 確認: test/rust/hw-i2c（ボード、rt グループ）。CN8 に何がつながっているかで RIIC の試験を変える（`i2c_bus`）。
 SDA（P13）だけを GPIO で一瞬 Low にし、プルアップなしの入力にして、PIDR が High になるまでのポーリング回数を数える。
 SCL（P12）は入力で読むだけで駆動しない（変換器の TXD が High を出しているので、Low を出すとぶつかる。P13 は変換器の
 RXD で入力なので駆動してよい）。I2C のプルアップなら SDA はすぐ（2 回以内）戻って SCL は High、何もなければ SDA は
 Low のまま。基準にボードの EEPROM のバス（P01 / P00）も同じように測ると 0 回だった。serial-echo の USB シリアル変換の
-RXD のプルアップは弱く、SDA は 6〜9 回かかった（2026-11-18、release / dev で何度か）。RXD のプルアップが I2C 並みに強い
+RXD のプルアップは弱く、SDA は 4〜9 回かかった（2026-11-18、release / dev で何度か）。RXD のプルアップが I2C 並みに強い
 変換器だとバスと判定され、RIIC がタイムアウトまで TXD を Low に引く。
 最初は両端子を 2 us だけ Low にしてから読んでいたが、変換器をつないだままで 2（バス）と判定して RIIC の試験が SCL の
 タイムアウトで失敗した。次に両端子の回数で分けたが、SCL を Low にする時点で変換器の TXD とぶつかる（Codex のレビュー）
