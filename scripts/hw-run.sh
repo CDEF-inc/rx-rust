@@ -8,9 +8,12 @@
 #   hw-run.sh [ELF...]     default: every ELF in build/hw (insns, rom,
 #                          codegen, rust, rt), or build/hw-rx74n
 #
-# An example (build/hw/examples, no _done) runs for HW_TIMEOUT seconds and,
-# given last, is left running when the runner detaches:
+# An example (build/hw/examples, no _done) runs for HW_TIMEOUT seconds:
 #   HW_TIMEOUT=10 hw-run.sh build/hw/examples/blinky.elf
+# It stays in the code flash / MRAM, but it stops when the runner ends: a
+# connected E2 Lite keeps the MCU from running after the session (and after
+# any reset). To run it on its own, unplug the E2 Lite cable from the board
+# and reset it or power it again (docs/NOTES-hw.md, "Running standalone").
 #
 # The AP-RX72M-0A needs JSW3 = SGL and JSW2 = SCI, the EK-RX74N SW6 pin 1 ON
 # and pin 2 OFF (docs/NOTES-hw.md); e2 studio must not be connected to the

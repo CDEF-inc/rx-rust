@@ -462,26 +462,35 @@ CN8 に USB シリアル変換（FTDI、3.3 V、Windows では COM8）をつな�
   同じ。オーバーランなし）。
 - ブレーク（20 ms）が `Error::Framing`（FER）になり、その後もエコーが続く。
 
+デバッガを切り離したあとシリアルに何も出なかったのは、つながっている E2 Lite がセッションの終わりとリセットの
+あとで MCU を止めていたため（rx-rust#187）。E2 Lite のケーブルをボードから外すと、リセットでも電源の入れ直しでも
+起動し、SCI2 から 250 ms ごとに行を出す診断プログラムが CN8 に出し続けた（2026-11-18、docs/NOTES-hw.md の
+「単体での起動」）。
+
 まだ確かめていないこと:
 
-- **デバッガを切り離したあと**。`hw-run.sh` が切り離す（`D;1`）と、シリアルに何も出なくなる（ずっと行を
-  出し続ける診断用のプログラムでも出ない）。E2 Lite をつないだまま SW1 でリセットしても同じだった。
-  examples/blinky は切り離したあとも点滅し続けた（2026-10-28）ので原因は分かっていない。E2 Lite を外して
-  電源を入れ直したときの動きはまだ見ていない。
+- エコーそのものを E2 Lite なしで（単体で）。単体起動での SCI2 の送信は 2026-11-18 に確かめた（下記）。
 - 2 バイト目以降のエラーを保持して次の `read` で返す処理（rx-rust#38）、オーバーランとパリティエラー。
 - CN8 の 1・2 番を直結する hw-uart の折り返し（`loopback=1`）。
 
-## 例: examples/blinky（2026-10-28）
+## 例: examples/blinky（2026-10-28、RX74 は 2026-11-18）
 
-LD1 / LD2 を 2 Hz で交互に点滅させる。点滅の処理 `blink` は embedded-hal 1.0 の `StatefulOutputPin` /
-`OutputPin` / `DelayNs` だけで書いた汎用の関数で、`main` が rx72-hal の端子（PJ0 / PJ1）と CMT2 の `Delay`
-を渡す（クロックは PLL 240 MHz）。コードフラッシュに置くので、デバッガを外したあともリセットや電源の入れ直しで動く。
+ボードの LED 2 つを 2 Hz で交互に点滅させる。ボードは feature で選ぶ（`ap-rx72m` は LD1 / LD2 = PJ0 / PJ1、
+`ek-rx74n` / `ek-rx74m` は LED1 / LED2 = PF05 / P807）。点滅の処理 `blink` は embedded-hal 1.0 の
+`StatefulOutputPin` / `OutputPin` / `DelayNs` だけで書いた汎用の関数で、`board::parts` が HAL の端子と CMT2 の
+`Delay` を渡す（クロックは AP-RX72M-0A が PLL 240 MHz、EK-RX74N / EK-RX74M が CPUCLK0 600 MHz）。コードフラッシュ /
+コード MRAM に置くので、E2 Lite のケーブルをボードから外せばリセットや電源の入れ直しで動く（NOTES-hw.md の
+「単体での起動」。つないだままだとリセット後に止まる）。
 
 - ビルド: `scripts/hw-build.sh examples`（`build/hw/examples/blinky.elf`、約 4.6 KB）
 - 実行: `HW_TIMEOUT=10 scripts/hw-run.sh build/hw/examples/blinky.elf`。`_done` のないプログラムは
-  HW_TIMEOUT 秒走らせ、最後の ELF ならデバッガを切り離して走らせたままにする（run.py）。
+  HW_TIMEOUT 秒走らせる。最後の ELF ならデバッガを切り離すが、E2 Lite がつながっている間は MCU が止まる（run.py）。
+  `HW_BOARD=rx74n` / `rx74m` では `build/hw-rx74n/examples/blinky.elf`。
 - ボードで確かめたこと: 30 秒で `BLINKS` = 121（250 ms ごと）、PJ の PODR が 01h / 02h と交互になり、LD1 / LD2 が
-  交互に点滅するのを目でも確かめた。切り離したあとも点滅し続ける。
+  交互に点滅するのを目でも確かめた。2026-10-28 には切り離したあとも点滅し続けたと記録したが、2026-11-18 には
+  切り離すと止まった（NOTES-hw.md）。
+- EK-RX74M（2026-11-18）: hw-run.sh で書き込み、E2 Lite を J9 から外して SW3 を押すと、LED1 / LED2 が交互に
+  点滅した。AP-RX72M-0A では feature 化したあとの版を実機で走らせていない（ビルドだけ）。
 
 ## 例: examples/serial-echo（2026-11-04）
 
@@ -493,7 +502,7 @@ LD1 / LD2 を 2 Hz で交互に点滅させる。点滅の処理 `blink` は emb
 - ビルド: `scripts/hw-build.sh examples`（`build/hw/examples/serial-echo.elf`）
 - 実行: `HW_TIMEOUT=60 scripts/hw-run.sh build/hw/examples/serial-echo.elf` を走らせている間に、Windows で
   `powershell -File scripts/hw/serial-echo.ps1 -Port COM8`（1 行、4096 バイト、ブレークの 4 チェック）。
-  切り離したあとは動かない（上記）。
+  単体で動かすには E2 Lite のケーブルを外してリセットする（上記）。
 
 ## 予定
 

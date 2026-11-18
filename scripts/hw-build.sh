@@ -31,8 +31,8 @@
 #   examples examples/* (blinky, serial-echo with the board's feature;  -> build/hw/examples
 #            release, target-cpu and memory.x as for rt), in the code
 #            flash. They run until stopped; hw-run.sh runs one for
-#            HW_TIMEOUT seconds and leaves it running (not part of its
-#            default list)
+#            HW_TIMEOUT seconds (not part of its default list). On their
+#            own they run after a reset with the E2 Lite unplugged.
 #   lldb     test/rust/lldb-demo (dev), in the code flash -> build/hw/lldb
 #            (MRAM), for scripts/hw-lldb-check.sh (not hw-run.sh's)
 #   coretests  library/coretests (RX74N only; not in the default list) -> build/hw-rx74n/coretests
@@ -71,13 +71,13 @@ case $board in
     insns=(rxv3e-insns) extra_defs=(--defsym ROOT_ONLY=1)
     # Also on the EK-RX74M, like the other tests (one RX74N PAC build).
     board_feature=ek-rx74n
-    examples=(serial-echo) ;;
+    examples=(blinky serial-echo) ;;
   *)
     echo "unknown HW_BOARD $board (rx72m, rx74n, rx74m)" >&2
     exit 2 ;;
 esac
-# The crates that take the board's feature: the board tests and serial-echo.
-board_crates=("${board_tests[@]}" serial-echo)
+# The crates that take the board's feature: the board tests and the examples.
+board_crates=("${board_tests[@]}" blinky serial-echo)
 # features CRATE [MORE]: the cargo features for CRATE (comma-separated)
 features() {
   local f=${2:-}

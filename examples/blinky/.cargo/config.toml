@@ -2,9 +2,11 @@
 target = "rx-none-elf"
 
 [target.rx-none-elf]
-# The RX72M: RXv3 with the FPU and the DFPU. f32 / f64 are soft-float; add
-# "-C", "target-feature=+flush-denormals" to use the FPU / DFPU (README,
-# "Floating point").
+# RXv3 with the FPU and the DFPU: the AP-RX72M-0A's RX72M, and code that
+# also runs on the RX74N / RX74M (RXv3e; scripts/hw-build.sh builds for
+# rxv3e there). f32 / f64 are soft-float; add "-C",
+# "target-feature=+flush-denormals" to use the FPU / DFPU (README,
+# "Floating point"). Pick the board with --features (src/main.rs).
 rustflags = ["-C", "link-arg=-Tlink.x", "-C", "target-cpu=rxv3"]
 
 [unstable]

@@ -13,7 +13,10 @@ status is 0 iff every test finished without failures.
 
 A program without _done (examples/*, which run until stopped) runs for
 SECONDS and counts as passed; if it is the last ELF, the runner detaches
-and leaves it running.
+instead of killing it. That does not leave it running: the MCU stops when
+the session ends, and with the E2 Lite cable connected (even unpowered) it
+does not run after a reset either (rx-rust#187). Unplug the cable from the
+board and reset it to run the program on its own (docs/NOTES-hw.md).
 """
 import os
 import struct
@@ -169,7 +172,8 @@ def main():
     try:
         if r.running:
             r.cmd("D;1")
-            print("left running")
+            print("detached; to run it on its own, unplug the E2 Lite "
+                  "cable from the board and reset the board")
         else:
             r.cmd("vKill;1")
     except Exception:
