@@ -4,7 +4,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(asm_experimental_arch)]
 #![allow(non_upper_case_globals)]
 
 use core::hint::black_box;

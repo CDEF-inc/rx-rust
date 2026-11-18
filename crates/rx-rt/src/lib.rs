@@ -39,7 +39,6 @@
 //! PACs (`Peripherals::take()`) and embedded-hal-bus use.
 
 #![no_std]
-#![feature(asm_experimental_arch)]
 
 use core::arch::{asm, global_asm};
 use core::ptr;
@@ -367,8 +366,7 @@ unsafe extern "C" fn start() -> ! {
 /// accumulator state the target has (see the crate documentation), calls the
 /// handler, restores everything and returns with `rte`. Both have CFI, so a
 /// debugger can unwind from the handler into the interrupted code (the
-/// common entry also saves USP for that). The calling crate needs
-/// `#![feature(asm_experimental_arch)]`.
+/// common entry also saves USP for that).
 ///
 /// `interrupt!(n, handler, bank = b)` (RXv3 and RXv3e, `b` in 0..=15) saves
 /// the registers in register bank `b` instead: `save #b` takes R1-R15, USP,

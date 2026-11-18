@@ -14,6 +14,9 @@
 # directory. QEMU and QEMU_FLAGS as in qemu-run.sh. TOOLCHAIN=DIR uses an
 # unpacked dist-toolchain.sh archive instead of the builds in this tree:
 # its rustc, cargo, rx-elf-* tools and qemu-system-rx (check-dist.sh).
+# NO_BOOTSTRAP=1 builds as a user of the stable toolchain does: without
+# RUSTC_BOOTSTRAP, so cargo ignores the crate's [unstable] build-std and the
+# program links the sysroot's prebuilt rx-none-elf core.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -24,7 +27,7 @@ G=$root/gnu/install/bin
 host=x86_64-unknown-linux-gnu
 cargo=$root/rust/build/$host/stage0/bin/cargo
 rustc=$root/rust/build/$host/stage1/bin/rustc
-target_dir=$root/build/rust-rom/${TOOLCHAIN:+dist-}${RX_CPU:-default}${RUST_EXTRA_FLAGS:+-$(echo "$RUST_EXTRA_FLAGS" | md5sum | cut -c1-8)}
+target_dir=$root/build/rust-rom/${TOOLCHAIN:+dist-}${NO_BOOTSTRAP:+stable-}${RX_CPU:-default}${RUST_EXTRA_FLAGS:+-$(echo "$RUST_EXTRA_FLAGS" | md5sum | cut -c1-8)}
 if [ -n "${TOOLCHAIN:-}" ]; then
   G=$TOOLCHAIN/bin cargo=$TOOLCHAIN/bin/cargo rustc=$TOOLCHAIN/bin/rustc
   : "${QEMU:=$TOOLCHAIN/bin/qemu-system-rx}"
@@ -35,7 +38,11 @@ if [ -z "${QEMU:-}" ]; then
 fi
 
 export RUSTC=$rustc
-export RUSTC_BOOTSTRAP=1
+if [ -n "${NO_BOOTSTRAP:-}" ]; then
+  unset RUSTC_BOOTSTRAP
+else
+  export RUSTC_BOOTSTRAP=1
+fi
 export PATH=$G:$PATH
 if [ -n "${RUST_EXTRA_FLAGS:-}" ] && [ -z "${RUST_CPU_FLAGS:-}" ]; then
   echo "RUST_EXTRA_FLAGS needs RX_CPU" >&2

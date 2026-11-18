@@ -8,7 +8,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(asm_experimental_arch)]
 // The result variables keep the names the test scripts read.
 #![allow(non_upper_case_globals)]
 

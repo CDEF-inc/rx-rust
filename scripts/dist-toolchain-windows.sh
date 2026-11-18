@@ -11,15 +11,17 @@
 #              rx-elf-* (copies: a zip has no links), qemu-system-rx and the
 #              MinGW DLLs it needs, lldb, rustc_driver and liblldb
 #   lib/       rustlib/x86_64-pc-windows-msvc (the host std, for build scripts
-#              and proc macros; bin/rust-lld), rustlib/src/rust/library (core
+#              and proc macros; bin/rust-lld), rustlib/rx-none-elf (core,
+#              alloc and compiler_builtins, built for rxv1),
+#              rustlib/src/rust/library (core
 #              etc. for -Zbuild-std)
 #   VERSIONS   the commits it was built from
 #   SBOM.spdx.json, SBOM.cdx.json  the software bill of materials, as SPDX
 #              2.3 and as CycloneDX 1.6 (scripts/sbom.py), also written next
 #              to the zip as build/dist/NAME.spdx.json and NAME.cdx.json
 #
-# To use it: put NAME\bin on PATH and set RUSTC=NAME\bin\rustc.exe and
-# RUSTC_BOOTSTRAP=1. Linking build scripts needs the MSVC linker (Visual
+# To use it: put NAME\bin on PATH and set RUSTC=NAME\bin\rustc.exe
+# (RUSTC_BOOTSTRAP=1 only for -Zbuild-std). Linking build scripts needs the MSVC linker (Visual
 # Studio Build Tools), as with any x86_64-pc-windows-msvc Rust; in Git Bash
 # its directory has to come before /usr/bin, whose link is not the linker.
 # The rest needs nothing installed: the MSVC runtime is linked statically.
@@ -45,6 +47,10 @@ d=$tmp/$name
 mkdir -p "$d/bin" "$d/lib/rustlib/src/rust"
 cp "$s1/bin/rustc.exe" "$s1"/bin/rustc_driver-*.dll "$root/rust/build/$host/stage0/bin/cargo.exe" "$d/bin/"
 cp -r "$s1/lib/rustlib/$host" "$d/lib/rustlib/"
+# rx-none-elf's prebuilt core, alloc and compiler_builtins (RXv1 code), so
+# that programs build on this stable rustc without -Zbuild-std.
+[ -d "$s1/lib/rustlib/rx-none-elf/lib" ] || { echo "no rx-none-elf libraries in the sysroot; run the rustc build again" >&2; exit 2; }
+cp -r "$s1/lib/rustlib/rx-none-elf" "$d/lib/rustlib/"
 tar -C "$root/rust" -cf - --exclude=.git library | tar -C "$d/lib/rustlib/src/rust" -xf -
 cp "$Q"/* "$d/bin/"
 # The MSYS2 packages of QEMU's DLLs, which the CI's qemu build records

@@ -53,7 +53,8 @@
   後も残ること、ハンドラ開始時の FPSW が 0x100 であること、起動時の FPSW が 0x100 であること。
   QEMU では MVTC で FPSW の要因フラグ（CV など）を立てられないので、それは使っていない。
   rxv2 / rxv3 向けの `_rx_isr_common` は逆アセンブルで確認（DFPU と RXv2 の ACC 命令は QEMU で動かない）。
-- 使う側のクレートにも `#![feature(asm_experimental_arch)]` が必要。
+- 使う側のクレートにも以前は `#![feature(asm_experimental_arch)]` が必要だった。フォークの rustc で RX の `asm!` を
+  安定機能にしたので（rust の rx-1.100）、今は要らない。
 
 ### レジスタバンク退避（RXv3、issue #106）
 - `rx_rt::interrupt!(28, handler, bank = 1)` は、RXv3 のレジスタ一括退避機能で退避する入口を作る:

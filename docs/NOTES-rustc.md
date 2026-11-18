@@ -129,8 +129,8 @@ bash scripts/run-rust-test.sh     # -Zbuild-std=core でテスト crate をビ�
   - `VaList` は次の名前なし引数を指すポインタ（core の既定の `VaListInner`）で、GCC の `va_list` と同じ。
   - 引数の置き場所（最後の名前付き引数と名前なしの引数はスタック）は LLVM バックエンドが決める（NOTES-codegen.md の
     「フレームポインタ・動的 alloca・可変長関数」）。
-- 可変長関数の定義には `#![feature(c_variadic_experimental_arch)]` が要る（rustc_target の
-  `supports_c_variadic_definitions` で RX は Unstable）。呼ぶ側と `VaList` は安定機能。
+- 可変長関数の定義は、フォークで安定機能にした（rustc_target の `supports_c_variadic_definitions` で RX を Stable）。
+  以前は `#![feature(c_variadic_experimental_arch)]` が要った。呼ぶ側と `VaList` は元から安定機能。
 - `next_arg` で読める型は core の `VaArgSafe`（i32 / u32 / i64 / u64 / isize / usize / f64 / ポインタ）。
   i8 / i16 / f32 は C の既定の昇格で int / double になるので読めない（GCC と同じ）。構造体も読めない。
 - `test/rust/variadic-smoke`（lib.rs + main.c）: 文字列の書式で型を指定し、Rust が読んだ値を GCC の `va_arg` が

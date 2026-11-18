@@ -16,6 +16,8 @@
 #              as rx-elf-* (symbolic links), qemu-system-rx, lldb, rust-lldb
 #   lib/       librustc_driver, liblldb, rustlib/x86_64-unknown-linux-gnu (the host
 #              std, for build scripts and proc macros; bin/rust-lld),
+#              rustlib/rx-none-elf (core, alloc and compiler_builtins, built
+#              for rxv1),
 #              rustlib/etc (rustc's LLDB formatters, for rust-lldb),
 #              rustlib/src/rust/library (core etc. for -Zbuild-std) and the
 #              shared libraries qemu-system-rx needs beyond glibc (glib,
@@ -25,8 +27,9 @@
 #              2.3 and as CycloneDX 1.6 (scripts/sbom.py), also written next
 #              to the archive as build/dist/NAME.spdx.json and NAME.cdx.json
 #
-# To use it: RUSTC=NAME/bin/rustc RUSTC_BOOTSTRAP=1 PATH=NAME/bin:$PATH
-# NAME/bin/cargo build ... (with -Zbuild-std=core). The binaries need the
+# To use it: RUSTC=NAME/bin/rustc PATH=NAME/bin:$PATH NAME/bin/cargo build
+# --target rx-none-elf ... (no RUSTC_BOOTSTRAP: the prebuilt core is used;
+# -Zbuild-std=core with RUSTC_BOOTSTRAP=1 builds core for the target-cpu). The binaries need the
 # glibc of the machine that built them or later: the CI builds the release
 # archives on Ubuntu 22.04 (glibc 2.35), so they run on Ubuntu 22.04 and
 # Debian 12 and later. scripts/check-dist.sh tests an archive.
@@ -58,6 +61,10 @@ mkdir -p "$d/bin" "$d/lib/rustlib/src/rust"
 cp "$s1/bin/rustc" "$root/rust/build/$host/stage0/bin/cargo" "$d/bin/"
 cp "$s1"/lib/librustc_driver-*.so "$d/lib/"
 cp -r "$s1/lib/rustlib/$host" "$d/lib/rustlib/"
+# rx-none-elf's prebuilt core, alloc and compiler_builtins (RXv1 code), so
+# that programs build on this stable rustc without -Zbuild-std.
+[ -d "$s1/lib/rustlib/rx-none-elf/lib" ] || { echo "no rx-none-elf libraries in the sysroot; run the rustc build again" >&2; exit 2; }
+cp -r "$s1/lib/rustlib/rx-none-elf" "$d/lib/rustlib/"
 tar -C "$root/rust" -cf - --exclude=.git library | tar -C "$d/lib/rustlib/src/rust" -xf -
 cp "$QEMU" "$d/bin/"
 # QEMU's libraries (glib, pixman, ...) go into lib/ with it: only glibc,
