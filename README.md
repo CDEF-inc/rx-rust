@@ -276,17 +276,24 @@ registers there (see [`docs/NOTES-lldb.md`](docs/NOTES-lldb.md)).
 
 ### Example: blinky
 
-[`examples/blinky`](examples/blinky) blinks the board's monitor LEDs LD1 /
-LD2 (PJ0 / PJ1) at 2 Hz. The blinking is a function written against the
-embedded-hal 1.0 traits only (`StatefulOutputPin`, `OutputPin`,
-`DelayNs`); `main` hands it rx72-hal's pins and CMT2 delay after setting
-the PLL to 240 MHz. It is written to the code flash, so it keeps running
-after the runner detaches, and after a reset or a power cycle.
+[`examples/blinky`](examples/blinky) blinks two of a board's LEDs at 2 Hz:
+LD1 / LD2 (PJ0 / PJ1) on the AP-RX72M-0A, LED1 / LED2 (PF05 / P807) on the
+EK-RX74N / EK-RX74M (features `ap-rx72m`, `ek-rx74n`, `ek-rx74m`, as for
+serial-echo). The blinking is a function written against the embedded-hal
+1.0 traits only (`StatefulOutputPin`, `OutputPin`, `DelayNs`); `main` hands
+it the HAL's pins and CMT2 delay after setting the PLL.
 
 ```sh
 scripts/hw-build.sh examples                            # in WSL
 HW_TIMEOUT=10 scripts/hw-run.sh build/hw/examples/blinky.elf  # in Git Bash
 ```
+
+The program stays in the code flash / MRAM, but the MCU stops when the
+runner ends: while the E2 Lite cable is connected to the board (even with
+the E2 Lite unpowered), the MCU does not run after a reset. Unplug the
+cable and press reset (SW1 on the AP-RX72M-0A, SW3 on the EK-RX74N /
+EK-RX74M) or power the board again, and the program runs on its own
+([`docs/NOTES-hw.md`](docs/NOTES-hw.md), "単体での起動").
 
 ### Example: serial-echo
 
@@ -309,9 +316,8 @@ HW_TIMEOUT=60 scripts/hw-run.sh build/hw/examples/serial-echo.elf  # in Git Bash
 powershell -File scripts/hw/serial-echo.ps1 -Port COM8         # meanwhile
 ```
 
-So far it has only been checked with the debugger attached: after the
-runner detaches, nothing comes out of the serial port
-([`docs/NOTES-hal.md`](docs/NOTES-hal.md)).
+The echo checks above ran with the debugger attached. To run it on its
+own, unplug the E2 Lite cable and reset the board, as for blinky.
 
 On an EK-RX74N or EK-RX74M it uses the USB serial port J27 (RSCI12,
 CPUCLK0 600 MHz) and needs no adapter:
