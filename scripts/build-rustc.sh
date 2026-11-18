@@ -1,6 +1,7 @@
 #!/bin/bash
-# Builds the stage1 rustc (with the RX backend from build/llvm) and the host
-# standard library, and puts build/llvm's lld (the RX port) into the sysroot
+# Builds the stage1 rustc (with the RX backend from build/llvm), the host
+# standard library and rx-none-elf's core, alloc and compiler_builtins
+# (bootstrap.toml.in), and puts build/llvm's lld (the RX port) into the sysroot
 # as rust-lld, rx-none-elf's default linker. Log: build/rustc.log
 set -o pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)

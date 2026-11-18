@@ -5,7 +5,6 @@
 //! on the stack, and `va_list` is a pointer to the next one.
 
 #![no_std]
-#![feature(c_variadic_experimental_arch)]
 
 use core::ffi::{
     VaList, c_char, c_double, c_int, c_long, c_longlong, c_uint, c_ulonglong, c_void,

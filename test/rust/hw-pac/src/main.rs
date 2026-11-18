@@ -9,7 +9,6 @@
 #![no_std]
 #![no_main]
 // rx_rt::interrupt! uses asm!.
-#![feature(asm_experimental_arch)]
 
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
 

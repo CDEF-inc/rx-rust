@@ -116,7 +116,9 @@ scripts/build-lldb.sh     # optional: clang + LLDB in build/lldb
 
 For machines that do not build it (CI), `scripts/dist-toolchain.sh` packs
 the built toolchain into `build/dist/rx-toolchain-x86_64-linux.tar.xz`:
-the stage1 rustc with the library sources for `-Zbuild-std`, cargo, lld
+the stage1 rustc with rx-none-elf's prebuilt `core`, `alloc` and
+`compiler_builtins` (built for `rxv1`, so they run on every RX core) and the
+library sources for `-Zbuild-std`, cargo, lld
 (rustc's `rust-lld`, and `ld.lld`), the LLVM binary tools (`llvm-objcopy`,
 `llvm-objdump`, `llvm-nm`, `llvm-size`, `llvm-readelf`, ...; also under the
 `rx-elf-*` names) and `qemu-system-rx`, with the commits they were built
@@ -134,7 +136,7 @@ tests an archive on a machine (the CI does on Ubuntu 22.04 and Debian 12).
 ```sh
 tar -xJf rx-toolchain-x86_64-linux.tar.xz
 T=$PWD/rx-toolchain-x86_64-linux
-RUSTC=$T/bin/rustc RUSTC_BOOTSTRAP=1 PATH=$T/bin:$PATH \
+RUSTC=$T/bin/rustc PATH=$T/bin:$PATH \
   $T/bin/cargo build --release   # a crate set up like test/rust/qemu-demo
 ```
 
@@ -150,7 +152,7 @@ Build Tools), as with any MSVC Rust. In PowerShell:
 ```powershell
 tar -xf rx-toolchain-x86_64-windows.zip
 $T = "$PWD\rx-toolchain-x86_64-windows"
-$env:RUSTC = "$T\bin\rustc.exe"; $env:RUSTC_BOOTSTRAP = 1; $env:PATH = "$T\bin;$env:PATH"
+$env:RUSTC = "$T\bin\rustc.exe"; $env:PATH = "$T\bin;$env:PATH"
 cargo build --release   # a crate set up like test/rust/qemu-demo
 ```
 
@@ -324,7 +326,14 @@ powershell -File scripts/hw/serial-echo.ps1 -Port COM9                        # 
 
 See [`test/rust/qemu-demo`](test/rust/qemu-demo): a `#![no_main]` binary that
 depends on `rx-rt`, provides `memory.x`, and builds with
-`-Zbuild-std=core` and `-C link-arg=-Tlink.x`. For a board, the examples
+`-C link-arg=-Tlink.x`. On the dist toolchain (the release archives or
+rustup) it builds with plain `cargo build`, no `RUSTC_BOOTSTRAP`: the
+sysroot has rx-none-elf's `core`, `alloc` and `compiler_builtins`
+(built for `rxv1`), and `asm!`, c-variadic definitions and the RX target
+features are stable in the fork. Cargo ignores the crate's
+`[unstable] build-std` then; with `RUSTC_BOOTSTRAP=1` (as this repository's
+scripts set) it builds `core` from source for the crate's `target-cpu`
+instead. For a board, the examples
 add a HAL (`rx72-hal` or `rx74-hal`, which re-exports its PAC as `pac`)
 with the chip as a feature (`rx72m` / `rx72n`, `rx74m` / `rx74n`)
 and build for `target-cpu=rxv3` or `rxv3e`; the PACs need e² studio's

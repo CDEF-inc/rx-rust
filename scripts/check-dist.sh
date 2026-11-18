@@ -3,7 +3,8 @@
 # else from this repository's builds (no GNU tools either): unpacks it,
 # builds test/rust/qemu-demo (release and dev) with its rustc, cargo and
 # rust-lld and runs it on its qemu-system-rx (run-rust-rom.sh with
-# TOOLCHAIN), then runs its ld.lld and lldb, and looks for its SBOM.
+# TOOLCHAIN), once more (release) without RUSTC_BOOTSTRAP, on the archive's
+# prebuilt rx-none-elf core (NO_BOOTSTRAP), then runs its ld.lld and lldb, and looks for its SBOM.
 #
 #   check-dist.sh ARCHIVE.tar.xz|ARCHIVE.zip
 #
@@ -25,8 +26,17 @@ T=$(ls -d "$tmp"/*/ | head -1)
 T=${T%/}
 cat "$T/VERSIONS"
 status=0
-for p in release dev; do
-  if TOOLCHAIN=$T PROFILE=$p bash "$root/scripts/run-rust-rom.sh" > "$tmp/$p.log" 2>&1; then
+for p in release dev stable; do
+  if [ $p = stable ]; then
+    env NO_BOOTSTRAP=1 TOOLCHAIN=$T PROFILE=release bash "$root/scripts/run-rust-rom.sh" > "$tmp/$p.log" 2>&1
+  else
+    TOOLCHAIN=$T PROFILE=$p bash "$root/scripts/run-rust-rom.sh" > "$tmp/$p.log" 2>&1
+  fi && ok=1 || ok=
+  # Without RUSTC_BOOTSTRAP, cargo must not have built core from source.
+  if [ -n "$ok" ] && [ $p = stable ] && grep -q "Compiling core " "$tmp/$p.log"; then
+    echo "FAIL  qemu-demo stable: core was built from source"; ok=
+  fi
+  if [ -n "$ok" ]; then
     echo "ok    qemu-demo $p: $(tail -1 "$tmp/$p.log")"
   else
     echo "FAIL  qemu-demo $p"; tail -20 "$tmp/$p.log"; status=1

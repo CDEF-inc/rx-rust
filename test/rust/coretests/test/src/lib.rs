@@ -14,7 +14,6 @@
 //! with PLL1 at 480 MHz.
 
 #![no_std]
-#![feature(asm_experimental_arch)]
 // The result variables keep the names the QEMU scripts read.
 #![allow(non_upper_case_globals)]
 

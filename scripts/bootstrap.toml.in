@@ -8,6 +8,9 @@ change-id = "ignore"
 download-ci-llvm = false
 
 [build]
+# rx-none-elf: bootstrap also builds core, alloc and compiler_builtins for it,
+# which the dist archives ship, so programs build without -Zbuild-std.
+target = ["x86_64-unknown-linux-gnu", "rx-none-elf"]
 # Do not let bootstrap reset src/llvm-project (it carries the RX backend).
 submodules = false
 docs = false
@@ -22,7 +25,8 @@ description = "CDEF-inc RX fork"
 [rust]
 # The channel of the rust branch (src/ci/channel): "stable" on rx-1.100, so
 # rustc says 1.100.0 (with its commit) instead of 1.100.0-dev. Unstable
-# features (-Zbuild-std, asm! on RX) then need RUSTC_BOOTSTRAP=1.
+# features (-Zbuild-std) then need RUSTC_BOOTSTRAP=1; asm!, c-variadic
+# definitions and the target features of RX are stable in the fork.
 channel = "auto-detect"
 download-rustc = false
 lld = false
@@ -32,3 +36,15 @@ debug-assertions = false
 
 [target.x86_64-unknown-linux-gnu]
 llvm-config = "@ROOT@/build/llvm/bin/llvm-config"
+
+[target.rx-none-elf]
+# The prebuilt core etc. are RXv1 code, which runs on every RX core; a
+# program's own code still follows its target-cpu.
+rustflags = ["-Ctarget-cpu=rxv1"]
+# No C for RX: compiler_builtins is Rust-only (with its mem feature, which
+# bootstrap turns on for no-std targets). bootstrap still wants a C compiler
+# and an archiver for every target; the host's stand in (setup.sh puts
+# MSVC's on Windows), as nothing is compiled with them.
+optimized-compiler-builtins = false
+cc = "cc"
+ar = "ar"
