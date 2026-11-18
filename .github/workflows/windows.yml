@@ -48,7 +48,8 @@ jobs:
           qemu=$(grep -v '^#' scripts/qemu.commit)
           s=${{ hashFiles('scripts/build-windows.sh', 'scripts/bootstrap.toml.in', 'scripts/setup.sh') }}
           {
-            echo "rustc=rustc-$v-$rust-$s"
+            # -c: the pack has the prebuilt rx-none-elf core.
+            echo "rustc=rustc-$v-$rust-$s-c"
             echo "lldb=lldb-$v-$llvm-$s"
             # -p: the pack has qemu-windows.packages (for the SBOM).
             echo "qemu=qemu-$v-$qemu-$s-p"
@@ -119,7 +120,9 @@ jobs:
           host=x86_64-pc-windows-msvc
           h=rust/build/$host
           case ${{ matrix.part }} in
-          rustc) p="build/llvm/bin/lld.exe build/llvm/bin/llvm-*.exe $h/stage1/bin $h/stage1/lib/rustlib/$host $h/stage0/bin/cargo.exe" ;;
+          rustc)
+            ls $h/stage1/lib/rustlib/rx-none-elf/lib/libcore-*.rlib
+            p="build/llvm/bin/lld.exe build/llvm/bin/llvm-*.exe $h/stage1/bin $h/stage1/lib/rustlib/$host $h/stage1/lib/rustlib/rx-none-elf $h/stage0/bin/cargo.exe" ;;
           lldb) p="build/lldb/bin/lldb.exe build/lldb/bin/liblldb.dll" ;;
           qemu) p="build/qemu-windows build/qemu-windows.packages" ;;
           esac
