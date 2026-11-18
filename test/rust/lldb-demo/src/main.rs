@@ -4,6 +4,7 @@
 
 #![no_std]
 #![no_main]
+// (check-lldb.sh and hw-lldb-check.sh expect the line numbers below.)
 #![allow(non_upper_case_globals)]
 
 use core::hint::black_box;
