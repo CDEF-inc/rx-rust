@@ -8,7 +8,10 @@
 //! - [`gpio`]: port pins as `InputPin` / `OutputPin` / `StatefulOutputPin`,
 //!   and the MPC pin functions.
 //! - [`delay`]: `DelayNs` on CMT2.
-//! - [`serial`]: SCI2 as a UART (`embedded-io` `Read` / `Write`).
+//! - [`icu`]: the interrupt controller (enable, priority and request flag
+//!   per source, the software interrupts).
+//! - [`serial`]: SCI2 as a UART (`embedded-io` `Read` / `Write`; with the
+//!   feature `async`, interrupt-driven `embedded-io-async` too).
 //! - [`spi`]: RSPI2 as an SPI master (`SpiBus`).
 //! - [`adc`]: the 12-bit A/D converter units, the internal reference
 //!   voltage and the temperature sensor.
@@ -16,6 +19,8 @@
 //! - [`i2c`]: RIIC0 as an I2C master (`I2c`) on P12 / P13.
 //! - [`sci_i2c`]: SCI6 in simple I2C mode (`I2c`) on P00 / P01, the
 //!   board's EEPROM.
+//! - `time` (feature `embassy-time-driver`): an embassy-time driver on
+//!   CMTW0 / CMTW1.
 //!
 //! Register access goes through [`pac`] (rx72-pac, generated from e2
 //! studio's RX72M.sfrx / RX72N.sfrx) where its types fit, and directly by address for
@@ -35,8 +40,11 @@ pub mod clock;
 pub mod delay;
 pub mod gpio;
 pub mod i2c;
+pub mod icu;
 mod mstp;
 pub mod pwm;
 pub mod sci_i2c;
 pub mod serial;
 pub mod spi;
+#[cfg(feature = "embassy-time-driver")]
+pub mod time;
