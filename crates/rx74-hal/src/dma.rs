@@ -45,6 +45,7 @@ use crate::timeout::{self, Timeout};
 const DMAC0: usize = 0x8700_7000;
 /// The common registers: DMAST, DMIST.
 const DMAST: *mut u8 = 0x8700_7800_usize as _;
+#[cfg(feature = "async")]
 const DMIST: *const u8 = 0x8700_7804_usize as _;
 /// DMRSRn (activation source, the vector number) = ICU + 400h + 4 × n.
 const DMRSR0: usize = 0x8700_6400;
@@ -52,6 +53,7 @@ const DMRSR0: usize = 0x8700_6400;
 /// `BSP_MSTP_BIT_FSP_IP_DMAC`).
 const MSTP: (Mstpcr, u32) = (Mstpcr::A, 22);
 /// The transfer end interrupts: DMAC0I-DMAC3I, then DMAC74I.
+#[cfg(feature = "async")]
 const VECTOR0: u8 = 120;
 
 // Register offsets within a channel.
@@ -65,6 +67,7 @@ const DMCNT: usize = 0x1c;
 const DMREQ: usize = 0x1d;
 const DMSTS: usize = 0x1e;
 
+#[cfg(feature = "async")]
 const DMINT_DTIE: u8 = 1 << 4;
 const DMREQ_SWREQ: u8 = 1 << 0;
 /// SWREQ stays set after a transfer: one request for the whole count.
@@ -201,6 +204,7 @@ fn dmrsr(n: u8) -> *mut u8 {
 }
 
 /// The transfer end interrupt of channel `n`.
+#[cfg(feature = "async")]
 fn end_interrupt(n: u8) -> Interrupt {
     let v = VECTOR0 + if n < 4 { n } else { 4 };
     unsafe { Interrupt::new(v, v) }

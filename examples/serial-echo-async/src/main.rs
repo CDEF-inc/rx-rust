@@ -74,6 +74,11 @@ mod board {
 }
 
 board::hal::bind_serial_interrupts!();
+// The group interrupt with the receive errors (shared by the async drivers).
+#[cfg(feature = "ap-rx72m")]
+board::hal::bind_group_bl0!();
+#[cfg(any(feature = "ek-rx74n", feature = "ek-rx74m"))]
+board::hal::bind_group_al1!();
 board::hal::bind_time_interrupts!();
 
 /// Bytes received so far (to see from a debugger that it runs).

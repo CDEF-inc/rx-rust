@@ -5,7 +5,7 @@
 # insns with rxv3e-insns and without cmt, whose registers are elsewhere
 # there, rom, codegen, rust, the rt tests isr-save, isr-bank, alloc-smoke,
 # float-smoke, hw-pac, hw-icu, hw-time, hw-dma, hw-reset, hw-hal, hw-clock (480 and 600 MHz), hw-spi, hw-spi-async, hw-pwm,
-# hw-adc and hw-i2c, and serial-echo.
+# hw-adc, hw-i2c and hw-i2c-async, and serial-echo.
 # HW_BOARD=rx74m builds the same: the RX74M (EK-RX74M) has every RX74N
 # register at the same address and runs these tests as they are.
 # The board tests (test/rust/hw-* but hw-irq, and serial-echo) pick the
@@ -56,7 +56,7 @@ case $board in
   rx72m)
     out=$root/build/hw cpu=rxv3 v3e=0 ram_ld=rx72m-ram.ld rom_ld=rx72m-rom.ld
     memory_x=rx72m-memory.x
-    board_tests=(hw-pac hw-icu hw-time hw-dma hw-reset hw-ofs hw-hal hw-uart hw-spi hw-spi-async hw-adc hw-pwm hw-i2c)
+    board_tests=(hw-pac hw-icu hw-time hw-dma hw-reset hw-ofs hw-hal hw-uart hw-spi hw-spi-async hw-adc hw-pwm hw-i2c hw-i2c-async)
     peripherals=(hw-irq "${board_tests[@]}"
                  "hw-irq:-relax:-C target-feature=+relax")
     all=(insns rom codegen rust rt examples lldb)
@@ -65,7 +65,7 @@ case $board in
   rx74n)
     out=$root/build/hw-rx74n cpu=rxv3e v3e=1 ram_ld=rx74n-ram.ld rom_ld=rx74n-rom.ld
     memory_x=rx74n-memory.x
-    board_tests=(hw-pac hw-icu hw-time hw-dma hw-reset hw-hal hw-clock hw-spi hw-spi-async hw-pwm hw-adc hw-i2c)
+    board_tests=(hw-pac hw-icu hw-time hw-dma hw-reset hw-hal hw-clock hw-spi hw-spi-async hw-pwm hw-adc hw-i2c hw-i2c-async)
     peripherals=("${board_tests[@]}" "hw-clock:-600::clock600")
     all=(insns rom codegen rust rt examples lldb)
     insns=(rxv3e-insns) extra_defs=(--defsym ROOT_ONLY=1)

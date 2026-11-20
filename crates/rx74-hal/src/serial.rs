@@ -296,9 +296,10 @@ pub use asynch::{AsyncSerial, on_groupal1, on_rxi12, on_txi12};
 ///   writer sets SCR0.TIE and sleeps until TXI12 (vector 145, SLIR145)
 ///   says TDR is empty again.
 ///
-/// The three vectors belong to this driver: register its handlers with
-/// [`bind_serial_interrupts!`](crate::bind_serial_interrupts), and leave
-/// group AL1's other sources off.
+/// RXI12 / TXI12 belong to this driver: register their handlers with
+/// [`bind_serial_interrupts!`](crate::bind_serial_interrupts). Group AL1
+/// is shared with other drivers (the async I2C): register its handler
+/// with [`bind_group_al1!`](crate::bind_group_al1).
 #[cfg(feature = "async")]
 mod asynch {
     use core::cell::RefCell;
@@ -534,9 +535,10 @@ mod asynch {
         })
     }
 
-    /// The group AL1 handler (vector 105): a receive error (ERI12) is
-    /// cleared and kept for the next `read`.
-    pub extern "C" fn on_groupal1() {
+    /// This driver's part of the group AL1 handler (vector 105,
+    /// [`icu::on_group_al1`](crate::icu::on_group_al1)): a receive error
+    /// (ERI12) is cleared and kept for the next `read`.
+    pub fn on_groupal1() {
         if unsafe { read_volatile(GRPAL1) } & ERI12 == 0 {
             return;
         }
@@ -562,13 +564,13 @@ mod asynch {
 }
 
 /// Registers the interrupt-driven RSCI12's handlers (feature `async`) with
-/// rx-rt's `interrupt!`: group AL1 (105), RXI12 (144), TXI12 (145). Use it
-/// once, in a crate that depends on rx-rt.
+/// rx-rt's `interrupt!`: RXI12 (144), TXI12 (145). Its receive errors come
+/// through group AL1: use [`bind_group_al1!`](crate::bind_group_al1) too.
+/// Use it once, in a crate that depends on rx-rt.
 #[cfg(feature = "async")]
 #[macro_export]
 macro_rules! bind_serial_interrupts {
     () => {
-        rx_rt::interrupt!(105, $crate::serial::on_groupal1);
         rx_rt::interrupt!(144, $crate::serial::on_rxi12);
         rx_rt::interrupt!(145, $crate::serial::on_txi12);
     };

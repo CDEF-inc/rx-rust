@@ -173,10 +173,6 @@ impl SciI2c {
         (self.sci, self.sda, self.scl)
     }
 
-    fn wait(&self, done: impl Fn() -> bool) -> Result<(), Error> {
-        (0..=self.polls).any(|_| done()).then_some(()).ok_or(Error::Timeout)
-    }
-
     /// SIMR2.IICACKT: the ACK (`nack` = false) or NACK sent for a received
     /// byte; 1 also while receiving an ACK.
     fn set_nack(&self, nack: bool) {
@@ -186,10 +182,9 @@ impl SciI2c {
     /// Generates a start, restart or stop condition and waits for it
     /// (IICSTIF), then sets the pins to serial output, or released after a
     /// stop.
-    fn condition(&mut self, req: u8) -> Result<(), Error> {
+    async fn condition(&mut self, w: &mut impl Waiter, req: u8) -> Result<(), Error> {
         self.sci.simr3().write(|w| unsafe { w.bits(req & !IICSTIF) });
-        let sci = &self.sci;
-        self.wait(|| sci.simr3().read().bits() & IICSTIF != 0)?;
+        w.until(Event::Sti, self.polls).await?;
         let after = if req == STPREQ { RELEASED } else { SERIAL };
         self.sci.simr3().write(|w| unsafe { w.bits(after) });
         Ok(())
@@ -197,35 +192,33 @@ impl SciI2c {
 
     /// Sends a frame (TDR), waits for its end (TXI6) and returns whether it
     /// was ACKed.
-    fn send(&mut self, b: u8) -> Result<bool, Error> {
-        unsafe { write_volatile(IR_TXI6, 0) };
+    async fn send(&mut self, w: &mut impl Waiter, b: u8) -> Result<bool, Error> {
+        w.arm(Event::Tx);
         self.sci.tdr().write(|w| unsafe { w.bits(b) });
-        self.wait(|| unsafe { read_volatile(IR_TXI6) } != 0)?;
+        w.until(Event::Tx, self.polls).await?;
         Ok(self.sci.sisr().read().bits() & IICACKR == 0)
     }
 
     /// Receives a byte with the ACK or NACK set by `set_nack`: a dummy FFh
     /// to TDR, RXI6 for the byte, then TXI6 for the end of the frame.
-    fn receive(&mut self) -> Result<u8, Error> {
-        unsafe {
-            write_volatile(IR_RXI6, 0);
-            write_volatile(IR_TXI6, 0);
-        }
+    async fn receive(&mut self, w: &mut impl Waiter) -> Result<u8, Error> {
+        w.arm(Event::Rx);
+        w.arm(Event::Tx);
         self.sci.tdr().write(|w| unsafe { w.bits(0xff) });
-        self.wait(|| unsafe { read_volatile(IR_RXI6) } != 0)?;
+        w.until(Event::Rx, self.polls).await?;
         let b = self.sci.rdr().read().bits();
-        self.wait(|| unsafe { read_volatile(IR_TXI6) } != 0)?;
+        w.until(Event::Tx, self.polls).await?;
         Ok(b)
     }
 
-    fn run(&mut self, addr: u8, ops: &mut [Operation<'_>]) -> Result<(), Error> {
+    async fn run(&mut self, w: &mut impl Waiter, addr: u8, ops: &mut [Operation<'_>]) -> Result<(), Error> {
         let mut started = false;
         for (read, run, _) in runs(ops) {
-            self.condition(if started { RSTAREQ } else { STAREQ })?;
+            self.condition(w, if started { RSTAREQ } else { STAREQ }).await?;
             started = true;
             // The ACK of the address is received (IICACKT = 1).
             self.set_nack(true);
-            if !self.send(addr << 1 | read as u8)? {
+            if !self.send(w, addr << 1 | read as u8).await? {
                 return Err(Error::NoAcknowledge(NoAcknowledgeSource::Address));
             }
             if read {
@@ -239,14 +232,14 @@ impl SciI2c {
                     if k == 0 || k + 1 == total {
                         self.set_nack(k + 1 == total);
                     }
-                    *b = self.receive()?;
+                    *b = self.receive(w).await?;
                 }
                 self.sci.scr().write(|w| unsafe { w.bits(SCR_ON) });
             } else {
                 for op in run.iter() {
-                    if let Operation::Write(w) = op {
-                        for &b in w.iter() {
-                            if !self.send(b)? {
+                    if let Operation::Write(bytes) = op {
+                        for &b in bytes.iter() {
+                            if !self.send(w, b).await? {
                                 return Err(Error::NoAcknowledge(NoAcknowledgeSource::Data));
                             }
                         }
@@ -255,7 +248,7 @@ impl SciI2c {
             }
         }
         if started {
-            self.condition(STPREQ)?;
+            self.condition(w, STPREQ).await?;
         }
         Ok(())
     }
@@ -265,11 +258,71 @@ impl SciI2c {
     fn recover(&mut self) {
         self.sci.scr().write(|w| unsafe { w.bits(SCR_ON) });
         self.set_nack(true);
-        if self.condition(STPREQ).is_err() {
+        if block_on(self.condition(&mut Spin, STPREQ)).is_err() {
             self.sci.scr().write(|w| unsafe { w.bits(0) });
             self.sci.simr3().write(|w| unsafe { w.bits(RELEASED) });
             let _ = self.sci.rdr().read().bits();
             self.sci.scr().write(|w| unsafe { w.bits(SCR_ON) });
+        }
+    }
+}
+
+/// What a transfer waits for: a received byte (RXI6), the end of a frame
+/// (TXI6), the end of a condition (SIMR3.IICSTIF, STI6 = TEI6).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Event {
+    Rx,
+    Tx,
+    Sti,
+}
+
+/// How a transfer waits: [`Spin`] polls the ICU request flags with the
+/// interrupts disabled (the blocking `SciI2c`), `Irq` sleeps until the
+/// interrupt (`AsyncSciI2c`). The transfer itself is the same code.
+trait Waiter {
+    /// Forgets an `event` that came before: the next `until` waits for a
+    /// new one.
+    fn arm(&mut self, event: Event);
+    /// Waits for `event`; the polling waiter gives up after `polls`.
+    async fn until(&mut self, event: Event, polls: u32) -> Result<(), Error>;
+}
+
+fn sti_done() -> bool {
+    // SIMR3 of SCI6, read only (the transfer owns SCI6).
+    let sci = unsafe { &*pac::Sci6::ptr() };
+    sci.simr3().read().bits() & IICSTIF != 0
+}
+
+/// The polling waiter.
+struct Spin;
+
+impl Waiter for Spin {
+    fn arm(&mut self, event: Event) {
+        match event {
+            Event::Rx => unsafe { write_volatile(IR_RXI6, 0) },
+            Event::Tx => unsafe { write_volatile(IR_TXI6, 0) },
+            Event::Sti => {}
+        }
+    }
+
+    async fn until(&mut self, event: Event, polls: u32) -> Result<(), Error> {
+        let done = || match event {
+            Event::Rx => (unsafe { read_volatile(IR_RXI6) }) != 0,
+            Event::Tx => (unsafe { read_volatile(IR_TXI6) }) != 0,
+            Event::Sti => sti_done(),
+        };
+        (0..=polls).any(|_| done()).then_some(()).ok_or(Error::Timeout)
+    }
+}
+
+/// Runs a future that never waits (one with [`Spin`]): it is ready at the
+/// first poll.
+fn block_on<F: core::future::Future>(f: F) -> F::Output {
+    let mut f = core::pin::pin!(f);
+    let mut cx = core::task::Context::from_waker(core::task::Waker::noop());
+    loop {
+        if let core::task::Poll::Ready(r) = f.as_mut().poll(&mut cx) {
+            return r;
         }
     }
 }
@@ -287,10 +340,233 @@ impl I2cTrait<SevenBitAddress> for SciI2c {
     /// A read of no bytes reads one byte (with the NACK) and drops it: the
     /// NACK of the last byte is what ends a read in this mode.
     fn transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
-        let r = self.run(address, operations);
+        let r = block_on(self.run(&mut Spin, address, operations));
         if r.is_err() {
             self.recover();
         }
         r
     }
+}
+
+#[cfg(feature = "async")]
+pub use asynch::{AsyncSciI2c, on_groupbl0, on_rxi6, on_txi6};
+
+/// SCI6's simple I2C as an interrupt-driven embedded-hal-async `I2c`
+/// (feature `async`): the same transfer as the blocking driver, sleeping
+/// where that one polls.
+///
+/// RXI6 / TXI6 (vectors 86 / 87) are enabled: their handlers note the
+/// event (accepting the request clears its IR, which the blocking driver
+/// polls) and wake the transfer. The end of a condition (IICSTIF) comes as
+/// STI6 = TEI6, in group interrupt BL0 (vector 110, GRPBL0.IS12), while a
+/// wait has SCR.TEIE set; its handler clears TEIE and wakes.
+///
+/// There is no bound on a wait (the blocking driver's polls): a device
+/// that holds SCL stops the transfer until a timeout around it (embassy-
+/// time's `with_timeout`) drops it. Dropping a transaction's future ends it
+/// as an error does: a stop condition, or the release of 42.7.7.
+///
+/// Register the handlers with [`bind_sci_i2c_interrupts!`](crate::bind_sci_i2c_interrupts)
+/// and [`bind_group_bl0!`](crate::bind_group_bl0) (shared with the async
+/// serial port).
+#[cfg(feature = "async")]
+mod asynch {
+    use core::cell::RefCell;
+    use core::future::poll_fn;
+    use core::ptr::{read_volatile, write_volatile};
+    use core::sync::atomic::{AtomicBool, Ordering::Relaxed};
+    use core::task::{Poll, Waker};
+
+    use critical_section::Mutex;
+    use embedded_hal::i2c::{ErrorType, Operation, SevenBitAddress};
+
+    use super::{Error, Event, SciI2c, Waiter, sti_done};
+    use crate::icu::{Interrupt, Priority};
+
+    const RXI6: Interrupt = unsafe { Interrupt::new(86, 86) };
+    const TXI6: Interrupt = unsafe { Interrupt::new(87, 87) };
+    /// Group BL0: TEI6 is bit 12.
+    const GROUP_BL0: Interrupt = unsafe { Interrupt::new(110, 110) };
+    const GRPBL0: *const u32 = 0x0008_7630 as _;
+    const GENBL0: *mut u32 = 0x0008_7670 as _;
+    const TEI6: u32 = 1 << 12;
+    /// SCR of SCI6 (SCI6 + 02h), and its TEIE (the STI6 request in simple
+    /// I2C mode).
+    const SCR: *mut u8 = 0x0008_a0c2 as _;
+    const TEIE: u8 = 1 << 2;
+
+    static RX: AtomicBool = AtomicBool::new(false);
+    static TX: AtomicBool = AtomicBool::new(false);
+    static WAKER: Mutex<RefCell<Option<Waker>>> = Mutex::new(RefCell::new(None));
+
+    fn wake() {
+        critical_section::with(|cs| {
+            if let Some(w) = WAKER.borrow_ref_mut(cs).take() {
+                w.wake();
+            }
+        });
+    }
+
+    fn set_teie(on: bool) {
+        critical_section::with(|_| unsafe {
+            let scr = read_volatile(SCR);
+            write_volatile(SCR, if on { scr | TEIE } else { scr & !TEIE });
+        });
+    }
+
+    /// The handler of RXI6 (vector 86).
+    pub extern "C" fn on_rxi6() {
+        RX.store(true, Relaxed);
+        wake();
+    }
+
+    /// The handler of TXI6 (vector 87).
+    pub extern "C" fn on_txi6() {
+        TX.store(true, Relaxed);
+        wake();
+    }
+
+    /// This driver's part of the group BL0 handler
+    /// ([`icu::on_group_bl0`](crate::icu::on_group_bl0)).
+    pub fn on_groupbl0() {
+        if unsafe { read_volatile(GRPBL0) } & TEI6 != 0 {
+            set_teie(false);
+            wake();
+        }
+    }
+
+    fn done(event: Event) -> bool {
+        match event {
+            Event::Rx => RX.load(Relaxed),
+            Event::Tx => TX.load(Relaxed),
+            Event::Sti => sti_done(),
+        }
+    }
+
+    /// The interrupt waiter.
+    struct Irq;
+
+    impl Waiter for Irq {
+        fn arm(&mut self, event: Event) {
+            match event {
+                Event::Rx => RX.store(false, Relaxed),
+                Event::Tx => TX.store(false, Relaxed),
+                Event::Sti => {}
+            }
+        }
+
+        async fn until(&mut self, event: Event, _polls: u32) -> Result<(), Error> {
+            poll_fn(|cx| {
+                if done(event) {
+                    return Poll::Ready(Ok(()));
+                }
+                critical_section::with(|cs| {
+                    *WAKER.borrow_ref_mut(cs) = Some(cx.waker().clone());
+                });
+                if event == Event::Sti {
+                    set_teie(true);
+                }
+                // It may have come before the waker was set.
+                if done(event) {
+                    if event == Event::Sti {
+                        set_teie(false);
+                    }
+                    Poll::Ready(Ok(()))
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await
+        }
+    }
+
+    /// The interrupt-driven simple I2C; see the [module](self).
+    pub struct AsyncSciI2c {
+        i2c: SciI2c,
+    }
+
+    impl SciI2c {
+        /// Enables RXI6 / TXI6 and group BL0 with TEI6 at `priority`
+        /// (group BL0's priority is shared with the async serial port's
+        /// ERI2), and returns the interrupt-driven I2C.
+        pub fn into_async(self, priority: Priority) -> AsyncSciI2c {
+            set_teie(false);
+            critical_section::with(|_| unsafe {
+                write_volatile(GENBL0, read_volatile(GENBL0) | TEI6);
+            });
+            for i in [RXI6, TXI6] {
+                i.clear_pending();
+            }
+            for i in [RXI6, TXI6, GROUP_BL0] {
+                i.set_priority(priority);
+                i.enable();
+            }
+            AsyncSciI2c { i2c: self }
+        }
+    }
+
+    impl AsyncSciI2c {
+        /// Disables its interrupts and gives back the blocking I2C.
+        pub fn free(self) -> SciI2c {
+            set_teie(false);
+            RXI6.disable();
+            TXI6.disable();
+            critical_section::with(|_| unsafe {
+                write_volatile(GENBL0, read_volatile(GENBL0) & !TEI6);
+            });
+            self.i2c
+        }
+
+        /// The bit rate setting in use.
+        pub fn rate(&self) -> super::Rate {
+            self.i2c.rate()
+        }
+    }
+
+    /// Ends a transaction cut short (its future dropped) as an error does.
+    struct Recover<'a>(&'a mut SciI2c, bool);
+
+    impl Drop for Recover<'_> {
+        fn drop(&mut self) {
+            if !self.1 {
+                set_teie(false);
+                self.0.recover();
+            }
+        }
+    }
+
+    impl ErrorType for AsyncSciI2c {
+        type Error = Error;
+    }
+
+    impl embedded_hal_async::i2c::I2c<SevenBitAddress> for AsyncSciI2c {
+        /// A read of no bytes reads one byte (with the NACK) and drops it,
+        /// as the blocking driver does.
+        async fn transaction(
+            &mut self,
+            address: u8,
+            operations: &mut [Operation<'_>],
+        ) -> Result<(), Error> {
+            let mut g = Recover(&mut self.i2c, false);
+            let r = g.0.run(&mut Irq, address, operations).await;
+            set_teie(false);
+            if r.is_err() {
+                g.0.recover();
+            }
+            g.1 = true;
+            r
+        }
+    }
+}
+
+/// Registers the async simple I2C's RXI6 / TXI6 handlers (vectors 86 / 87)
+/// with rx-rt's `interrupt!`; its condition ends come through group BL0:
+/// use [`bind_group_bl0!`](crate::bind_group_bl0) too. Feature `async`.
+#[cfg(feature = "async")]
+#[macro_export]
+macro_rules! bind_sci_i2c_interrupts {
+    () => {
+        rx_rt::interrupt!(86, $crate::sci_i2c::on_rxi6);
+        rx_rt::interrupt!(87, $crate::sci_i2c::on_txi6);
+    };
 }

@@ -160,3 +160,24 @@ pub fn trigger_swint() {
 pub fn trigger_swint2() {
     unsafe { write_volatile(SWINT2R, 1) }
 }
+
+/// The handler of group interrupt AL1 (vector 105, secure), which the
+/// async drivers share: RSCI12's receive error (ERI12, `serial`) and
+/// RI3C0's transfer end and events (TEI0 / EEI0, `i2c`). Each part looks
+/// at its own GRPAL1_S bits. Register it with
+/// [`bind_group_al1!`](crate::bind_group_al1).
+#[cfg(feature = "async")]
+pub extern "C" fn on_group_al1() {
+    crate::serial::on_groupal1();
+    crate::i2c::on_groupal1();
+}
+
+/// Registers [`on_group_al1`] (vector 105) with rx-rt's `interrupt!`: use
+/// it once with the async serial port or I2C (feature `async`).
+#[cfg(feature = "async")]
+#[macro_export]
+macro_rules! bind_group_al1 {
+    () => {
+        rx_rt::interrupt!(105, $crate::icu::on_group_al1);
+    };
+}
