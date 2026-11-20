@@ -555,9 +555,9 @@ async の `Delay`（embedded-hal-async の `DelayNs`）が使える。rx-rt の 
 - test/rust/hw-time（12 チェック）: CMT2 の `DelayNs` で 10 ms 待つと `Instant` も 10 ms 進む（換算の確認）、
   `Timer::after` の 1 / 100 / 1000 ms が 300 µs 以内の遅れで起きる、20 ms と 40 ms の 2 タスクがその順に起きる、
   CMTW0 を一周の 50 ms 前に進めて `Instant` が単調なまま一周をまたぐ、一周をまたぐ 100 ms のタイマが時間どおり
-  起きる。EK-RX74M（RX74N 用のビルド）で release / dev とも通る（2026-11-20）。
+  起きる。EK-RX74M（RX74N 用のビルド）と AP-RX72M-0A で release / dev とも通る（2026-11-20）。
 
-## 割り込みで動く UART: AsyncSerial（2026-11-20、rx74-hal の RSCI12）
+## 割り込みで動く UART: AsyncSerial（2026-11-20、rx74-hal の RSCI12、rx72-hal の SCI2）
 
 feature `async` で `Serial::into_async(priority)` が `serial::AsyncSerial`（embedded-io-async の `Read` / `Write`）を
 返す。ハンドラは `rx74_hal::bind_serial_interrupts!()`。
@@ -578,11 +578,18 @@ feature `async` で `Serial::into_async(priority)` が `serial::AsyncSerial`（e
   数えるタスクを rx-rt の実行器で動かす。EK-RX74M で scripts/hw/serial-echo.ps1 -Port COM16 の 4 チェック（1 行、
   4096 バイトを全速で、ブレークがフレーミングエラーになる、そのあともエコーが続く）が 2 回とも通った（2026-11-20）。
   TICKS はまだ読んでいない（その後 E2 Lite が接続できなくなった）。
-- RX72M の SCI2（RXI2 / TXI2 はベクタ 62 / 63、ERI2 はグループ BL0）はまだ。
+- rx72-hal の SCI2 も同じ API: RXI2 / TXI2 はベクタ 62 / 63（固定）、ERI2 はグループ割り込み BL0（ベクタ 110、
+  GENBL0（0008 7670h）の EN5、GRPBL0（0008 7630h）の IS5）。ブロッキングのドライバが SCR.TIE を立てたまま IR063 を
+  見る作りなので、TXI2 は TDR が空くたびに 1 回来る。ハンドラが「空いた」印を付けて書き手を起こす。切り替えのとき
+  IR062 / IR063 は消さない（RDR に来ていたバイトと空いた TDR を、許可した時点でハンドラが受け取る）。
+  AP-RX72M-0A で serial-echo.ps1 -Port COM8 の 4 チェックが通った（2026-11-20）。hw-time も AP-RX72M-0A で
+  release / dev とも通る。
+- E2 Lite が `Failed to initialise the emulator` で接続できなくなったことがある（EK-RX74M の例のあと）。USB の
+  挿し直しとボードの電源の確認では戻らず、しばらくおいて試すと戻った（何で戻ったのかは分かっていない）。
 
 ## 予定
 
 1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）、~~UART（受信）~~（2026-11-04、デバッガをつないだ状態。上記）
 2. ~~SPI（RSPI）~~（2026-11-08、内部ループバック。CN9 に相手機器はまだつないでいない）、~~ADC（S12AD）~~（2026-11-08、自己診断・内部基準電圧・温度センサ。外部の電圧はまだ）、~~PWM（MTU）~~（2026-11-08、MTU6 を LD2 に。GPTW はまだ）、~~I2C（RIIC）~~（2026-11-17、RIIC0 を CN8 に。上記）、~~簡易 I2C（SCI6）~~（2026-11-18、ボードの EEPROM）
 3. async（#188）: ~~ICU の API~~、~~embassy の time driver（CMTW0 / CMTW1）と実行器~~、~~割り込みで動く UART（RX74 の
-   RSCI12）~~（2026-11-20、上記）。RX72M の SCI2、SPI / I2C の async、embedded-hal-nb の serial
+   RSCI12、RX72M の SCI2）~~（2026-11-20、上記）。SPI / I2C の async、embedded-hal-nb の serial
