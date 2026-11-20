@@ -509,8 +509,29 @@ CN8 に USB シリアル変換（FTDI、3.3 V、Windows では COM8）をつな�
   `powershell -File scripts/hw/serial-echo.ps1 -Port COM8`（1 行、4096 バイト、ブレークの 4 チェック）。
   単体で動かすには E2 Lite のケーブルを外してリセットする（上記）。
 
+## 割り込みコントローラ: icu（2026-11-20、両 HAL）
+
+割り込みで動くドライバと async（#188）の土台。`hal::icu::Interrupt` は要因（ベクタ番号と優先度レジスタ）で、
+`enable` / `disable`（IERm.IENj）、`set_priority` / `priority`（IPRr）、`is_pending` / `clear_pending`（IRn）を持つ。
+`trigger_swint` / `trigger_swint2` は SWINTR / SWINT2R でソフトウェア割り込みを起こす（実行器を起こすのに使う）。
+ハンドラの登録はこれまでどおり rx-rt の `interrupt!(n, handler)`（n はリテラル）。
+
+- ベクタ 128 未満では、IPR の番号はベクタ番号と同じとは限らない（RX72M のマニュアルの表 15.5、iodefine.h の
+  `IPR_*`）。定数には正しい IPR を持たせた: SWINT2 / SWINT（26 / 27）は RX72M では IPR3 を共有し、RX74N / RX74M
+  では IPR8 / IPR3。CMI0 / CMI1 / CMWI0 / CMWI1（28〜31）は両方で IPR4〜7。RX72M の RXI2 / TXI2（62 / 63）は
+  IPR62 / 63。定数のない要因は `unsafe Interrupt::new(vector, ipr)`。
+- 優先度は `Priority`（1〜15）。0 は要求が受け付けられないので作れない。
+- アドレス: ICU は RX72M が 0008 7000h、RX74N / RX74M がセキュアの 8700 6000h。IRn = +n、IERm = +200h + m、
+  SWINTR / SWINT2R = +2E0h / +2E1h、IPRr = +300h + r（両チップ共通）。IER の書き換えは critical-section の中。
+- test/rust/hw-icu（20 チェック）: 優先度と IEN の読み戻し、IEN が 0 のあいだ SWINT は IR に残ること、許可すると
+  受け付けて IR が消えること、PSW.IPL = 2 のあいだ優先度 2 の要求は待ち、3 にすると受け付けること、CMI0 を
+  定数で許可して受け付けること、SWINT（優先度 3）のハンドラの中で CMI1 を優先度 7 なら受け付け、2 なら受け付け
+  ないこと。定数の IPR が違うとその要因の優先度が 0 のままで受け付けられず、失敗する。クロックはリセット後の
+  まま（RX72M は 240 kHz の LOCO）で、待ちは回数で区切る。AP-RX72M-0A で release / dev とも通る（2026-11-20）。
+
 ## 予定
 
 1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）、~~UART（受信）~~（2026-11-04、デバッガをつないだ状態。上記）
 2. ~~SPI（RSPI）~~（2026-11-08、内部ループバック。CN9 に相手機器はまだつないでいない）、~~ADC（S12AD）~~（2026-11-08、自己診断・内部基準電圧・温度センサ。外部の電圧はまだ）、~~PWM（MTU）~~（2026-11-08、MTU6 を LD2 に。GPTW はまだ）、~~I2C（RIIC）~~（2026-11-17、RIIC0 を CN8 に。上記）、~~簡易 I2C（SCI6）~~（2026-11-18、ボードの EEPROM）
-3. 必要なら async（embassy の time driver を CMT で）、embedded-hal-nb の serial
+3. async（#188）: ~~ICU の API~~（2026-11-20、上記）、embassy の time driver（CMTW0 / CMTW1）、割り込みで動く
+   UART（embedded-io-async）。embedded-hal-nb の serial

@@ -9,6 +9,8 @@
 //! - [`gpio`]: port pins as `InputPin` / `OutputPin` / `StatefulOutputPin`,
 //!   and the pin functions.
 //! - [`delay`]: `DelayNs` on CMT2.
+//! - [`icu`]: the interrupt controller (enable, priority and request flag
+//!   per source, the software interrupts).
 //! - [`serial`]: RSCI12 as a UART (`embedded-io` `Read` / `Write`).
 //! - [`spi`]: RSPIA0 as an SPI master (`SpiBus`).
 //! - [`pwm`]: GPTW8 PWM on PF05 (the LED LED1) as `SetDutyCycle`.
@@ -36,6 +38,7 @@ pub mod clock;
 pub mod delay;
 pub mod gpio;
 pub mod i2c;
+pub mod icu;
 mod mstp;
 pub mod pwm;
 pub mod serial;

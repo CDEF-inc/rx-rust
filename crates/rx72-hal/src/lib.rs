@@ -8,6 +8,8 @@
 //! - [`gpio`]: port pins as `InputPin` / `OutputPin` / `StatefulOutputPin`,
 //!   and the MPC pin functions.
 //! - [`delay`]: `DelayNs` on CMT2.
+//! - [`icu`]: the interrupt controller (enable, priority and request flag
+//!   per source, the software interrupts).
 //! - [`serial`]: SCI2 as a UART (`embedded-io` `Read` / `Write`).
 //! - [`spi`]: RSPI2 as an SPI master (`SpiBus`).
 //! - [`adc`]: the 12-bit A/D converter units, the internal reference
@@ -35,6 +37,7 @@ pub mod clock;
 pub mod delay;
 pub mod gpio;
 pub mod i2c;
+pub mod icu;
 mod mstp;
 pub mod pwm;
 pub mod sci_i2c;
