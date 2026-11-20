@@ -1,0 +1,37 @@
+[package]
+name = "serial-echo-async"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rx-rt = { path = "../../crates/rx-rt", features = ["critical-section", "executor"] }
+rx74-hal = { path = "../../crates/rx74-hal", optional = true, features = ["async", "embassy-time-driver"] }
+embedded-io-async = "0.7"
+embassy-executor = "0.10"
+embassy-time = "0.5"
+
+[features]
+# The board: exactly one of these (build.rs picks its memory.x).
+ek-rx74n = ["dep:rx74-hal", "rx74-hal/rx74n"]
+ek-rx74m = ["dep:rx74-hal", "rx74-hal/rx74m"]
+
+[[bin]]
+name = "serial-echo-async"
+test = false
+bench = false
+
+[profile.release]
+opt-level = "s"
+debug = true
+
+[profile.dev]
+opt-level = 1
+
+# The generated PAC is about 47 MB of source: with debug info rustc takes
+# minutes on it.
+[profile.release.package.rx74-pac]
+debug = false
+[profile.dev.package.rx74-pac]
+debug = false
+opt-level = "s"

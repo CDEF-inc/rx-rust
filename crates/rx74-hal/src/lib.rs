@@ -11,7 +11,8 @@
 //! - [`delay`]: `DelayNs` on CMT2.
 //! - [`icu`]: the interrupt controller (enable, priority and request flag
 //!   per source, the software interrupts).
-//! - [`serial`]: RSCI12 as a UART (`embedded-io` `Read` / `Write`).
+//! - [`serial`]: RSCI12 as a UART (`embedded-io` `Read` / `Write`; with the
+//!   feature `async`, interrupt-driven `embedded-io-async` too).
 //! - [`spi`]: RSPIA0 as an SPI master (`SpiBus`).
 //! - [`pwm`]: GPTW8 PWM on PF05 (the LED LED1) as `SetDutyCycle`.
 //! - [`i2c`]: RI3C0 as an I2C master (`I2c`) on P102 / P103.
