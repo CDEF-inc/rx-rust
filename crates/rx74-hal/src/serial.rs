@@ -257,8 +257,9 @@ pub use asynch::{AsyncSerial, on_groupal1, on_rxi12, on_txi12};
 /// - **Receiving:** RXI12, routed to vector 144 (SLIR144), puts each byte
 ///   into a 128-byte ring buffer and wakes the reader. A receive error
 ///   comes as ERI12, in group interrupt AL1 (vector 105, GRPAL1_S.IS7): the
-///   handler clears the error and keeps it for the next `read`. A full
-///   buffer drops the byte and counts as an overrun.
+///   handler clears the error and keeps it, with its place in the stream:
+///   `read` returns the bytes before it, then the error, then the bytes
+///   after it. A full buffer drops the byte and counts as an overrun.
 /// - **Transmitting:** a byte goes into TDR when TDRE is set; otherwise the
 ///   writer sets SCR0.TIE and sleeps until TXI12 (vector 145, SLIR145)
 ///   says TDR is empty again.
@@ -301,8 +302,20 @@ mod asynch {
         buf: [u8; RX_BUF],
         head: usize,
         len: usize,
-        error: Option<Error>,
+        /// The first receive error not returned yet, and how many of the
+        /// buffered bytes came before it. Later errors are not kept: the
+        /// stream is already known to be damaged there.
+        error: Option<(Error, usize)>,
         waker: Option<Waker>,
+    }
+
+    impl Rx {
+        /// Keeps `e` after the bytes buffered so far.
+        fn set_error(&mut self, e: Error) {
+            if self.error.is_none() {
+                self.error = Some((e, self.len));
+            }
+        }
     }
 
     static RX: Mutex<RefCell<Rx>> = Mutex::new(RefCell::new(Rx {
@@ -341,7 +354,7 @@ mod asynch {
                 let mut rx = RX.borrow_ref_mut(cs);
                 rx.head = 0;
                 rx.len = 0;
-                rx.error = self.pending;
+                rx.error = self.pending.map(|e| (e, 0));
                 rx.waker = None;
             });
             unsafe {
@@ -383,9 +396,9 @@ mod asynch {
     }
 
     impl embedded_io_async::Read for AsyncSerial {
-        /// Waits until a byte has arrived, then takes all the buffered
-        /// ones (up to `buf.len()`). A receive error is returned once the
-        /// bytes before it are taken.
+        /// Waits until a byte has arrived, then takes the buffered ones (up
+        /// to `buf.len()`), stopping at a receive error: the error is
+        /// returned by the next `read`, before the bytes after it.
         async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
             if buf.is_empty() {
                 return Ok(0);
@@ -393,16 +406,22 @@ mod asynch {
             poll_fn(|cx| {
                 critical_section::with(|cs| {
                     let mut rx = RX.borrow_ref_mut(cs);
-                    if rx.len > 0 {
-                        let n = rx.len.min(buf.len());
+                    if let Some((e, 0)) = rx.error {
+                        rx.error = None;
+                        Poll::Ready(Err(e))
+                    } else if rx.len > 0 {
+                        // Up to the error, if there is one.
+                        let before = rx.error.map_or(rx.len, |(_, at)| at);
+                        let n = before.min(buf.len());
                         for b in buf.iter_mut().take(n) {
                             *b = rx.buf[rx.head];
                             rx.head = (rx.head + 1) % RX_BUF;
                         }
                         rx.len -= n;
+                        if let Some((_, at)) = &mut rx.error {
+                            *at -= n;
+                        }
                         Poll::Ready(Ok(n))
-                    } else if let Some(e) = rx.error.take() {
-                        Poll::Ready(Err(e))
                     } else {
                         rx.waker = Some(cx.waker().clone());
                         Poll::Pending
@@ -467,7 +486,7 @@ mod asynch {
                     rx.buf[at] = b;
                     rx.len += 1;
                 } else {
-                    rx.error = Some(Error::Overrun);
+                    rx.set_error(Error::Overrun);
                 }
             }
             wake(&mut rx.waker);
@@ -504,7 +523,7 @@ mod asynch {
                 w.rdrfc().set_bit().aferc().set_bit().aperc().set_bit().orerc().set_bit()
             });
             let mut rx = RX.borrow_ref_mut(cs);
-            rx.error = Some(e);
+            rx.set_error(e);
             wake(&mut rx.waker);
         })
     }
