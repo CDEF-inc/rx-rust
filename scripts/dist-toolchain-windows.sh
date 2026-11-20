@@ -16,6 +16,12 @@
 #              rustlib/src/rust/library (core
 #              etc. for -Zbuild-std)
 #   VERSIONS   the commits it was built from
+#   COPYRIGHT, LICENSE-APACHE, LICENSE-MIT  the Rust project's (rustc,
+#              cargo, core and the other libraries)
+#   LICENSE.TXT  llvm-project's (Apache-2.0 WITH LLVM-exception: lld, the
+#              LLVM tools, LLDB)
+#   COPYING.QEMU  QEMU's (GPL-2.0), from CDEF-inc/qemu at the commit in
+#              VERSIONS
 #   SBOM.spdx.json, SBOM.cdx.json  the software bill of materials, as SPDX
 #              2.3 and as CycloneDX 1.6 (scripts/sbom.py), also written next
 #              to the zip as build/dist/NAME.spdx.json and NAME.cdx.json
@@ -92,6 +98,23 @@ fi
   [ -f "$d/bin/lldb.exe" ] && echo "lldb           $("$d/bin/lldb" --version | head -1)"
 } > "$d/VERSIONS"
 cat "$d/VERSIONS"
+
+qemu_commit=$(grep -v '^#' "$root/scripts/qemu.commit")
+# The licenses go with the programs: the Rust project's, llvm-project's,
+# and QEMU's (GPL-2.0) from the commit it was built from (the checkout's,
+# else fetched at that commit: the CI has no checkout).
+for f in COPYRIGHT LICENSE-APACHE LICENSE-MIT; do
+  cp "$root/rust/$f" "$d/$f"
+done
+cp "$root/rust/src/llvm-project/llvm/LICENSE.TXT" "$d/LICENSE.TXT"
+qemu_dir="$root/../qemu"
+if [ -f "$qemu_dir/COPYING" ] && [ "$(git -C "$qemu_dir" rev-parse HEAD 2>/dev/null)" = "$qemu_commit" ]; then
+  cp "$qemu_dir/COPYING" "$d/COPYING.QEMU"
+else
+  curl -fsSL --retry 3 -o "$d/COPYING.QEMU" \
+    "https://raw.githubusercontent.com/CDEF-inc/qemu/$qemu_commit/COPYING" ||
+    { echo "cannot fetch QEMU's COPYING at $qemu_commit" >&2; exit 2; }
+fi
 
 # Windows's python (python3 may be missing, or the Store's stub that fails);
 # the paths go to it in Windows form.

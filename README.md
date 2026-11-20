@@ -127,7 +127,8 @@ library sources for `-Zbuild-std`, cargo, lld
 (rustc's `rust-lld`, and `ld.lld`), the LLVM binary tools (`llvm-objcopy`,
 `llvm-objdump`, `llvm-nm`, `llvm-size`, `llvm-readelf`, ...; also under the
 `rx-elf-*` names) and `qemu-system-rx`, with the commits they were built
-from in `VERSIONS`. It has no GNU binutils: Rust programs do not need them.
+from in `VERSIONS`, the SBOMs, and the licenses (see [License](#license)).
+It has no GNU binutils: Rust programs do not need them.
 The tests in this repository still use GNU as, ld and GCC, to compare with
 them and to call GCC-compiled C. The
 [releases](https://github.com/CDEF-inc/rx-rust/releases) carry it: the CI
@@ -387,8 +388,24 @@ Licensed under either of
 - Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
 - MIT license ([LICENSE-MIT](LICENSE-MIT))
 
-at your option. The LLVM fork is under the LLVM license (Apache-2.0 WITH
-LLVM-exception) and the rust fork under the Rust project's licenses.
+at your option. The forks keep their own licenses, and so do the parts of
+the prebuilt toolchain archives:
+
+- rustc, cargo and the RX libraries (`core`, `alloc`,
+  `compiler_builtins`) are the rust fork
+  ([CDEF-inc/rust](https://github.com/CDEF-inc/rust)), under the Rust
+  project's licenses (MIT or Apache-2.0; `COPYRIGHT`, `LICENSE-APACHE` and
+  `LICENSE-MIT` in the archive).
+- lld, the LLVM tools and LLDB are the LLVM fork
+  ([CDEF-inc/llvm-project](https://github.com/CDEF-inc/llvm-project)),
+  under the Apache License 2.0 with LLVM Exceptions (`Apache-2.0 WITH
+  LLVM-exception`; `LICENSE.TXT` in the archive). LLDB links libxml2 (MIT)
+  statically.
+- qemu-system-rx is QEMU, under the GPL version 2 (`COPYING.QEMU` in the
+  archive). Its source is [CDEF-inc/qemu](https://github.com/CDEF-inc/qemu)
+  at the commit in `VERSIONS`. The libraries it needs (glib, pixman, ... on
+  Linux; MinGW's DLLs on Windows) keep their own licenses, which the SBOMs
+  list.
 
 Unless you explicitly state otherwise, any contribution intentionally
 submitted for inclusion in the work by you, as defined in the Apache-2.0
