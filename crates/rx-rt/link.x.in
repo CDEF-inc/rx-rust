@@ -56,6 +56,14 @@ SECTIONS
     _rx_bss_end = .;
   } > RAM
 
+  /* Neither loaded nor cleared: what was there before a reset (software,
+     watchdog) is still there. #[unsafe(link_section = ".uninit.NAME")]. */
+  .uninit (NOLOAD) : ALIGN(4)
+  {
+    *(.uninit .uninit.*)
+    . = ALIGN(4);
+  } > RAM
+
   .rx_fixed_vectors 0xFFFFFF80 :
   {
     KEEP(*(.rx_fixed_vectors))

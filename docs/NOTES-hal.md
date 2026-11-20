@@ -625,6 +625,51 @@ feature `async` で `Serial::into_async(priority)` が `serial::AsyncSerial`（e
   ステート数がエラーで設定が残ること（30、31）を足した。AP-RX72M-0A で rt の 40 本がすべて通る（2026-11-20）。
   タイムアウトそのもの（水晶を外す、周辺を止める）はボードでは起こしていない。
 
+## リセット要因とウォッチドッグ: reset、watchdog（2026-11-20、#190、両 HAL）
+
+- `reset::cause()` がリセット要因のフラグを読み、`reset::clear()` が消す（1 を読んでから 0 を書く）。フラグは消すか
+  パワーオンリセットまで残るので、起動直後に読んで消す。どれも立っていなければ RES# 端子（とデバッガ）のリセット。
+  RX72M: RSTSR0（0008 C290h: PORF、LVD0RF〜LVD2RF、DPSRSTF）、RSTSR2（0008 00C0h: IWDTRF、WDTRF、SWRF）。
+  RX74N / RX74M: RSTSR0（8701 9A40h: PORF、PVD0RF〜PVD2RF、PVD4RF / PVD5RF、DPSRSTF）、RSTSR1（8701 90C0h、32 ビット:
+  IWDTRF、WDT0RF、SWRF、LM0RF、BUSRF、CMRF）、RSTSR3（8701 9A48h: CVMRF、TEMPRF）。名前のないフラグは `raw()`。
+- コールドスタート / ウォームスタート: `set_warm_start` / `is_warm_start`（RX72M の RSTSR1.CWSF、RX74 の RSTSR2.CWSF。
+  パワーオンリセットだけが消す）。
+- `reset::software_reset()`: 割り込みを止め、PRCR（RX74 は PRCR_S）の PRC1 を立てて SWRR に A501h。
+- `watchdog::Iwdt` / `Wdt`: レジスタスタートモード（OFS0 が既定の全ビット 1 のとき）。`start(p, config)` が
+  IWDTCR / WDTCR（TOPS、CKS、RPES、RPSS）と IWDTRCR / WDTRCR（RSTIRQS: 1 ならリセット）を書き、最初の `feed`（リフレッシュ
+  レジスタに 00h、FFh）でカウントが始まる。設定はリセット後に 1 回しか書けない。カウンタがもう動いている（0 でない）か、
+  書いた値が読み返せなければ `StartError::Locked`（もう起動したか、OFS0 のオートスタートモード）。オートスタート
+  モードでも IWDTCR / IWDTRCR は書いた値を読み返す（AP-RX72M-0A で確認）ので、読み返しだけでは分からない。止められない。
+  - RX72M: IWDT は専用の 120 kHz、タイムアウトは 1024〜16384 カウント。WDT は PCLKB、1024〜16384。
+    IWDT 専用のオシレータはリセット後に止まっている（ILOCOCR.ILCSTP = 1、マニュアル 9.2.11）ので、`Iwdt::start` が
+    PRC0 を立てて ILCSTP を 0 にし、OSCOVFSR.ILCOVF を待つ（`StartError::Clock`）。止まったままだとカウンタは 0 の
+    まま動かず、リセットも来ない（最初はこれで、0 のカウンタを `feed` の試験が素通りしていた）。
+  - RX74N / RX74M: IWDT は 16384 Hz（FSP の `BSP_FEATURE_IWDT_CLOCK_FREQUENCY`）、タイムアウトは 128 / 512 / 1024 / 2048
+    カウント（`IwdtTimeout`。FSP の `g_iwdt_timeout`）。リフレッシュ直後のカウンタが 7Fh 以下であることをボードで確かめた。
+    WDT0 は PCLKB、1024〜16384。CKS の値は両チップで同じ（IWDT: 1 / 16 / 32 / 64 / 128 / 256 分周、WDT: 4〜8192 分周）。
+- test/rust/hw-reset: 実際にリセットさせて 4 回走る（リセット要因で区別し、結果は rx-rt の `.uninit` に置いて最後に
+  報告する）。① ランナーのリセット後: フラグを消し、ウォームスタートにしてソフトウェアリセット。② SWRF だけが立ち、
+  ウォームスタートのまま。IWDT を最短のタイムアウトで起動し、半分で 20 回 `feed` してリセットされないこと、そのあと
+  `feed` をやめる。③ IWDTRF。WDT で同じことをする。④ WDTRF。消してフラグがなくなること。カウンタが 0 でなく、
+  減っていくことも確かめる（17、18）。16 チェック。E2 Lite でデバッグ中でも、どのリセットのあともそのまま走る。
+  AP-RX72M-0A と EK-RX74M で release / dev とも通る（2026-11-20）。RX74M の IWDT は、起動のリフレッシュのあと
+  IWDT のクロックで数サイクルのあいだカウンタが 0 と読め、それから 7Fh（128 カウント）から数える（試験は 0 でなく
+  なるのを待って読む）。
+- `ofs`（RX72M のみ）: オプション設定メモリ（FE7F 5D00h〜: MDE、OFS0、OFS1）。`Ofs0`（`iwdt_auto_start` /
+  `iwdt_stop_in_sleep` / `wdt_auto_start`）、`Ofs1`（`lvd0_reset` / `hoco_at_reset`）を const で組み、
+  `option_setting!(ofs0:, ofs1:)` が `.rx_option_setting` セクションに置く（memory.x に OFSM 領域が要る。
+  test/hw/rx72m-memory.x）。プログラムと一緒にデバッガが書き、次に書くまで残る。オートスタートしたタイマは
+  `Iwdt::running` / `Wdt::running` で受け取って `feed` する（`start` は `Locked`）。
+  - 書かないもの: MDE は FFFF FFFFh 固定（リトルエンディアン、リニアモード）。ID コード（OSIS）、FAW、ROMCODE、SPCC、
+    TMEF、BANKSEL には触れない（値を誤るとデバッガやフラッシュから締め出される）。RX74N / RX74M のオプション設定
+    メモリ（OTP / セキュリティ領域）も扱わない。
+  - hw-board: `own-option-setting` のない AP-RX72M-0A の試験は、消去値（全ビット 1）を置く。オプションを変えた試験の
+    あとに走る試験が、それを引き継がないように。
+  - test/rust/hw-ofs（AP-RX72M-0A のみ）: OFS0 で IWDT をオートスタート（256 分周、16384 カウント、約 35 秒）。
+    読み返し（1〜4）、起動しなくてもカウンタが減る（5）、`start` が `Locked`（6）、`feed` で戻る（7）。release / dev
+    とも通る（2026-11-20）。書き込む前のボードのオプション設定メモリは全部 FFh、hw-pac のあとも FFh に戻る。
+- まだのもの: LVD（電圧監視。OFS1 の `lvd0_reset` はリセットの設定だけ）。
+
 ## 予定
 
 1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）、~~UART（受信）~~（2026-11-04、デバッガをつないだ状態。上記）

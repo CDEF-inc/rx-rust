@@ -8,7 +8,9 @@
     `link.x.in` に `PROVIDE(_rx_vector_N = _rx_default_handler)` を埋めて `link.x` を出力、OUT_DIR をリンク検索パスに追加。
   - `link.x.in`: アプリの `memory.x`（RAM / ROM の 2 領域、ROM は 0xFFFFFFFF で終わること）を INCLUDE。
     `.text`（先頭に `.text.rx_reset`）/ `.rodata` / `.rx_vectors` を ROM、`.data` を RAM（LMA は ROM）、`.bss` を RAM、
-    `.rx_fixed_vectors` を 0xFFFFFF80。GCC/Renesas 流の P/C/D/B セクション名も拾う。
+    `.rx_fixed_vectors` を 0xFFFFFF80。GCC/Renesas 流の P/C/D/B セクション名も拾う。`.uninit`（NOLOAD、`.bss` の
+    後ろ）は読み込みもゼロ化もしない: ソフトウェアリセットやウォッチドッグのリセットの前の値が残る
+    （`#[unsafe(link_section = ".uninit.NAME")]`。2026-11-20、#190、test/rust/hw-reset が使う）。
 - アプリ側: `#![no_std] #![no_main]`、`#[unsafe(no_mangle)] fn main() -> !`、`#[panic_handler]`。
   `.cargo/config.toml` で `-C link-arg=-Tlink.x`、`build-std = ["core"]`、`build-std-features = ["compiler-builtins-mem"]`。
   `memory.x` は build.rs で OUT_DIR にコピーして検索パスへ（cortex-m-rt と同じ流儀）。

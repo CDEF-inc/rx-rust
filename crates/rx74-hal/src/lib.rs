@@ -20,6 +20,8 @@
 //!   sensor.
 //! - `time` (feature `embassy-time-driver`): an embassy-time driver on
 //!   CMTW0 / CMTW1.
+//! - [`reset`]: the cause of the last reset, the software reset.
+//! - [`watchdog`]: the IWDT and the WDT in register start mode.
 //!
 //! Waits for the hardware are bounded: a clock that does not start or a
 //! peripheral that does not finish gives [`Timeout`] instead of hanging.
@@ -50,10 +52,12 @@ pub mod i2c;
 pub mod icu;
 mod mstp;
 pub mod pwm;
+pub mod reset;
 pub mod serial;
 pub mod spi;
 #[cfg(feature = "embassy-time-driver")]
 pub mod time;
 mod timeout;
+pub mod watchdog;
 
 pub use timeout::{OutOfRange, Timeout};
