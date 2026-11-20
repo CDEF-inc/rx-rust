@@ -37,6 +37,7 @@ use crate::clock::Clocks;
 use crate::gpio::{Function, Pin};
 use crate::mstp::{self, Mstpcr};
 use crate::pac;
+use crate::timeout::OutOfRange;
 
 // ICCR1
 const ICE: u8 = 1 << 7;
@@ -179,7 +180,8 @@ pub struct I2c {
 impl I2c {
     /// Takes RIIC0 out of module stop (MSTPCRB.MSTPB21) and starts it as an
     /// I2C master on P12 / P13 at `speed` (manual figure 43.4). The timing
-    /// fits any PCLKB up to 682 MHz (it is at most 60 MHz).
+    /// fits any PCLKB up to 682 MHz (it is at most 60 MHz), so this does
+    /// not panic in practice (see [`try_riic0`](Self::try_riic0)).
     pub fn riic0<CM, DM>(
         riic: pac::Riic0,
         scl: Pin<0x01, 2, CM>,
@@ -187,14 +189,26 @@ impl I2c {
         speed: Speed,
         clocks: &Clocks,
     ) -> Self {
-        let timing = Timing::new(clocks.pclkb, speed).expect("PCLKB too fast");
+        Self::try_riic0(riic, scl, sda, speed, clocks).expect("PCLKB too fast")
+    }
+
+    /// [`riic0`](Self::riic0), or [`OutOfRange`] (the peripheral and pins
+    /// untouched, and dropped) if no timing fits PCLKB.
+    pub fn try_riic0<CM, DM>(
+        riic: pac::Riic0,
+        scl: Pin<0x01, 2, CM>,
+        sda: Pin<0x01, 3, DM>,
+        speed: Speed,
+        clocks: &Clocks,
+    ) -> Result<Self, OutOfRange> {
+        let timing = Timing::new(clocks.pclkb, speed).ok_or(OutOfRange)?;
         mstp::start(Mstpcr::B, 21);
         // A RIIC reset with the pins not driven, then the pins.
         reset(&riic);
         let scl = scl.into_function(PSEL_RIIC);
         let sda = sda.into_function(PSEL_RIIC);
         configure(&riic, timing);
-        I2c { riic, timing, busy_polls: clocks.iclk / 1000, scl, sda }
+        Ok(I2c { riic, timing, busy_polls: clocks.iclk / 1000, scl, sda })
     }
 
     /// The SCL timing in use.

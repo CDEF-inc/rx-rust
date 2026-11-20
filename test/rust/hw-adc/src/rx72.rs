@@ -53,7 +53,10 @@ fn main() -> ! {
 
     // --- self-diagnosis: the status says which voltage was converted
     for (unit, base) in [(0usize, 4u32), (1, 8)] {
-        let mut diag = |v| if unit == 0 { adc0.self_diagnosis(v) } else { adc1.self_diagnosis(v) };
+        // A timeout panics (failure 999).
+        let mut diag = |v| {
+            if unit == 0 { adc0.self_diagnosis(v) } else { adc1.self_diagnosis(v) }.unwrap()
+        };
         let zero = diag(DiagVoltage::Zero);
         let half = diag(DiagVoltage::Half);
         let full = diag(DiagVoltage::Full);
@@ -68,7 +71,7 @@ fn main() -> ! {
 
     // --- the internal reference voltage, 1.13-1.23 V of AVCC1 (3.3 V on
     // the board; allow 3.2-3.4 V): 1361-1574
-    let vref = adc1.read_internal_reference();
+    let vref = adc1.read_internal_reference().unwrap();
     record(6, vref as u32);
     check(12, (1361..=1574).contains(&vref));
     // ADSSTRO = 5 us at 30 MHz
@@ -80,11 +83,11 @@ fn main() -> ! {
     let cal = temp.calibration();
     record(7, cal as u32);
     check(14, (1700..=2300).contains(&cal));
-    let raw = temp.read_raw(&mut adc1);
+    let raw = temp.read_raw(&mut adc1).unwrap();
     record(8, raw as u32);
     // At 25 °C the sensor gives about 1.21 V: 1500 counts.
     check(15, raw < cal && (1300..=1800).contains(&raw));
-    let mc = temp.read_millicelsius(&mut adc1);
+    let mc = temp.read_millicelsius(&mut adc1).unwrap();
     record(9, mc as u32);
     check(16, (5_000..=70_000).contains(&mc));
     // ADSSTRT = 5 us, and the sensor is off again (TSCR = 0)
@@ -97,8 +100,8 @@ fn main() -> ! {
     check(18, rd8(0x0008_c160) == 0x80 && rd8(0x0008_c1b2) == 0x80);
     check(19, rd8(0x0008_c064) & 1 == 0 && rd8(0x0008_c004) & 1 == 0);
     check(20, rd8(0x0008_c06e) & 1 << 2 == 0 && rd8(0x0008_c00e) & 1 << 2 == 0);
-    let an000 = adc0.read(&p40);
-    let an100 = adc1.read(&pe2);
+    let an000 = adc0.read(&p40).unwrap();
+    let an100 = adc1.read(&pe2).unwrap();
     record(10, an000 as u32);
     record(11, an100 as u32);
     check(21, an000 <= 0xfff && an100 <= 0xfff);
@@ -107,9 +110,11 @@ fn main() -> ! {
     check(22, rd16(0x0008_9004) == 0 && rd16(0x0008_9104) == 0);
     check(23, rd16(0x0008_9000) & 1 << 15 == 0 && rd16(0x0008_9100) & 1 << 15 == 0);
     // A longer sampling time for every channel of unit 0
-    adc0.set_sampling_states(40);
-    let _ = adc0.read(&p40);
-    check(28, (0x0008_90e0..=0x0008_90e7).all(|a| rd8(a) == 40));
+    check(28, adc0.set_sampling_states(40).is_ok() && adc0.read(&p40).is_ok());
+    check(29, (0x0008_90e0..=0x0008_90e7).all(|a| rd8(a) == 40));
+    // Below 5 states: an error, and the setting stays.
+    check(30, adc0.set_sampling_states(4).is_err());
+    check(31, (0x0008_90e0..=0x0008_90e7).all(|a| rd8(a) == 40));
     // Back to a digital input: ASEL cleared
     let _p40 = p40.into_input();
     check(24, rd8(0x0008_c160) == 0);
