@@ -188,9 +188,13 @@ impl Regs {
             write_volatile((self.base + 2) as *mut u16, cr);
             write_volatile((self.base + 6) as *mut u8, (reset as u8) << 7);
             // The reserved bits read 0 (RPSS b13-12, RPES b9-8, CKS b7-4,
-            // TOPS b1-0). A control that does not read back is fixed
-            // already (written before, or OFS0's auto-start).
-            if read_volatile((self.base + 2) as *const u16) & 0x33f3 != cr {
+            // TOPS b1-0; RSTIRQS b7 of the reset control). Settings that do
+            // not read back, either register, are fixed already (written
+            // before, or OFS0's auto-start): the control alone can match
+            // while RSTIRQS does not.
+            let cr_ok = read_volatile((self.base + 2) as *const u16) & 0x33f3 == cr;
+            let rcr_ok = read_volatile((self.base + 6) as *const u8) & 0x80 == (reset as u8) << 7;
+            if !(cr_ok && rcr_ok) {
                 return Err(StartError::Locked);
             }
         }
