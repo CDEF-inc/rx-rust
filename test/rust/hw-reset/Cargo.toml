@@ -1,0 +1,41 @@
+[package]
+name = "hw-reset"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rx-rt = { path = "../../../crates/rx-rt", features = ["critical-section"] }
+hw-board = { path = "../hw-board" }
+critical-section = "1.2"
+
+[features]
+# The board: exactly one of these (hw-board).
+ap-rx72m = ["hw-board/ap-rx72m"]
+ek-rx74n = ["hw-board/ek-rx74n"]
+ek-rx74m = ["hw-board/ek-rx74m"]
+
+[[bin]]
+name = "hw-reset"
+test = false
+bench = false
+
+[profile.release]
+opt-level = "s"
+debug = true
+
+[profile.dev]
+opt-level = 1
+
+# The generated PACs are about 23 MB (RX72) and 47 MB (RX74) of source:
+# with debug info rustc takes over ten minutes on them.
+[profile.release.package.rx72-pac]
+debug = false
+[profile.dev.package.rx72-pac]
+debug = false
+opt-level = "s"
+[profile.release.package.rx74-pac]
+debug = false
+[profile.dev.package.rx74-pac]
+debug = false
+opt-level = "s"
