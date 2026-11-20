@@ -519,9 +519,10 @@ pub mod interrupt {
 /// }
 /// ```
 ///
-/// It runs with PSW.I set (interrupts on) between polls. A task woken from
-/// an interrupt handler runs after the handler returns; one woken from a
-/// task runs in the same loop.
+/// `run` sets PSW.I (interrupts on) before the first poll, as `main` is
+/// entered with it clear, and the tasks always run with it set. A task
+/// woken from an interrupt handler runs after the handler returns; one
+/// woken from a task runs in the same loop.
 #[cfg(feature = "executor")]
 pub mod executor {
     use core::marker::PhantomData;
@@ -551,10 +552,14 @@ pub mod executor {
             Executor { inner: raw::Executor::new(core::ptr::null_mut()), not_send: PhantomData }
         }
 
-        /// Calls `init` with a [`Spawner`] for the first tasks, then runs
-        /// the tasks forever.
+        /// Calls `init` with a [`Spawner`] for the first tasks, enables
+        /// interrupts, then runs the tasks forever.
         pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
             init(self.inner.spawner());
+            // main runs with PSW.I clear after a reset: without this the
+            // first polls would run with interrupts masked, and a task
+            // waiting there for an interrupt would never see it.
+            interrupt::enable();
             loop {
                 PENDING.store(false, Ordering::Relaxed);
                 unsafe { self.inner.poll() };
