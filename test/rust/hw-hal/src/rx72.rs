@@ -40,6 +40,9 @@ fn main() -> ! {
     check(18, bad.try_configure(&p.system) == Err(ClockError::OutOfRange));
     check(19, p.system.pllcr().read().stc().bits() == 19
         && p.system.sckcr3().read().cksel().bits() == 0b100);
+    // A PLL input divider of 0: an error, not a division by zero.
+    let zero = Config { pll_input_div: 0, ..Config::pll_240mhz_from_24mhz() };
+    check(20, zero.try_configure(&p.system) == Err(ClockError::OutOfRange));
 
     // --- GPIO
     let pins = Parts::take().unwrap();
