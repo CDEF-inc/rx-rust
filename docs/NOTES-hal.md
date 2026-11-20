@@ -585,7 +585,7 @@ feature `async` で `Serial::into_async(priority)` が `serial::AsyncSerial`（e
   AP-RX72M-0A で serial-echo.ps1 -Port COM8 の 4 チェックが通った（2026-11-20）。hw-time も AP-RX72M-0A で
   release / dev とも通る。
 - E2 Lite が `Failed to initialise the emulator` で接続できなくなったことがある（EK-RX74M の例のあと）。USB の
-  挿し直しとボードの電源の確認では戻らず、しばらくおいて試すと戻った（何で戻ったのかは分かっていない）。
+  1 回目の挿し直しとボードの電源の確認では戻らず、もう一度 E2 Lite の USB を挿し直すと戻った。
 
 ## 予定
 
