@@ -61,7 +61,7 @@ case $board in
                  "hw-irq:-relax:-C target-feature=+relax")
     all=(insns rom codegen rust rt examples lldb)
     insns=(cmt) extra_defs=() board_feature=ap-rx72m
-    examples=(blinky serial-echo) ;;
+    examples=(blinky serial-echo serial-echo-async) ;;
   rx74n)
     out=$root/build/hw-rx74n cpu=rxv3e v3e=1 ram_ld=rx74n-ram.ld rom_ld=rx74n-rom.ld
     memory_x=rx74n-memory.x
@@ -71,13 +71,13 @@ case $board in
     insns=(rxv3e-insns) extra_defs=(--defsym ROOT_ONLY=1)
     # Also on the EK-RX74M, like the other tests (one RX74N PAC build).
     board_feature=ek-rx74n
-    examples=(blinky serial-echo) ;;
+    examples=(blinky serial-echo serial-echo-async) ;;
   *)
     echo "unknown HW_BOARD $board (rx72m, rx74n, rx74m)" >&2
     exit 2 ;;
 esac
 # The crates that take the board's feature: the board tests and the examples.
-board_crates=("${board_tests[@]}" blinky serial-echo)
+board_crates=("${board_tests[@]}" blinky serial-echo serial-echo-async)
 # features CRATE [MORE]: the cargo features for CRATE (comma-separated)
 features() {
   local f=${2:-}

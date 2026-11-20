@@ -10,7 +10,8 @@
 //! - [`delay`]: `DelayNs` on CMT2.
 //! - [`icu`]: the interrupt controller (enable, priority and request flag
 //!   per source, the software interrupts).
-//! - [`serial`]: SCI2 as a UART (`embedded-io` `Read` / `Write`).
+//! - [`serial`]: SCI2 as a UART (`embedded-io` `Read` / `Write`; with the
+//!   feature `async`, interrupt-driven `embedded-io-async` too).
 //! - [`spi`]: RSPI2 as an SPI master (`SpiBus`).
 //! - [`adc`]: the 12-bit A/D converter units, the internal reference
 //!   voltage and the temperature sensor.
