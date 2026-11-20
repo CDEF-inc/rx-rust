@@ -246,6 +246,14 @@ CAC はメインクロックが発振していないと測定が終わらない�
 MOSCWTCR の待ち時間が過ぎたことを示すだけで、発振しているかどうかは分からない。外部クロック入力の設定で PLL を
 メインクロックにつなぐと、PLLSF は立つが周波数が違う（PCLKB を MOCO / 8192 で測ると 12033。60 MHz なら 6 万近く）。
 
+タイムアウトと panic（2026-11-20、#189。方針は rx72-hal と同じ、下の「タイムアウトと panic」）: `Config::try_configure` は
+`ClockError`（`OutOfRange` / `NotAfterReset` は何も変えない。元の設定値を先に確かめるので分周比 0 でも 0 除算に
+ならない。`MainOscillator` / `Pll` / `Mram` / `Voltage` は 100 ms 待っても準備ができない。待ちは MOCO で数える）。
+UART の送信は 4 文字時間まで、SPI は `spi::Error::Timeout`、ADC は `adc::Error`（`Conversion` / `Timeout` /
+`Calibration` / `Clock`、`try_adc16h`、キャリブレーションの失敗もエラー）、I2C は `try_ri3c0`（`SetupError`）、PWM は
+`try_gptw8`。hw-clock に 2 回目の設定（`NotAfterReset`）と分周比 0（21〜23）、hw-adc に範囲外のサンプリング
+ステート数（20、21）を足した。EK-RX74M で rt の 38 本と serial-echo（COM16）が通る。
+
 ## AP-RX72M-0A の配線（ボードのハードウェアマニュアル v6.0 より）
 
 | 用途 | 端子 | メモ |
