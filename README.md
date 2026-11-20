@@ -15,7 +15,11 @@ and Rust tests pass on all of them (see [`docs/NOTES-hw.md`](docs/NOTES-hw.md)):
 | Renesas EK-RX74M | RX74M (R5K574MCB4AE), the RX74N plus EtherCAT | RXv3e |
 
 Each MCU family has a PAC and an embedded-hal 1.0 HAL with clocks, GPIO, a
-delay, a UART, SPI, PWM, an ADC and I2C.
+delay, a UART, SPI, PWM, an ADC and I2C, the interrupt controller, the DMA
+controller, reset causes and the watchdogs. With the feature `async`, the
+UART (`embedded-io-async`), SPI (on DMA) and I2C (`embedded-hal-async`)
+are interrupt-driven, and an embassy-time driver and rx-rt's executor run
+async tasks (see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)).
 
 | Component | Where | State |
 |---|---|---|
@@ -25,8 +29,8 @@ delay, a UART, SPI, PWM, an ADC and I2C.
 | LLDB RX support | same, `lldb/source/Plugins/ABI/RX` (and a clang `RXTargetInfo` for its type system) | breakpoints, backtraces (from the compiler's CFI), variables, stepping on QEMU's gdbstub and, through a bridge to e2-server-gdb, on the RX72M; see [`docs/NOTES-lldb.md`](docs/NOTES-lldb.md) |
 | rustc `rx-none-elf` target, callconv, `asm!` | [CDEF-inc/rust](https://github.com/CDEF-inc/rust/tree/rx-1.100) `rx-1.100` (Rust 1.100.0) | `core` and `alloc` build; tier 3 |
 | Startup code, vector tables, linker script | [`crates/rx-rt`](crates/rx-rt) | boots from the reset vector and takes interrupts (peripheral, software, nested, register banks) on QEMU and the boards; `critical-section` implementation |
-| RX72M / RX72N HAL (embedded-hal 1.0) | [`crates/rx72-hal`](crates/rx72-hal) | clocks (PLL 240 MHz), GPIO and pin functions, `DelayNs` (CMT2), SCI2 UART (`embedded-io`), SPI (RSPI2), ADC (S12AD: self-diagnosis, internal reference, temperature sensor), PWM (MTU6), I2C (RIIC0 on CN8; SCI6 in simple I2C mode, read from the board's EEPROM); checked on the AP-RX72M-0A (see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
-| RX74M / RX74N HAL (embedded-hal 1.0) | [`crates/rx74-hal`](crates/rx74-hal) | clocks (PLL 480 or 600 MHz), GPIO and pin functions, `DelayNs` (CMT2), RSCI12 UART (`embedded-io`), SPI (RSPIA0), ADC (ADC16H), PWM (GPTW8), I2C (RI3C0 in I2C mode; read from the EK-RX74M's EEPROM); checked on the EK-RX74N and the EK-RX74M |
+| RX72M / RX72N HAL (embedded-hal 1.0) | [`crates/rx72-hal`](crates/rx72-hal) | clocks (PLL 240 MHz), GPIO and pin functions, `DelayNs` (CMT2), SCI2 UART (`embedded-io`), SPI (RSPI2), ADC (S12AD: self-diagnosis, internal reference, temperature sensor), PWM (MTU6), I2C (RIIC0 on CN8; SCI6 in simple I2C mode, read from the board's EEPROM), ICU, DMAC, reset causes, IWDT / WDT, the option-setting memory (OFS0 / OFS1); `async`: SCI2, RSPI2 (DMA) and SCI6 interrupt-driven, embassy-time on CMTW; checked on the AP-RX72M-0A (see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
+| RX74M / RX74N HAL (embedded-hal 1.0) | [`crates/rx74-hal`](crates/rx74-hal) | clocks (PLL 480 or 600 MHz), GPIO and pin functions, `DelayNs` (CMT2), RSCI12 UART (`embedded-io`), SPI (RSPIA0), ADC (ADC16H), PWM (GPTW8), I2C (RI3C0 in I2C mode; read from the EK-RX74M's EEPROM), ICU, DMAC, reset causes, IWDT / WDT; `async`: RSCI12, RSPIA0 (DMA) and RI3C0 interrupt-driven, embassy-time on CMTW; checked on the EK-RX74N and the EK-RX74M |
 | Peripheral access crates | [`crates/rx72-pac`](crates/rx72-pac), [`crates/rx74-pac`](crates/rx74-pac), [`crates/sfrx-pac`](crates/sfrx-pac) | generated at build time with svd2rust from e² studio's `RX72M.sfrx`, `RX72N.sfrx`, `RX74M.sfrx` or `RX74N.sfrx`, as the chip feature picks (not redistributed); `sfrx-pac` is the shared generator (see [`docs/NOTES-hal.md`](docs/NOTES-hal.md)) |
 | QEMU with RXv2 / RXv3 / RXv3e CPU models | [CDEF-inc/qemu](https://github.com/CDEF-inc/qemu/tree/rx/v11.1) `rx/v11.1` | RXv2 / RXv3 / RXv3e instructions, DFPU, Protect Zone (CPU side); instruction tests checked against the RX72M and the RX74N |
 | Build and test scripts, tests | [`scripts`](scripts), [`test`](test) | QEMU and the boards |
@@ -63,8 +67,8 @@ What works:
   secure addresses).
 
 Not yet:
-`std`, unwinding (panics abort), more peripheral drivers (DMA,
-interrupt-driven and async drivers; #54), the EtherCAT and Δ-Σ peripherals
+`std`, unwinding (panics abort), more peripheral drivers (the DTC, CAN,
+Ethernet, USB and others: #192), the EtherCAT and Δ-Σ peripherals
 of the RX74M, and parts of LLDB (watchpoints and the DFPU registers on the
 board, calling functions in expressions, Rust type names: #79-#87).
 
@@ -76,10 +80,10 @@ rust/           submodule: CDEF-inc/rust (rx-1.100, Rust 1.100.0), which has
 crates/rx-rt/      runtime: reset handler, vector tables, link.x
 crates/sfrx-pac/   PAC generator (sfrx -> SVD -> svd2rust) for the PACs' build.rs
 crates/rx72-pac/   RX72M / RX72N PAC, generated at build time from e² studio's RX72M.sfrx / RX72N.sfrx
-crates/rx72-hal/   RX72M / RX72N HAL: clocks, GPIO, delay, UART, SPI, ADC, PWM, I2C
+crates/rx72-hal/   RX72M / RX72N HAL: clocks, GPIO, delay, UART, SPI, ADC, PWM, I2C, ICU, DMA, reset, watchdogs, OFS; async
 crates/rx74-pac/   RX74M / RX74N PAC, from RX74M.sfrx / RX74N.sfrx
-crates/rx74-hal/   RX74M / RX74N HAL: clocks, GPIO, delay, UART, SPI, ADC, PWM, I2C
-examples/       board examples: blinky (AP-RX72M-0A), serial-echo (all three boards)
+crates/rx74-hal/   RX74M / RX74N HAL: clocks, GPIO, delay, UART, SPI, ADC, PWM, I2C, ICU, DMA, reset, watchdogs; async
+examples/       board examples: blinky, serial-echo, serial-echo-async (all three boards)
 scripts/        build and test scripts
 test/mc/        assembler tests, compared with GNU as
 test/codegen/   LLVM IR + C tests run on QEMU (Rust/LLVM <-> GCC calls)
@@ -88,9 +92,10 @@ test/hw/        start-up code, harness and linker scripts for the boards
 test/rust/      Rust tests: coretests (library/coretests on QEMU), core-smoke, variadic-smoke and
                 cabi-smoke (with C drivers), qemu-demo, alloc-smoke,
                 float-smoke, isr-save, isr-bank, lldb-demo, hw-irq (also on the board);
-                board only, the board as a feature (hw-board): hw-pac, hw-hal,
-                hw-spi, hw-adc, hw-pwm, hw-i2c (all boards), hw-uart (AP-RX72M-0A),
-                hw-clock (EK-RX74N / EK-RX74M)
+                board only, the board as a feature (hw-board): hw-pac, hw-icu,
+                hw-time, hw-dma, hw-reset, hw-hal, hw-spi, hw-spi-async, hw-adc,
+                hw-pwm, hw-i2c, hw-i2c-async (all boards), hw-ofs, hw-uart
+                (AP-RX72M-0A), hw-clock (EK-RX74N / EK-RX74M)
 docs/           design notes and plan (in Japanese)
 ```
 
