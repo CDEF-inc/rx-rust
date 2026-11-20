@@ -4,9 +4,14 @@
 
 ## 方針（2026-10-28）
 
-- **embedded-hal**: CDEF-inc/embedded-hal（rust-embedded/embedded-hal の fork、上流と同じ内容）。
+- **embedded-hal**: crates.io の embedded-hal 1.0 と embedded-io 0.7（2026-11-20 から。それまでは
+  CDEF-inc/embedded-hal の fork に git で依存していた）。
   embedded-hal、-nb、-async、-bus、embedded-io、-async、embedded-can はそのまま rx-none-elf でビルドできる。
-  トレイトの定義だけのクレートなので、RX 用のコードは入れない。RX で問題が出たときの修正先にする。
+  fork に依存すると、crates.io の embedded-hal とは別のクレートになる。HAL の型が実装するトレイトも別物になるので、
+  embedded-hal-bus や crates.io のドライバ（センサなど）に HAL の型を渡すとコンパイルエラーになる。
+  そのため HAL も試験も例も crates.io の版を使う。
+  CDEF-inc/embedded-hal（上流と同じ内容）は、RX で問題が出たときの修正先として残す。直すときは、アプリの
+  `[patch.crates-io]` で embedded-hal を fork に差し替える（版が同じ 1.0.0 なので 1 つにまとまる）。
 - **PAC**: `crates/rx72-pac`。e² studio が入れる `RX72M.sfrx` からビルド時に生成する（下記）。
   生成物は Renesas の記述から作るので、リポジトリには入れない。
 - **critical-section**: rx-rt の `critical-section` フィーチャー（PSW.I を保存して消し、戻す）。
