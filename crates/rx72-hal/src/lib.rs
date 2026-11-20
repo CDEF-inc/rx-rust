@@ -8,6 +8,8 @@
 //! - [`gpio`]: port pins as `InputPin` / `OutputPin` / `StatefulOutputPin`,
 //!   and the MPC pin functions.
 //! - [`delay`]: `DelayNs` on CMT2.
+//! - [`dma`]: the DMA controller's eight channels (memory copies, transfers
+//!   paced by an interrupt request; with `async`, awaiting the end).
 //! - [`icu`]: the interrupt controller (enable, priority and request flag
 //!   per source, the software interrupts).
 //! - [`serial`]: SCI2 as a UART (`embedded-io` `Read` / `Write`; with the
@@ -48,6 +50,7 @@ pub use rx72_pac as pac;
 pub mod adc;
 pub mod clock;
 pub mod delay;
+pub mod dma;
 pub mod gpio;
 pub mod i2c;
 pub mod icu;

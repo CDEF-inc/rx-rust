@@ -290,3 +290,275 @@ impl SpiBus<u8> for Spi {
         self.flush_idle()
     }
 }
+
+/// SPRI0 (receive) / SPTI0 (transmit) are selectable interrupts: routed to
+/// vectors 146 / 147 (SLIR146 / SLIR147 = their event numbers, FSP's
+/// `ICU_EVENT_RSPI0_SPRI` / `_SPTI`).
+#[cfg(feature = "async")]
+const RXI: crate::icu::Interrupt = unsafe { crate::icu::Interrupt::new(146, 146) };
+#[cfg(feature = "async")]
+const TXI: crate::icu::Interrupt = unsafe { crate::icu::Interrupt::new(147, 147) };
+
+#[cfg(feature = "async")]
+fn route_requests() {
+    const SLIR146: *mut u16 = 0x8700_6924usize as _;
+    const SLIR147: *mut u16 = 0x8700_6926usize as _;
+    unsafe {
+        write_volatile(SLIR146, 0x2d3);
+        write_volatile(SLIR147, 0x2d4);
+    }
+}
+
+#[cfg(feature = "async")]
+impl Spi {
+    /// Empties both FIFOs (SPFCLR) and clears the receive flags and an
+    /// overrun (SPSCLR.SPRFC / OVRFC).
+    fn discard_received(&self) {
+        const SPSCLR: *mut u16 = (BASE + 0x6a) as _;
+        unsafe {
+            write_volatile(SPFCLR, 1);
+            write_volatile(SPSCLR, 1 << 15 | 1 << 8);
+        }
+    }
+
+    /// SPCR.SPTIE / SPRIE on or off. On, SPTEF / SPRF are cleared first
+    /// (SPSCLR, with the RSPIA disabled): SPTEF, set again once it is
+    /// enabled (the transmit FIFO has room), gives the first SPTI0. The
+    /// DMAC clears them after each unit. Clearing them after enabling
+    /// loses the first SPRF: the receive channel then stops one byte
+    /// short.
+    fn irq_requests(&self, on: bool) {
+        const SPTIE: u32 = 1 << 20;
+        const SPRIE: u32 = 1 << 17;
+        const SPSCLR: *mut u16 = (BASE + 0x6a) as _;
+        const SPRFC: u16 = 1 << 15;
+        const SPTEFC: u16 = 1 << 13;
+        unsafe {
+            let spcr = read_volatile(SPCR);
+            if on {
+                write_volatile(SPCR, spcr & !SPE);
+                write_volatile(SPSCLR, SPRFC | SPTEFC);
+                write_volatile(SPCR, spcr | SPTIE | SPRIE | SPE);
+            } else {
+                write_volatile(SPCR, spcr & !(SPTIE | SPRIE));
+            }
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+pub use asynch::AsyncSpi;
+
+/// RSPIA0 with two DMA channels, as an embedded-hal-async `SpiBus<u8>`
+/// (feature `async`).
+///
+/// SPTI0 (transmit buffer empty, vector 147) paces the transmit channel,
+/// which writes SPDR; SPRI0 (receive buffer full, vector 146) paces the
+/// receive channel, which reads it. Both sources stay at priority 0, so
+/// that they only activate the DMAC (the CPU never takes them, also after
+/// the count). A transfer ends with the receive channel's end interrupt:
+/// enable it with [`dma::enable_interrupts`](crate::dma::enable_interrupts)
+/// and [`bind_dma_interrupts!`](crate::bind_dma_interrupts).
+///
+/// The bytes past the shorter buffer of `transfer`, and every byte of
+/// `read`, are sent as FFh; received bytes nobody asked for go to a sink.
+/// A transfer has no time bound: wrap it in a timeout (embassy-time's
+/// `with_timeout`) where the bus can stall. Dropping its future stops both
+/// channels.
+///
+/// **Do not leak a transfer's future** (`core::mem::forget`, a reference
+/// cycle): its buffers' borrows then end while the DMAC still reads and
+/// writes them, and no drop guard runs to stop it. `SpiBus`'s methods are
+/// safe by the trait, so this is a documented requirement, as in the
+/// other DMA-based async HALs (see [`Channel::copy_async`](crate::dma::Channel::copy_async),
+/// which is unsafe for the same reason).
+#[cfg(feature = "async")]
+mod asynch {
+    use core::ptr::addr_of_mut;
+
+    use embedded_hal::spi::ErrorType;
+
+    use super::{Error, READ_FILL, SPDR, Spi};
+    use crate::dma::{Channel, Size, Step, Transfer, Trigger};
+
+    /// The byte sent where there is nothing to send.
+    static FILL: u8 = READ_FILL;
+    /// Where the bytes nobody reads go.
+    static mut SINK: u8 = 0;
+
+    /// The units of one DMA transfer at most.
+    const CHUNK: usize = 0xffff;
+
+    /// The SPI with its transmit channel `T` and receive channel `R`; see
+    /// the [module](self).
+    pub struct AsyncSpi<const T: u8, const R: u8> {
+        spi: Spi,
+        tx: Channel<T>,
+        rx: Channel<R>,
+    }
+
+    impl Spi {
+        /// The SPI driven by DMA channels `tx` and `rx` (two different
+        /// ones); see [`AsyncSpi`].
+        pub fn into_async<const T: u8, const R: u8>(
+            self,
+            tx: Channel<T>,
+            rx: Channel<R>,
+        ) -> AsyncSpi<T, R> {
+            const { assert!(T != R, "the transmit and receive channels must differ") };
+            super::route_requests();
+            for i in [super::RXI, super::TXI] {
+                i.disable();
+                i.clear_priority();
+                i.clear_pending();
+            }
+            AsyncSpi { spi: self, tx, rx }
+        }
+    }
+
+    /// Stops a transfer that did not end (its future dropped).
+    struct Stop<'a, const T: u8, const R: u8>(&'a mut AsyncSpi<T, R>);
+
+    impl<const T: u8, const R: u8> Drop for Stop<'_, T, R> {
+        fn drop(&mut self) {
+            self.0.end();
+        }
+    }
+
+    impl<const T: u8, const R: u8> AsyncSpi<T, R> {
+        /// Ends the DMA use and gives back the blocking SPI and the
+        /// channels.
+        pub fn free(mut self) -> (Spi, Channel<T>, Channel<R>) {
+            self.end();
+            (self.spi, self.tx, self.rx)
+        }
+
+        /// The bit rate settings in use.
+        pub fn bit_rate(&self) -> super::BitRate {
+            self.spi.bit_rate()
+        }
+
+        /// Interrupt requests off, channels stopped. A transfer cut short
+        /// (its future dropped) can leave bytes in the transmit buffer and
+        /// the shift register: they are let finish (bounded) and what they
+        /// brought into the receive side is discarded, so that the next
+        /// transfer, async or blocking, does not read an old response.
+        fn end(&mut self) {
+            self.spi.irq_requests(false);
+            self.tx.stop();
+            self.rx.stop();
+            let _ = self.spi.flush_idle();
+            self.spi.discard_received();
+            for i in [super::RXI, super::TXI] {
+                i.disable();
+                i.clear_pending();
+            }
+        }
+
+        /// `n` (1 to 65535) frames: sent from `write` (or FFh), received
+        /// into `read` (or the sink).
+        ///
+        /// # Safety
+        ///
+        /// `read` / `write` must have `n` bytes for the whole transfer.
+        async unsafe fn run(&mut self, read: Option<*mut u8>, write: Option<*const u8>, n: usize) {
+            let (dst, dst_step) = match read {
+                Some(p) => (p as usize, Step::Increment),
+                None => (addr_of_mut!(SINK) as usize, Step::Fixed),
+            };
+            let (src, src_step) = match write {
+                Some(p) => (p as usize, Step::Increment),
+                None => (&FILL as *const u8 as usize, Step::Fixed),
+            };
+            let spdr = SPDR as usize;
+            let count = n as u16;
+            unsafe {
+                self.rx.start(&Transfer {
+                    src: spdr,
+                    src_step: Step::Fixed,
+                    dst,
+                    dst_step,
+                    size: Size::U8,
+                    count,
+                    trigger: Trigger::Interrupt(super::RXI),
+                });
+                self.tx.start(&Transfer {
+                    src,
+                    src_step,
+                    dst: spdr,
+                    dst_step: Step::Fixed,
+                    size: Size::U8,
+                    count,
+                    trigger: Trigger::Interrupt(super::TXI),
+                });
+            }
+            for i in [super::RXI, super::TXI] {
+                i.clear_pending();
+                i.enable();
+            }
+            // The transmit buffer is empty: enabling the request gives the
+            // first one.
+            self.spi.irq_requests(true);
+            let stop = Stop(self);
+            stop.0.rx.done().await;
+            drop(stop);
+        }
+
+        /// [`run`](Self::run) over any length, in chunks.
+        async unsafe fn run_all(&mut self, read: Option<*mut u8>, write: Option<*const u8>, n: usize) {
+            let mut done = 0;
+            while done < n {
+                let k = (n - done).min(CHUNK);
+                unsafe {
+                    self.run(read.map(|p| p.add(done)), write.map(|p| p.add(done)), k).await;
+                }
+                done += k;
+            }
+        }
+    }
+
+    impl<const T: u8, const R: u8> ErrorType for AsyncSpi<T, R> {
+        type Error = Error;
+    }
+
+    impl<const T: u8, const R: u8> embedded_hal_async::spi::SpiBus<u8> for AsyncSpi<T, R> {
+        /// Reads `words`, sending FFh for each.
+        async fn read(&mut self, words: &mut [u8]) -> Result<(), Error> {
+            unsafe { self.run_all(Some(words.as_mut_ptr()), None, words.len()).await };
+            Ok(())
+        }
+
+        async fn write(&mut self, words: &[u8]) -> Result<(), Error> {
+            unsafe { self.run_all(None, Some(words.as_ptr()), words.len()).await };
+            Ok(())
+        }
+
+        /// Sends `write` and fills `read`; the longer one sets the length,
+        /// with FFh sent past the end of `write` and the bytes past the end
+        /// of `read` dropped.
+        async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
+            let common = read.len().min(write.len());
+            unsafe {
+                self.run_all(Some(read.as_mut_ptr()), Some(write.as_ptr()), common).await;
+                let r = &mut read[common..];
+                self.run_all(Some(r.as_mut_ptr()), None, r.len()).await;
+                let w = &write[common..];
+                self.run_all(None, Some(w.as_ptr()), w.len()).await;
+            }
+            Ok(())
+        }
+
+        /// The transmit channel reads each byte before the receive channel
+        /// writes it back: the transmit side is always ahead.
+        async fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Error> {
+            let p = words.as_mut_ptr();
+            unsafe { self.run_all(Some(p), Some(p as *const u8), words.len()).await };
+            Ok(())
+        }
+
+        /// Waits (bounded, as the blocking `flush`) until the SPI is idle.
+        async fn flush(&mut self) -> Result<(), Error> {
+            self.spi.flush_idle()
+        }
+    }
+}

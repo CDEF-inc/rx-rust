@@ -670,6 +670,77 @@ feature `async` で `Serial::into_async(priority)` が `serial::AsyncSerial`（e
     とも通る（2026-11-20）。書き込む前のボードのオプション設定メモリは全部 FFh、hw-pac のあとも FFh に戻る。
 - まだのもの: LVD（電圧監視。OFS1 の `lvd0_reset` はリセットの設定だけ）。
 
+## DMA コントローラ: dma（2026-11-20、#188、両 HAL）
+
+DMAC の 8 チャネルを、ノーマル転送モードで使う。`Dma::new(p.dmac)` がモジュールストップを解除し、DMAST.DMST = 1 に
+して `ch0`〜`ch7`（`Channel<N>`）を返す。
+
+- `Channel::copy(src, dst)`: スライスのコピー（u8 / u16 / u32、同じ長さで 1〜65535 個）。ソフトウェア起動
+  （DMREQ.CLRS = 1 で SWREQ を立てたままにし、一度の要求で全部送る）。終わりを上限つきで待つ。長さが合わなければ
+  `Error::Length`。
+- `unsafe Channel::start(&Transfer)`: 任意の転送。アドレスは固定 / 増加 / 減少（DMAMD.SM / DM）、単位は 8 / 16 / 32
+  ビット、起動はソフトウェアか割り込み要求（`Trigger::Interrupt(Interrupt)`: DMRSRn に起動元のベクタ番号を書き、
+  DMTMD.DCTG = 01b。1 回の要求で 1 単位）。`is_done`（DMSTS.DTIF）、`remaining`（DMCRA）、`stop`（DTE を 0 にし、
+  ACT が落ちるのを待つ）。
+- 割り込みで起動する転送: DTE が 1 のあいだ、起動元の要求は CPU ではなく DMAC に行く。起動元の IER は 1 にしておく
+  （0 だと DMAC にも届かない）。優先度は 0 でも DMAC には届く（hw-dma のチェック 19 で確かめた）。回数を終えると
+  DTE が 0 になり、次の要求から CPU に行くので、起動元を止めるか、許可を外すか、ハンドラを置く。DMAC だけを
+  起動する要因は `Interrupt::clear_priority` で優先度 0 のままにすれば、CPU には来ない。
+- feature `async`: `dma::enable_interrupts(priority)` が転送終了割り込み DMAC0I〜DMAC3I（ベクタ 120〜123）と
+  DMAC74I（124。チャネル 4〜7 で共有し、DMIST で見分ける）を許可する。ハンドラは `bind_dma_interrupts!()`。
+  `Channel::done().await` は DMINT.DTIE を立てて待ち、ハンドラが DTIE を下ろして起こす（DTIF は future が見る）。
+  `copy_async` は途中で future を捨てるとチャネルを止める。ただし future を drop せずに漏らす（`mem::forget`、
+  参照の循環）と、止めないまま `src` / `dst` の借用が終わり、DMAC が書き続ける。drop のガードでは防げないので、
+  `copy_async` は `unsafe` にした（漏らさないのが呼ぶ側の責任。#214 のレビュー）。
+- 順序: DTE を立てる前に `compiler_fence(Release)`、`is_done` が終わりを見たときと `stop` のあとに
+  `compiler_fence(Acquire)`。volatile のレジスタ操作は普通のメモリ操作の順序を決めないので、これがないと最適化で
+  バッファの書き込みが開始のあとに、読み出しが終わりの前に動きうる（#214 のレビュー）。RX はキャッシュがなく
+  シングルコアなので、コンパイラのフェンスで足りる。
+- アドレス: RX72M は DMAC0 0008 2000h（チャネルごとに + 40h）、DMAST 0008 2200h、DMRSRn 0008 7400h + 4n、
+  モジュールストップは MSTPCRA.MSTPA28（DTC と共通）。RX74N / RX74M はセキュアの DMAC0 8700 7000h、DMAST 8700 7800h、
+  DMRSRn 8700 6400h + 4n、MSTPCRA.MSTPA22（FSP の `BSP_MSTP_BIT_FSP_IP_DMAC`）。DMCRB が 32 ビットで、DMCTL などが
+  増えているが、ノーマル転送モードでは使わない。ベクタと IPR は両チップとも 120〜124。
+- test/rust/hw-dma（19 チェック）: 8 / 16 / 32 ビットのコピー（チャネル 0、1、7）、長さの検査、固定の転送元での
+  埋め、減少する転送元での逆順のコピー。CMT0 の CMI0（1 kHz）で 1 単位ずつ送る転送が 4 ms で半分ほど進み、
+  そのあいだ CMI0 は CPU に来ない。`copy_async`（チャネル 3 = DMAC3I、5 = DMAC74I。速いので DTIE を立てる前に
+  終わることもある）と、CMI0 で進むチャネル 3 / 4 の `done`（割り込みで終わる。rx-rt の実行器で眠って待つ）。
+  CMI0 の優先度が 0 でも転送が進む（19）。AP-RX72M-0A と EK-RX74M（RX74N 用のビルド）で release / dev とも通る
+  （2026-11-20）。
+  - RX72M では、試験が PAC で MSTPCRA（CMT0）を書く前に PRCR.PRC1 を立てる。クロックの設定が PRCR を 0 に戻すので、
+    そのままでは書き込みが無視され、CMT0 が動かず、CMI0 で進む転送が始まらなかった。
+
+## DMA で動く SPI: AsyncSpi（2026-11-20、#188、rx72-hal の RSPI2、rx74-hal の RSPIA0）
+
+feature `async` で `Spi::into_async(tx, rx)`（DMA の 2 チャネル）が `spi::AsyncSpi`（embedded-hal-async の
+`SpiBus<u8>`）を返す。`free()` でブロッキングのドライバとチャネルに戻る。
+
+- 送信のチャネルは送信バッファ空きの要求（RX72M の SPTI2 = ベクタ 109、RX74 の SPTI0）で SPDR に書き、受信の
+  チャネルは受信バッファフルの要求（SPRI2 = 108、SPRI0）で SPDR を読む。どちらの要因も優先度 0 のまま
+  （`clear_priority`）なので、回数を終えたあとも CPU には来ない。終わりは受信のチャネルの転送終了割り込みで待つ
+  （`dma::enable_interrupts`、`bind_dma_interrupts!`）。
+- `read` は FFh を送り、`write` の受信は捨て場の 1 バイトに書く（アドレス固定）。`transfer` は長さが違えば、
+  共通の長さ、残りの読み出し、残りの書き込みの 3 回に分ける。`transfer_in_place` は同じバッファを両方に使う
+  （送信が常に先行するので、読む前に上書きされない）。65535 バイトを超えると DMA の転送を分ける。
+- 時間の上限はない（バスが止まりうるなら embassy-time の `with_timeout` で包む）。future を捨てると両チャネルを
+  止め、要求を切る。送信バッファとシフトレジスタに残ったバイトは送り終えるのを（上限つきで）待ち、それが受信側に
+  持ち込んだデータは捨てる（RX72M は SPDR を読み、OVRF を消す。RX74 は SPFCLR で両 FIFO を空にし、SPRF / OVRF を
+  消す）。そうしないと、次の転送（async でも `free` 後のブロッキングでも）が古い応答を読む（#215 のレビュー）。
+- future を漏らす（`mem::forget`）と、`copy_async` と同じく DMAC がバッファを使い続ける。`SpiBus` のメソッドは
+  トレイトで safe と決まっているので `unsafe` にはできず、漏らさないことを文書にした（DMA を使うほかの async の
+  HAL と同じ扱い）。`flush` はブロッキングと同じく IDLNF を上限つきで待つ。
+- RX72M: SPCR.SPE を落としてから SPTIE / SPRIE と SPE を同時に立てると、空の送信バッファで最初の SPTI2 が出る。
+- RX74N / RX74M: SPRI0 / SPTI0 は選択型割り込みなので、SLIR146 / SLIR147 にイベント番号（FSP の
+  `ICU_EVENT_RSPI0_SPRI` = 2D3h、`_SPTI` = 2D4h）を書いてベクタ 146 / 147 にする。RSPIA の SPTEF / SPRF は
+  SPSCLR か DMAC でしか消えないので、SPE を落として SPSCLR で消してから SPTIE / SPRIE と SPE を立てる。FIFO に
+  空きがあるので SPTEF が立ち直り、最初の要求になる。最初は許可したあとで SPSCLR を書いていて、最初の SPRF を
+  消してしまい、受信のチャネルが 1 バイト足りないまま止まった（送信は 64 バイト送り終えていた）。
+- test/rust/hw-spi-async（19 チェック）: 内部ループバック（SPLP2）、15 MHz で、同じ長さの `transfer`、
+  `transfer_in_place`、`read`（FFh が返る）、`write`、読み出しが長い / 書き込みが長い `transfer`、`flush`。
+  `free` してブロッキングで反転ループバック（SPLP）、もう一度 async（反転して返る）。70000 バイトをその場で
+  （DMA の転送 2 回）。1 回 poll して捨てた転送のあと、async とブロッキングの転送が自分のバイトを受け取る（17〜19。
+  捨てるのを外すと 17 のあとで止まる）。RSPI の要求が CPU に来ない。AP-RX72M-0A と EK-RX74M（RX74N 用のビルド）で
+  release / dev とも通る（2026-11-20。17〜19 は EK-RX74M のみ）。
+
 ## 予定
 
 1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）、~~UART（受信）~~（2026-11-04、デバッガをつないだ状態。上記）
