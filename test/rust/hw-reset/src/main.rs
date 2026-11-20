@@ -96,6 +96,19 @@ fn wait_half(top: u16, counter: impl Fn() -> u16) -> bool {
     true
 }
 
+/// The counter once it has started: it reads 0 for a few cycles of the
+/// timer's clock after the first feed (seen on the RX74M's IWDT), then
+/// from its timeout down. 0 if it does not start within a bounded spin.
+fn started(counter: impl Fn() -> u16) -> u16 {
+    for _ in 0..50_000_000u32 {
+        let c = counter();
+        if c != 0 {
+            return c;
+        }
+    }
+    0
+}
+
 /// Waits for the watchdog's reset; returns if it does not come.
 fn wait_for_reset() {
     let x = 0u32;
@@ -137,7 +150,7 @@ fn main() -> ! {
         let Ok(mut iwdt) = iwdt else { report() };
         // Started from its timeout: the counter is at most its start value,
         // and it counts down (a counter stuck at 0 would pass the feeds).
-        let first = iwdt.counter();
+        let first = started(|| iwdt.counter());
         record(7, first <= top && first > 0);
         record(17, wait_half(top, || iwdt.counter()) && iwdt.counter() < first);
         // Fed 20 times at half the timeout: no reset meanwhile.
@@ -163,7 +176,7 @@ fn main() -> ! {
         record(11, wdt.is_ok());
         let Ok(mut wdt) = wdt else { report() };
         let top = WDT.1;
-        let first = wdt.counter();
+        let first = started(|| wdt.counter());
         record(12, first <= top && first > 0);
         record(18, wait_half(top, || wdt.counter()) && wdt.counter() < first);
         let mut fed_ok = true;

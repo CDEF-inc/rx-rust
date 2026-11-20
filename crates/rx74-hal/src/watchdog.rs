@@ -287,7 +287,9 @@ macro_rules! watchdog {
             }
 
             /// The counter (CNTVAL), counting down to 0; it may be one
-            /// count off.
+            /// count off. Right after `start` it can read 0 for a few cycles
+            /// of the timer's clock before the count begins (the RX74M's
+            /// IWDT does).
             pub fn counter(&self) -> u16 {
                 self.regs.status() & 0x3fff
             }
