@@ -365,6 +365,13 @@ pub use asynch::AsyncSpi;
 /// A transfer has no time bound: wrap it in a timeout (embassy-time's
 /// `with_timeout`) where the bus can stall. Dropping its future stops both
 /// channels.
+///
+/// **Do not leak a transfer's future** (`core::mem::forget`, a reference
+/// cycle): its buffers' borrows then end while the DMAC still reads and
+/// writes them, and no drop guard runs to stop it. `SpiBus`'s methods are
+/// safe by the trait, so this is a documented requirement, as in the
+/// other DMA-based async HALs (see [`Channel::copy_async`](crate::dma::Channel::copy_async),
+/// which is unsafe for the same reason).
 #[cfg(feature = "async")]
 mod asynch {
     use core::ptr::addr_of_mut;

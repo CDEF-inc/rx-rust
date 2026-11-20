@@ -724,7 +724,10 @@ feature `async` で `Spi::into_async(tx, rx)`（DMA の 2 チャネル）が `sp
 - 時間の上限はない（バスが止まりうるなら embassy-time の `with_timeout` で包む）。future を捨てると両チャネルを
   止め、要求を切る。送信バッファとシフトレジスタに残ったバイトは送り終えるのを（上限つきで）待ち、それが受信側に
   持ち込んだデータは捨てる（RX72M は SPDR を読み、OVRF を消す。RX74 は SPFCLR で両 FIFO を空にし、SPRF / OVRF を
-  消す）。そうしないと、次の転送（async でも `free` 後のブロッキングでも）が古い応答を読む（#215 のレビュー）。`flush` はブロッキングと同じく IDLNF を上限つきで待つ。
+  消す）。そうしないと、次の転送（async でも `free` 後のブロッキングでも）が古い応答を読む（#215 のレビュー）。
+- future を漏らす（`mem::forget`）と、`copy_async` と同じく DMAC がバッファを使い続ける。`SpiBus` のメソッドは
+  トレイトで safe と決まっているので `unsafe` にはできず、漏らさないことを文書にした（DMA を使うほかの async の
+  HAL と同じ扱い）。`flush` はブロッキングと同じく IDLNF を上限つきで待つ。
 - RX72M: SPCR.SPE を落としてから SPTIE / SPRIE と SPE を同時に立てると、空の送信バッファで最初の SPTI2 が出る。
 - RX74N / RX74M: SPRI0 / SPTI0 は選択型割り込みなので、SLIR146 / SLIR147 にイベント番号（FSP の
   `ICU_EVENT_RSPI0_SPRI` = 2D3h、`_SPTI` = 2D4h）を書いてベクタ 146 / 147 にする。RSPIA の SPTEF / SPRF は
