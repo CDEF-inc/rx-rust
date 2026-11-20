@@ -184,14 +184,22 @@ struct Regs {
 
 impl Regs {
     fn start(&self, cr: u16, reset: bool) -> Result<(), StartError> {
+        // A counter that already counts is fixed: OFS0's auto-start mode,
+        // or a start before. In register start mode it reads 0 until the
+        // first refresh. The control and the reset control are not enough:
+        // in auto-start mode they still read back what is written (the
+        // AP-RX72M-0A's do).
+        if self.status() & 0x3fff != 0 {
+            return Err(StartError::Locked);
+        }
         unsafe {
             write_volatile((self.base + 2) as *mut u16, cr);
             write_volatile((self.base + 6) as *mut u8, (reset as u8) << 7);
             // The reserved bits read 0 (RPSS b13-12, RPES b9-8, CKS b7-4,
             // TOPS b1-0; RSTIRQS b7 of the reset control). Settings that do
-            // not read back, either register, are fixed already (written
-            // before, or OFS0's auto-start): the control alone can match
-            // while RSTIRQS does not.
+            // not read back, either register, were written before (once
+            // only after a reset): the control alone can match while
+            // RSTIRQS does not.
             let cr_ok = read_volatile((self.base + 2) as *const u16) & 0x33f3 == cr;
             let rcr_ok = read_volatile((self.base + 6) as *const u8) & 0x80 == (reset as u8) << 7;
             if !(cr_ok && rcr_ok) {
