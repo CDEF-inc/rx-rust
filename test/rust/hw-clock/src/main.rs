@@ -17,7 +17,7 @@ use core::ptr::{read_volatile, write_volatile};
 
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
-use hw_board::hal::clock::Config;
+use hw_board::hal::clock::{ClockError, Config};
 use hw_board::hal::delay::Delay;
 use hw_board::hal::gpio::Parts;
 use hw_board::hal::pac::Peripherals;
@@ -101,6 +101,14 @@ fn main() -> ! {
     // VSCR_2 (as after a reset) or VSCR_1, and PRCR_S protecting again.
     check(14, p.sysc.vscr().read().vscm().bits() == vscm);
     check(15, p.sysc.prcr_s().read().bits() & 0xff == 0);
+    // Errors that change nothing: a second set-up (no longer after a
+    // reset), and a PLL input divider of 0 (out of range, checked before
+    // any division by it).
+    check(21, config.try_configure(&p.sysc, &p.sram, &p.mram) == Err(ClockError::NotAfterReset));
+    let zero = Config { pll_input_div: 0, ..config };
+    check(22, zero.try_configure(&p.sysc, &p.sram, &p.mram) == Err(ClockError::OutOfRange));
+    check(23, p.sysc.sckscr().read().cksel().bits() == 0b101
+        && p.sysc.prcr_s().read().bits() & 0xff == 0);
 
     // --- the CAC (CAC0 to CAC2 out of module stop: MSTPCRC.MSTPC0)
     p.sysc.prcr_s().write(|w| unsafe { w.prkey().bits(0xa5) }.prc1().set_bit());

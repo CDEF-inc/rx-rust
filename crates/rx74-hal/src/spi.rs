@@ -24,15 +24,16 @@
 //! Registers at RSPIA0's secure addresses (0x8745C000), addressed
 //! directly.
 
-use core::convert::Infallible;
+use core::fmt;
 use core::ptr::{read_volatile, write_volatile};
 
-use embedded_hal::spi::{ErrorType, Mode, Phase, Polarity, SpiBus};
+use embedded_hal::spi::{ErrorKind, ErrorType, Mode, Phase, Polarity, SpiBus};
 
 use crate::clock::Clocks;
 use crate::gpio::{Function, Pin};
 use crate::mstp::{self, Mstpcr};
 use crate::pac;
+use crate::timeout::{self, OutOfRange};
 
 const BASE: usize = 0x8745_c000;
 const SPDR: *mut u8 = BASE as _;
@@ -93,10 +94,34 @@ impl BitRate {
     }
 }
 
+/// An SPI transfer that did not finish in time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Error {
+    /// The FIFOs or IDLNF did not change within four byte times.
+    Timeout,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("SPI timeout")
+    }
+}
+
+impl core::error::Error for Error {}
+
+impl embedded_hal::spi::Error for Error {
+    fn kind(&self) -> ErrorKind {
+        ErrorKind::Other
+    }
+}
+
 /// RSPIA0 as an SPI master.
 pub struct Spi {
     rspi: pac::Rspia0,
     rate: BitRate,
+    /// The bound of a wait: four byte times (about 11 RSPCK each).
+    spins: u32,
     sck: Pin<0x0a, 5, Function>,
     mosi: Pin<0x0a, 6, Function>,
     miso: Pin<0x0a, 7, Function>,
@@ -107,7 +132,8 @@ impl Spi {
     /// master on PA05 / PA06 / PA07 in SPI `mode` at the highest bit rate
     /// not above `hz` of PCLKA.
     ///
-    /// Panics if `hz` is below PCLKA / 4096.
+    /// Panics if `hz` is below PCLKA / 4096 (see
+    /// [`try_rspia0`](Self::try_rspia0)).
     pub fn rspia0<CM, OM, IM>(
         rspi: pac::Rspia0,
         sck: Pin<0x0a, 5, CM>,
@@ -117,7 +143,22 @@ impl Spi {
         hz: u32,
         clocks: &Clocks,
     ) -> Self {
-        let rate = BitRate::new(clocks.pclka, hz).expect("bit rate out of range");
+        Self::try_rspia0(rspi, sck, mosi, miso, mode, hz, clocks).expect("bit rate out of range")
+    }
+
+    /// [`rspia0`](Self::rspia0), or [`OutOfRange`] (the peripheral and pins
+    /// untouched, and dropped) if `hz` is below PCLKA / 4096.
+    pub fn try_rspia0<CM, OM, IM>(
+        rspi: pac::Rspia0,
+        sck: Pin<0x0a, 5, CM>,
+        mosi: Pin<0x0a, 6, OM>,
+        miso: Pin<0x0a, 7, IM>,
+        mode: Mode,
+        hz: u32,
+        clocks: &Clocks,
+    ) -> Result<Self, OutOfRange> {
+        let rate = BitRate::new(clocks.pclka, hz).ok_or(OutOfRange)?;
+        let spins = timeout::spins(clocks.cpuclk, 4 * 11_000_000 / rate.hz + 1);
         mstp::start(Mstpcr::B, 19);
         unsafe { write_volatile(SPCR, 0) };
         let sck = sck.into_function(PSEL_RSPI);
@@ -144,7 +185,7 @@ impl Spi {
             write_volatile(SPCR, SYNDIS | MSTR | SPMS);
             write_volatile(SPCR, SYNDIS | MSTR | SPMS | SPE);
         }
-        Spi { rspi, rate, sck, mosi, miso }
+        Ok(Spi { rspi, rate, spins, sck, mosi, miso })
     }
 
     /// The bit rate settings in use.
@@ -152,13 +193,14 @@ impl Spi {
         self.rate
     }
 
-    /// Waits for the last transfer, disables the RSPIA and gives it and its
-    /// pins back (still in the RSPIA function, for `rspia0` again).
+    /// Waits for the last transfer (at most four byte times), disables the
+    /// RSPIA and gives it and its pins back (still in the RSPIA function,
+    /// for `rspia0` again).
     #[allow(clippy::type_complexity)]
     pub fn free(
         self,
     ) -> (pac::Rspia0, Pin<0x0a, 5, Function>, Pin<0x0a, 6, Function>, Pin<0x0a, 7, Function>) {
-        self.flush_idle();
+        let _ = self.flush_idle();
         unsafe { write_volatile(SPCR, 0) };
         (self.rspi, self.sck, self.mosi, self.miso)
     }
@@ -167,9 +209,10 @@ impl Spi {
     /// (SPPCR.SPLP2 = 1, `inverted` = false) or through an inverter
     /// (SPLP = 1), or back to MISO (`None`). A self-test of the RSPIA
     /// without wiring; RSPCK and MOSI still go out on their pins. The RSPIA
-    /// is disabled while SPPCR changes.
-    pub fn set_loopback(&mut self, loopback: Option<bool>) {
-        self.flush_idle();
+    /// is disabled while SPPCR changes, after the last transfer
+    /// ([`Error::Timeout`] if that does not end).
+    pub fn set_loopback(&mut self, loopback: Option<bool>) -> Result<(), Error> {
+        self.flush_idle()?;
         unsafe {
             let spcr = read_volatile(SPCR);
             write_volatile(SPCR, spcr & !SPE);
@@ -183,41 +226,42 @@ impl Spi {
             );
             write_volatile(SPCR, spcr | SPE);
         }
+        Ok(())
     }
 
     /// Sends `b` and returns the byte received at the same time.
-    fn transfer_byte(&mut self, b: u8) -> u8 {
-        unsafe {
-            while read_volatile(SPTFSR) & 0b111 == 0 {}
-            write_volatile(SPDR, b);
-            while read_volatile(SPRFSR) & 0b111 == 0 {}
-            read_volatile(SPDR)
-        }
+    fn transfer_byte(&mut self, b: u8) -> Result<u8, Error> {
+        let ready = |r: *const u8| unsafe { read_volatile(r) } & 0b111 != 0;
+        timeout::wait(self.spins, || ready(SPTFSR)).map_err(|_| Error::Timeout)?;
+        unsafe { write_volatile(SPDR, b) };
+        timeout::wait(self.spins, || ready(SPRFSR)).map_err(|_| Error::Timeout)?;
+        Ok(unsafe { read_volatile(SPDR) })
     }
 
     /// Waits until the RSPIA is idle (SPSR.IDLNF = 0): the transmit FIFO
     /// empty and the last frame and its delays over.
-    fn flush_idle(&self) {
-        while unsafe { read_volatile(SPSR) } & IDLNF != 0 {}
+    fn flush_idle(&self) -> Result<(), Error> {
+        timeout::wait(self.spins, || unsafe { read_volatile(SPSR) } & IDLNF == 0)
+            .map_err(|_| Error::Timeout)
     }
 }
 
 impl ErrorType for Spi {
-    type Error = Infallible;
+    type Error = Error;
 }
 
 impl SpiBus<u8> for Spi {
     /// Reads `words`, sending FFh for each.
-    fn read(&mut self, words: &mut [u8]) -> Result<(), Infallible> {
+    fn read(&mut self, words: &mut [u8]) -> Result<(), Error> {
         for w in words {
-            *w = self.transfer_byte(READ_FILL);
+            *w = self.transfer_byte(READ_FILL)?;
         }
         Ok(())
     }
 
-    fn write(&mut self, words: &[u8]) -> Result<(), Infallible> {
+    fn write(&mut self, words: &[u8]) -> Result<(), Error> {
         for &w in words {
-            self.transfer_byte(w);
+            self.transfer_byte(w)?;
         }
         Ok(())
     }
@@ -225,9 +269,9 @@ impl SpiBus<u8> for Spi {
     /// Sends `write` and fills `read`; the longer one sets the length, with
     /// FFh sent past the end of `write` and the bytes past the end of
     /// `read` dropped.
-    fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Infallible> {
+    fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
         for i in 0..read.len().max(write.len()) {
-            let r = self.transfer_byte(write.get(i).copied().unwrap_or(READ_FILL));
+            let r = self.transfer_byte(write.get(i).copied().unwrap_or(READ_FILL))?;
             if let Some(slot) = read.get_mut(i) {
                 *slot = r;
             }
@@ -235,15 +279,14 @@ impl SpiBus<u8> for Spi {
         Ok(())
     }
 
-    fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Infallible> {
+    fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Error> {
         for w in words {
-            *w = self.transfer_byte(*w);
+            *w = self.transfer_byte(*w)?;
         }
         Ok(())
     }
 
-    fn flush(&mut self) -> Result<(), Infallible> {
-        self.flush_idle();
-        Ok(())
+    fn flush(&mut self) -> Result<(), Error> {
+        self.flush_idle()
     }
 }

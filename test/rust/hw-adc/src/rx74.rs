@@ -127,8 +127,10 @@ fn main() -> ! {
     record(11, an000.map_or(0xdead_0000, |v| v as u32));
     check(17, an000.is_ok_and(|v| v <= 0xfff));
     // a longer sampling time for table 0
-    adc.set_sampling_states(120);
+    check(20, adc.set_sampling_states(120).is_ok());
     check(18, rd32(0x8743_8240) == 300 << 16 | 120 && adc.read(&p400).is_ok());
+    // Above 1023 states: an error, and the setting stays.
+    check(21, adc.set_sampling_states(1024).is_err() && rd32(0x8743_8240) == 300 << 16 | 120);
     // back to a digital input: ASEL cleared
     let _p400 = p400.into_input();
     check(19, rd32(0x87c0_0900) & 1 << 15 == 0);

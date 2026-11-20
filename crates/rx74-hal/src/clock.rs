@@ -12,6 +12,7 @@
 use core::ptr::read_volatile;
 
 use crate::pac;
+use crate::timeout;
 
 /// A divider of SCKDIVCR / SCKDIVCR2 (the values are the register's).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -182,35 +183,46 @@ impl Config {
         }
     }
 
-    /// Panics unless the configuration is within the hardware manual's
-    /// limits for the R5K574NxB4xx (Tables 9.1, 9.2 and 67.52).
-    fn check(&self, c: &Clocks) {
+    /// The frequencies, or [`ClockError::OutOfRange`] unless the
+    /// configuration is within the hardware manual's limits for the
+    /// R5K574NxB4xx (Tables 9.1, 9.2 and 67.52). The raw fields come first:
+    /// `clocks()` divides by the dividers and multiplies by `pll_mul`,
+    /// which only fits in u32 within these limits.
+    fn check(&self) -> Result<Clocks, ClockError> {
+        macro_rules! req {
+            ($e:expr) => {
+                if !$e {
+                    return Err(ClockError::OutOfRange);
+                }
+            };
+        }
         const MHZ: u32 = 1_000_000;
-        assert!((8 * MHZ..=48 * MHZ).contains(&self.main_hz));
-        assert!((1..=3).contains(&self.pll_input_div));
-        assert!((8 * MHZ..=24 * MHZ).contains(&(self.main_hz / self.pll_input_div as u32)));
-        assert!((40..=300).contains(&self.pll_mul));
+        req!((8 * MHZ..=48 * MHZ).contains(&self.main_hz));
+        req!((1..=3).contains(&self.pll_input_div));
+        req!((8 * MHZ..=24 * MHZ).contains(&(self.main_hz / self.pll_input_div as u32)));
+        req!((40..=300).contains(&self.pll_mul));
         let vco = self.main_hz as u64 / self.pll_input_div as u64 * self.pll_mul as u64;
-        assert!((960 * MHZ as u64..=2400 * MHZ as u64).contains(&vco));
-        assert!(matches!(self.pll_p_div, 2 | 3 | 4 | 6 | 8 | 16));
-        assert!((60 * MHZ..=600 * MHZ).contains(&c.pll1p));
+        req!((960 * MHZ as u64..=2400 * MHZ as u64).contains(&vco));
+        req!(matches!(self.pll_p_div, 2 | 3 | 4 | 6 | 8 | 16));
+        let c = self.clocks();
+        req!((60 * MHZ..=600 * MHZ).contains(&c.pll1p));
 
         let cpu_max = match self.voltage {
             Voltage::Vscr1 => 600 * MHZ,
             Voltage::Vscr2 => 480 * MHZ,
         };
-        assert!(c.cpuclk <= cpu_max && c.mriclk <= 300 * MHZ && c.iclk <= 300 * MHZ);
-        assert!(c.mrpclk <= 150 * MHZ && c.pclka <= 150 * MHZ && c.pclkb <= 75 * MHZ);
-        assert!(c.pclkd <= 150 * MHZ && c.pclke <= 300 * MHZ && c.bclk <= 150 * MHZ);
+        req!(c.cpuclk <= cpu_max && c.mriclk <= 300 * MHZ && c.iclk <= 300 * MHZ);
+        req!(c.mrpclk <= 150 * MHZ && c.pclka <= 150 * MHZ && c.pclkb <= 75 * MHZ);
+        req!(c.pclkd <= 150 * MHZ && c.pclke <= 300 * MHZ && c.bclk <= 150 * MHZ);
 
         // CPUCLK0 : MRICLK : ICLK, ICLK : MRPCLK, PCLKA, PCLKB and BCLK
         // are N : 1; ICLK : PCLKD and PCLKE are N : 1 or 1 : N.
         let n_to_1 = |fast: Div, slow: Div| slow.divisor() % fast.divisor() == 0;
         let either = |a: Div, b: Div| n_to_1(a, b) || n_to_1(b, a);
-        assert!(n_to_1(self.cpuclk, self.mriclk) && n_to_1(self.mriclk, self.iclk));
-        assert!(n_to_1(self.iclk, self.mrpclk) && n_to_1(self.iclk, self.bclk));
-        assert!(n_to_1(self.iclk, self.pclka) && n_to_1(self.pclka, self.pclkb));
-        assert!(either(self.iclk, self.pclkd) && either(self.iclk, self.pclke));
+        req!(n_to_1(self.cpuclk, self.mriclk) && n_to_1(self.mriclk, self.iclk));
+        req!(n_to_1(self.iclk, self.mrpclk) && n_to_1(self.iclk, self.bclk));
+        req!(n_to_1(self.iclk, self.pclka) && n_to_1(self.pclka, self.pclkb));
+        req!(either(self.iclk, self.pclkd) && either(self.iclk, self.pclke));
 
         // No division by 3, 6, 12 or 24 together with 2, 4, ... 64.
         let divs = [
@@ -226,26 +238,64 @@ impl Config {
         ];
         let by3 = divs.iter().any(|d| d.divisor() % 3 == 0);
         let by2 = divs.iter().any(|d| d.divisor() % 3 != 0 && d.divisor() > 1);
-        assert!(!(by3 && by2));
+        req!(!(by3 && by2));
+        Ok(c)
     }
 
     /// Switches the system clock to PLL1P with this configuration. Call it
     /// once, after a reset (the MOCO is the system clock and PLL1 is
     /// stopped).
     ///
-    /// Panics if the configuration is outside the limits, or if the clocks
-    /// are no longer as a reset leaves them.
+    /// Panics where [`try_configure`](Self::try_configure) returns an
+    /// error.
     pub fn configure(&self, sysc: &pac::Sysc, sram: &pac::Sram, mram: &pac::Mram) -> Clocks {
-        let c = self.clocks();
-        self.check(&c);
-        assert!(sysc.sckscr().read().cksel().bits() == 0b001);
-        assert!(sysc.pllcr().read().pllstp().bit_is_set());
+        self.try_configure(sysc, sram, mram).expect("clock set-up failed")
+    }
+
+    /// Switches the system clock to PLL1P with this configuration, after a
+    /// reset, or returns why not:
+    ///
+    /// - [`ClockError::OutOfRange`]: outside the limits; nothing changed.
+    /// - [`ClockError::NotAfterReset`]: the MOCO is not the system clock or
+    ///   PLL1 runs; nothing changed.
+    /// - [`ClockError::MainOscillator`], [`ClockError::Pll`],
+    ///   [`ClockError::Mram`], [`ClockError::Voltage`]: the main clock, PLL1,
+    ///   an MRAM frequency register or the voltage switch did not get ready
+    ///   within 100 ms. The system clock stays the MOCO (the switch is the
+    ///   last step); what was started stays started.
+    pub fn try_configure(
+        &self,
+        sysc: &pac::Sysc,
+        sram: &pac::Sram,
+        mram: &pac::Mram,
+    ) -> Result<Clocks, ClockError> {
+        let c = self.check()?;
+        if sysc.sckscr().read().cksel().bits() != 0b001 || sysc.pllcr().read().pllstp().bit_is_clear()
+        {
+            return Err(ClockError::NotAfterReset);
+        }
 
         // Lift the write protection of the clock generation registers
         // (PRC0) and of PLL1LDOCR and VSCR (PRC1).
         let prc = sysc.prcr_s().read().bits() & 0x00ff;
         sysc.prcr_s()
             .write(|w| unsafe { w.prkey().bits(0xa5) }.prc0().set_bit().prc1().set_bit());
+        let r = self.start(&c, sysc, sram, mram);
+        sysc.prcr_s().write(|w| unsafe { w.bits(0xa500 | prc) });
+        r.map(|()| c)
+    }
+
+    /// The set-up itself, with the protection lifted, on the MOCO.
+    fn start(
+        &self,
+        c: &Clocks,
+        sysc: &pac::Sysc,
+        sram: &pac::Sram,
+        mram: &pac::Mram,
+    ) -> Result<(), ClockError> {
+        // The waits run on the MOCO, 8 MHz (+10% at most).
+        let spins_100ms = timeout::spins(8_800_000, 100_000);
+        let ready = |done: &dyn Fn() -> bool, e| timeout::wait(spins_100ms, || done()).map_err(|_| e);
 
         // PLL1's LDO, enabled after a reset; turned on it needs 25 us (400
         // cycles is 50 us at the MOCO's 8 MHz).
@@ -263,8 +313,8 @@ impl Config {
         let msts = if self.main_external { 0b0000 } else { 0b0101 };
         sysc.moscwtcr().write(|w| unsafe { w.msts().bits(msts) });
         sysc.mosccr().write(|w| w.mostp().clear_bit());
-        while sysc.mosccr().read().mostp().bit_is_set() {}
-        while sysc.oscsf().read().moscsf().bit_is_clear() {}
+        ready(&|| sysc.mosccr().read().mostp().bit_is_clear(), ClockError::MainOscillator)?;
+        ready(&|| sysc.oscsf().read().moscsf().bit_is_set(), ClockError::MainOscillator)?;
 
         // PLL1 from the main clock. Outputs Q and R keep the reset's
         // division by 6, within their 106.6-500 MHz for any allowed VCO.
@@ -280,16 +330,16 @@ impl Config {
         });
         sysc.pllccr2().modify(|_, w| unsafe { w.plodivp().bits(self.pll_p_div - 1) });
         sysc.pllcr().write(|w| w.pllstp().clear_bit());
-        while sysc.oscsf().read().pllsf().bit_is_clear() {}
+        ready(&|| sysc.oscsf().read().pllsf().bit_is_set(), ClockError::Pll)?;
 
         // The MRAM wait cycles follow from the frequencies in MHz, rounded
         // up; they are set before the clocks go up, each read back.
         let mrc = c.mriclk.div_ceil(1_000_000) as u16;
         mram.mrcfreq().write(|w| unsafe { w.key().bits(0x1e).mrcmhz().bits(mrc) });
-        while mram.mrcfreq().read().mrcmhz().bits() != mrc {}
+        ready(&|| mram.mrcfreq().read().mrcmhz().bits() == mrc, ClockError::Mram)?;
         let mre = c.mrpclk.div_ceil(1_000_000) as u8;
         mram.mrefreq().write(|w| unsafe { w.key().bits(0xe1).mremhz().bits(mre) });
-        while mram.mrefreq().read().mremhz().bits() != mre {}
+        ready(&|| mram.mrefreq().read().mremhz().bits() == mre, ClockError::Mram)?;
         // One SRAM wait cycle above 150 MHz ICLK.
         if c.iclk > 150_000_000 {
             sram.sramprcr_s().write(|w| unsafe { w.kw().bits(0xa5) }.pr().set_bit());
@@ -299,7 +349,7 @@ impl Config {
 
         if self.voltage == Voltage::Vscr1 {
             sysc.vscr().write(|w| unsafe { w.vscm().bits(0b001) });
-            while sysc.vscr().read().vscmtsf().bit_is_set() {}
+            ready(&|| sysc.vscr().read().vscmtsf().bit_is_clear(), ClockError::Voltage)?;
         }
 
         // The dividers: SCKDIVCR first, so that CPUCLK0 and MRICLK never
@@ -329,11 +379,42 @@ impl Config {
         // DCDC mode, 10 us with an external VDD), at the new CPUCLK0.
         sysc.sckscr().write(|w| unsafe { w.cksel().bits(0b101) });
         spin(c.cpuclk / 1_000_000 * 30);
-
-        sysc.prcr_s().write(|w| unsafe { w.bits(0xa500 | prc) });
-        c
+        Ok(())
     }
 }
+
+/// Why [`Config::try_configure`] failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ClockError {
+    /// A setting is outside the limits; nothing was changed.
+    OutOfRange,
+    /// The clocks are not as a reset leaves them; nothing was changed.
+    NotAfterReset,
+    /// The main clock did not start (MOSTP, MOSCSF) within 100 ms.
+    MainOscillator,
+    /// PLL1 did not lock (PLLSF) within 100 ms.
+    Pll,
+    /// MRCFREQ / MREFREQ did not read back the frequency within 100 ms.
+    Mram,
+    /// The voltage switch (VSCR.VSCMTSF) did not end within 100 ms.
+    Voltage,
+}
+
+impl core::fmt::Display for ClockError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            ClockError::OutOfRange => "clock setting out of range",
+            ClockError::NotAfterReset => "clocks not as after a reset",
+            ClockError::MainOscillator => "main clock not stable",
+            ClockError::Pll => "PLL1 not locked",
+            ClockError::Mram => "MRAM frequency not set",
+            ClockError::Voltage => "voltage switch not done",
+        })
+    }
+}
+
+impl core::error::Error for ClockError {}
 
 /// At least `n` CPU cycles: each iteration is a volatile load and a branch.
 fn spin(n: u32) {

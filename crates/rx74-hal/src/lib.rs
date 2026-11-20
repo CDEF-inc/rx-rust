@@ -21,6 +21,12 @@
 //! - `time` (feature `embassy-time-driver`): an embassy-time driver on
 //!   CMTW0 / CMTW1.
 //!
+//! Waits for the hardware are bounded: a clock that does not start or a
+//! peripheral that does not finish gives [`Timeout`] instead of hanging.
+//! The constructors that check their settings have `try_*` versions that
+//! return [`OutOfRange`]; the others panic on such settings (they are
+//! `try_*(..).expect(..)`).
+//!
 //! Everything runs in the root world, as a reset leaves it (a Flat-Project
 //! in the hardware manual's terms), and uses the registers' secure
 //! addresses. Register access goes through [`pac`] (rx74-pac, generated
@@ -48,3 +54,6 @@ pub mod serial;
 pub mod spi;
 #[cfg(feature = "embassy-time-driver")]
 pub mod time;
+mod timeout;
+
+pub use timeout::{OutOfRange, Timeout};
