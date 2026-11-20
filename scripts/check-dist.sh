@@ -66,4 +66,15 @@ if [ -f "$s" ] && grep -q '"bomFormat": "CycloneDX"' "$s" && grep -q '"specVersi
 else
   echo "FAIL  SBOM: no CycloneDX 1.6 SBOM.cdx.json"; status=1
 fi
+# The licenses (dist-toolchain*.sh).
+missing=
+for f in COPYRIGHT LICENSE-APACHE LICENSE-MIT LICENSE.TXT COPYING.QEMU; do
+  [ -s "$T/$f" ] || missing="$missing $f"
+done
+if [ -z "$missing" ] && grep -q 'GNU GENERAL PUBLIC LICENSE' "$T/COPYING.QEMU" &&
+   grep -q 'LLVM Exceptions' "$T/LICENSE.TXT"; then
+  echo "ok    licenses: COPYRIGHT, LICENSE-APACHE, LICENSE-MIT, LICENSE.TXT, COPYING.QEMU"
+else
+  echo "FAIL  licenses: missing or wrong:${missing:- COPYING.QEMU / LICENSE.TXT}"; status=1
+fi
 exit $status

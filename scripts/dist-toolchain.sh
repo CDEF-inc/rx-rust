@@ -23,6 +23,12 @@
 #              shared libraries qemu-system-rx needs beyond glibc (glib,
 #              pixman, ...; its RUNPATH points here)
 #   VERSIONS   the commits it was built from, and the glibc it needs
+#   COPYRIGHT, LICENSE-APACHE, LICENSE-MIT  the Rust project's (rustc,
+#              cargo, core and the other libraries)
+#   LICENSE.TXT  llvm-project's (Apache-2.0 WITH LLVM-exception: lld, the
+#              LLVM tools, LLDB)
+#   COPYING.QEMU  QEMU's (GPL-2.0), from CDEF-inc/qemu at the commit in
+#              VERSIONS
 #   SBOM.spdx.json, SBOM.cdx.json  the software bill of materials, as SPDX
 #              2.3 and as CycloneDX 1.6 (scripts/sbom.py), also written next
 #              to the archive as build/dist/NAME.spdx.json and NAME.cdx.json
@@ -157,6 +163,22 @@ fi
 cat "$d/VERSIONS"
 
 qemu_commit=$(awk '$1 == "qemu" {print $2}' "$d/VERSIONS")
+
+# The licenses go with the programs: the Rust project's, llvm-project's,
+# and QEMU's (GPL-2.0) from the commit it was built from (the checkout's,
+# else fetched at that commit: the CI has no checkout).
+for f in COPYRIGHT LICENSE-APACHE LICENSE-MIT; do
+  cp "$root/rust/$f" "$d/$f"
+done
+cp "$root/rust/src/llvm-project/llvm/LICENSE.TXT" "$d/LICENSE.TXT"
+qemu_dir="$(dirname "$QEMU")/.."
+if [ -f "$qemu_dir/COPYING" ] && [ "$(git -C "$qemu_dir" rev-parse HEAD 2>/dev/null)" = "$qemu_commit" ]; then
+  cp "$qemu_dir/COPYING" "$d/COPYING.QEMU"
+else
+  curl -fsSL --retry 3 -o "$d/COPYING.QEMU" \
+    "https://raw.githubusercontent.com/CDEF-inc/qemu/$qemu_commit/COPYING" ||
+    { echo "cannot fetch QEMU's COPYING at $qemu_commit" >&2; exit 2; }
+fi
 distro=$(. /etc/os-release && echo "$ID-$VERSION_ID")
 python3 "$root/scripts/sbom.py" --out "$d/SBOM.spdx.json" --cyclonedx "$d/SBOM.cdx.json" \
   --name "$name" --root "$root" \
