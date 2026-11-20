@@ -17,6 +17,8 @@
 //! - [`i2c`]: RI3C0 as an I2C master (`I2c`) on P102 / P103.
 //! - [`adc`]: the 16-bit A/D converter (unit 0, SAR) and the temperature
 //!   sensor.
+//! - `time` (feature `embassy-time-driver`): an embassy-time driver on
+//!   CMTW0 / CMTW1.
 //!
 //! Everything runs in the root world, as a reset leaves it (a Flat-Project
 //! in the hardware manual's terms), and uses the registers' secure
@@ -43,3 +45,5 @@ mod mstp;
 pub mod pwm;
 pub mod serial;
 pub mod spi;
+#[cfg(feature = "embassy-time-driver")]
+pub mod time;

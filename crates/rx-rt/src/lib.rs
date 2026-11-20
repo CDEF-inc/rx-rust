@@ -505,6 +505,80 @@ pub mod interrupt {
     }
 }
 
+/// An embassy-executor executor for `main` (Cargo feature `executor`): it
+/// polls the tasks that are ready and sleeps with `wait` while none is, so
+/// an interrupt handler that wakes a task (a timer, a driver) also wakes
+/// the CPU.
+///
+/// ```ignore
+/// #[unsafe(no_mangle)]
+/// fn main() -> ! {
+///     static mut EXECUTOR: MaybeUninit<Executor> = MaybeUninit::uninit();
+///     let executor = unsafe { (&raw mut EXECUTOR).as_mut().unwrap().write(Executor::new()) };
+///     executor.run(|spawner| spawner.spawn(app().unwrap()))
+/// }
+/// ```
+///
+/// It runs with PSW.I set (interrupts on) between polls. A task woken from
+/// an interrupt handler runs after the handler returns; one woken from a
+/// task runs in the same loop.
+#[cfg(feature = "executor")]
+pub mod executor {
+    use core::marker::PhantomData;
+    use core::sync::atomic::{AtomicBool, Ordering};
+
+    pub use embassy_executor::Spawner;
+    use embassy_executor::raw;
+
+    use crate::interrupt;
+
+    /// Set by a wake (`__pender`), cleared before each poll.
+    static PENDING: AtomicBool = AtomicBool::new(false);
+
+    #[unsafe(export_name = "__pender")]
+    fn __pender(_context: *mut ()) {
+        PENDING.store(true, Ordering::Release);
+    }
+
+    /// The executor; see the [module](self).
+    pub struct Executor {
+        inner: raw::Executor,
+        not_send: PhantomData<*mut ()>,
+    }
+
+    impl Executor {
+        pub fn new() -> Self {
+            Executor { inner: raw::Executor::new(core::ptr::null_mut()), not_send: PhantomData }
+        }
+
+        /// Calls `init` with a [`Spawner`] for the first tasks, then runs
+        /// the tasks forever.
+        pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
+            init(self.inner.spawner());
+            loop {
+                PENDING.store(false, Ordering::Relaxed);
+                unsafe { self.inner.poll() };
+                // A wake between the poll and the sleep must not be lost:
+                // check with interrupts masked, then `wait` sets PSW.I and
+                // sleeps in one instruction, so a pending interrupt still
+                // ends it.
+                interrupt::disable();
+                if PENDING.load(Ordering::Acquire) {
+                    interrupt::enable();
+                } else {
+                    interrupt::wait();
+                }
+            }
+        }
+    }
+
+    impl Default for Executor {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+}
+
 // With the `critical-section` feature: critical sections clear PSW.I and
 // restore it afterwards, like `interrupt::free` (single core; interrupts
 // that PSW.I does not mask, such as NMI, still come in).

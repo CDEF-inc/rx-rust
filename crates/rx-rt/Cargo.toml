@@ -13,6 +13,7 @@ bench = false
 
 [dependencies]
 critical-section = { version = "1.2", optional = true, features = ["restore-state-bool"] }
+embassy-executor = { version = "0.10", optional = true }
 
 [features]
 # Save the DSP accumulator(s) in interrupt entries (compiled code does not use
@@ -21,3 +22,6 @@ save-acc = []
 # A critical-section implementation (PSW.I saved, cleared and restored), for
 # crates such as PACs and embedded-hal-bus on a single core.
 critical-section = ["dep:critical-section"]
+# rx_rt::executor: an embassy-executor thread-mode executor that sleeps
+# (WAIT) while no task is ready.
+executor = ["dep:embassy-executor"]

@@ -530,9 +530,36 @@ CN8 に USB シリアル変換（FTDI、3.3 V、Windows では COM8）をつな�
   まま（RX72M は 240 kHz の LOCO）で、待ちは回数で区切る。AP-RX72M-0A と EK-RX74M（RX74N 用のビルド）で
   release / dev とも通る（2026-11-20）。
 
+## 時刻: time（embassy-time のドライバ）と rx-rt の実行器（2026-11-20、両 HAL）
+
+feature `embassy-time-driver` で `hal::time` が embassy-time のドライバになり、`embassy_time::Timer` / `Instant` /
+async の `Delay`（embedded-hal-async の `DelayNs`）が使える。rx-rt の feature `executor` は embassy-executor の
+実行器 `rx_rt::executor::Executor`（スレッドモード）で、実行できるタスクがないあいだ `wait` で眠る。
+
+- 時刻の基準: CMTW0 を PCLKB / 8（RX72M 7.5 MHz、RX74N / RX74M は PCLKB 75 MHz で 9.375 MHz）、32 ビット、
+  CMWCOR = FFFF FFFFh で回し、一周ごとの CMWI0（ベクタ 30）で周回を数えて 64 ビットにする。読むときは割り込みを
+  止め、IR030 が立っていれば（ハンドラがまだ走っていない一周）1 周足して CMWCNT を読み直す。
+- アラーム: CMTW1 を同じクロックで、アラームごとに止めて CMWCNT = 0、CMWCOR = 残りのカウント数にして動かす。
+  CMWI1（ベクタ 31）でキュー（embassy-time-queue-utils の `Queue`、既定は embassy-executor と一体）の期限切れを
+  起こし、次のアラームを設定する。2^32 カウント（約 7〜9 分）より先のアラームは途中で一度鳴り、残りを設定し直す。
+- tick（embassy-time の `TICK_HZ`、既定 1 MHz）への換算は約分した比で正確に行う（9.375 MHz と 1 MHz なら
+  75 カウント = 8 tick）。
+- **CMWIOR.CMWE（bit 15）を 1 にしないとコンペアマッチがまったく起きない**（CMWI も、CMWCOR でのクリアもない）。
+  最初はこれを立てず、CMTW1 のカウンタが CMWCOR を越えて回り続け、アラームが鳴らなかった。
+- ハンドラは `hal::bind_time_interrupts!()`（rx-rt の `interrupt!` で 30 / 31 に `time::on_cmwi0` / `on_cmwi1`）。
+  `time::init(p.cmtw0, p.cmtw1, &clocks, priority)` はクロック設定のあとに 1 回。モジュールストップは RX72M が
+  MSTPCRA の bit 1 / 0、RX74N / RX74M が MSTPCRF の bit 13 / 12。
+- 実行器: `__pender` がフラグを立て、ポーリングのあと割り込みを止めてフラグを見て、立っていなければ `wait`
+  （PSW.I を立てて眠る 1 命令なので、そのあいだに来た起床も失われない）。embassy-executor の状態の更新は
+  RXv2 以降の MOVLI / MOVCO（アトミック）になる。
+- test/rust/hw-time（12 チェック）: CMT2 の `DelayNs` で 10 ms 待つと `Instant` も 10 ms 進む（換算の確認）、
+  `Timer::after` の 1 / 100 / 1000 ms が 300 µs 以内の遅れで起きる、20 ms と 40 ms の 2 タスクがその順に起きる、
+  CMTW0 を一周の 50 ms 前に進めて `Instant` が単調なまま一周をまたぐ、一周をまたぐ 100 ms のタイマが時間どおり
+  起きる。EK-RX74M（RX74N 用のビルド）で release / dev とも通る（2026-11-20）。
+
 ## 予定
 
 1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）、~~UART（受信）~~（2026-11-04、デバッガをつないだ状態。上記）
 2. ~~SPI（RSPI）~~（2026-11-08、内部ループバック。CN9 に相手機器はまだつないでいない）、~~ADC（S12AD）~~（2026-11-08、自己診断・内部基準電圧・温度センサ。外部の電圧はまだ）、~~PWM（MTU）~~（2026-11-08、MTU6 を LD2 に。GPTW はまだ）、~~I2C（RIIC）~~（2026-11-17、RIIC0 を CN8 に。上記）、~~簡易 I2C（SCI6）~~（2026-11-18、ボードの EEPROM）
-3. async（#188）: ~~ICU の API~~（2026-11-20、上記）、embassy の time driver（CMTW0 / CMTW1）、割り込みで動く
+3. async（#188）: ~~ICU の API~~、~~embassy の time driver（CMTW0 / CMTW1）と実行器~~（2026-11-20、上記）、割り込みで動く
    UART（embedded-io-async）。embedded-hal-nb の serial
