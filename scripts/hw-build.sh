@@ -56,7 +56,7 @@ case $board in
   rx72m)
     out=$root/build/hw cpu=rxv3 v3e=0 ram_ld=rx72m-ram.ld rom_ld=rx72m-rom.ld
     memory_x=rx72m-memory.x
-    board_tests=(hw-pac hw-icu hw-time hw-reset hw-hal hw-uart hw-spi hw-adc hw-pwm hw-i2c)
+    board_tests=(hw-pac hw-icu hw-time hw-reset hw-ofs hw-hal hw-uart hw-spi hw-adc hw-pwm hw-i2c)
     peripherals=(hw-irq "${board_tests[@]}"
                  "hw-irq:-relax:-C target-feature=+relax")
     all=(insns rom codegen rust rt examples lldb)

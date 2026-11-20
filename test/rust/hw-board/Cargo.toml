@@ -19,3 +19,7 @@ rx74-hal = { path = "../../../crates/rx74-hal", optional = true }
 ap-rx72m = ["dep:rx72-hal", "rx72-hal/rx72m"]
 ek-rx74n = ["dep:rx74-hal", "rx74-hal/rx74n"]
 ek-rx74m = ["dep:rx74-hal", "rx74-hal/rx74m"]
+# The test places its own option-setting memory (rx72-hal's
+# option_setting!); without it, AP-RX72M-0A tests write the erased values,
+# so that a test that set OFS0 / OFS1 does not leave them for the next.
+own-option-setting = []

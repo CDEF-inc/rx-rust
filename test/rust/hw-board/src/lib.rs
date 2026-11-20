@@ -27,6 +27,11 @@ compile_error!("pick one board only (ap-rx72m, ek-rx74n or ek-rx74m)");
 
 #[cfg(feature = "ap-rx72m")]
 pub use rx72_hal as hal;
+
+// The erased option-setting memory (both watchdogs stopped, no voltage
+// monitoring 0 reset, the HOCO off), written with every test.
+#[cfg(all(feature = "ap-rx72m", not(feature = "own-option-setting")))]
+rx72_hal::option_setting!(ofs0: rx72_hal::ofs::Ofs0::DEFAULT, ofs1: rx72_hal::ofs::Ofs1::DEFAULT);
 #[cfg(any(feature = "ek-rx74n", feature = "ek-rx74m"))]
 pub use rx74_hal as hal;
 
