@@ -27,5 +27,6 @@ rx72m = ["rx72-pac/rx72m"]
 rx72n = ["rx72-pac/rx72n"]
 # hal::time: the embassy-time driver on CMTW0 / CMTW1.
 embassy-time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
-# Interrupt-driven drivers with embedded-io-async: serial::AsyncSerial.
+# Interrupt-driven drivers: serial::AsyncSerial (embedded-io-async), and
+# the DMA channels' async waits.
 async = ["dep:embedded-io-async"]

@@ -670,6 +670,37 @@ feature `async` で `Serial::into_async(priority)` が `serial::AsyncSerial`（e
     とも通る（2026-11-20）。書き込む前のボードのオプション設定メモリは全部 FFh、hw-pac のあとも FFh に戻る。
 - まだのもの: LVD（電圧監視。OFS1 の `lvd0_reset` はリセットの設定だけ）。
 
+## DMA コントローラ: dma（2026-11-20、#188、両 HAL）
+
+DMAC の 8 チャネルを、ノーマル転送モードで使う。`Dma::new(p.dmac)` がモジュールストップを解除し、DMAST.DMST = 1 に
+して `ch0`〜`ch7`（`Channel<N>`）を返す。
+
+- `Channel::copy(src, dst)`: スライスのコピー（u8 / u16 / u32、同じ長さで 1〜65535 個）。ソフトウェア起動
+  （DMREQ.CLRS = 1 で SWREQ を立てたままにし、一度の要求で全部送る）。終わりを上限つきで待つ。長さが合わなければ
+  `Error::Length`。
+- `unsafe Channel::start(&Transfer)`: 任意の転送。アドレスは固定 / 増加 / 減少（DMAMD.SM / DM）、単位は 8 / 16 / 32
+  ビット、起動はソフトウェアか割り込み要求（`Trigger::Interrupt(Interrupt)`: DMRSRn に起動元のベクタ番号を書き、
+  DMTMD.DCTG = 01b。1 回の要求で 1 単位）。`is_done`（DMSTS.DTIF）、`remaining`（DMCRA）、`stop`（DTE を 0 にし、
+  ACT が落ちるのを待つ）。
+- 割り込みで起動する転送: DTE が 1 のあいだ、起動元の要求は CPU ではなく DMAC に行く。起動元の IER は 1 にしておく
+  （0 だと DMAC にも届かない）。回数を終えると DTE が 0 になり、次の要求から CPU に行くので、起動元を止めるか、
+  許可を外すか、ハンドラを置く。
+- feature `async`: `dma::enable_interrupts(priority)` が転送終了割り込み DMAC0I〜DMAC3I（ベクタ 120〜123）と
+  DMAC74I（124。チャネル 4〜7 で共有し、DMIST で見分ける）を許可する。ハンドラは `bind_dma_interrupts!()`。
+  `Channel::done().await` は DMINT.DTIE を立てて待ち、ハンドラが DTIE を下ろして起こす（DTIF は future が見る）。
+  `copy_async` は途中で future を捨てるとチャネルを止める。
+- アドレス: RX72M は DMAC0 0008 2000h（チャネルごとに + 40h）、DMAST 0008 2200h、DMRSRn 0008 7400h + 4n、
+  モジュールストップは MSTPCRA.MSTPA28（DTC と共通）。RX74N / RX74M はセキュアの DMAC0 8700 7000h、DMAST 8700 7800h、
+  DMRSRn 8700 6400h + 4n、MSTPCRA.MSTPA22（FSP の `BSP_MSTP_BIT_FSP_IP_DMAC`）。DMCRB が 32 ビットで、DMCTL などが
+  増えているが、ノーマル転送モードでは使わない。ベクタと IPR は両チップとも 120〜124。
+- test/rust/hw-dma（18 チェック）: 8 / 16 / 32 ビットのコピー（チャネル 0、1、7）、長さの検査、固定の転送元での
+  埋め、減少する転送元での逆順のコピー。CMT0 の CMI0（1 kHz）で 1 単位ずつ送る転送が 4 ms で半分ほど進み、
+  そのあいだ CMI0 は CPU に来ない。`copy_async`（チャネル 3 = DMAC3I、5 = DMAC74I。速いので DTIE を立てる前に
+  終わることもある）と、CMI0 で進むチャネル 3 / 4 の `done`（割り込みで終わる。rx-rt の実行器で眠って待つ）。
+  AP-RX72M-0A と EK-RX74M（RX74N 用のビルド）で release / dev とも通る（2026-11-20）。
+  - RX72M では、試験が PAC で MSTPCRA（CMT0）を書く前に PRCR.PRC1 を立てる。クロックの設定が PRCR を 0 に戻すので、
+    そのままでは書き込みが無視され、CMT0 が動かず、CMI0 で進む転送が始まらなかった。
+
 ## 予定
 
 1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）、~~UART（受信）~~（2026-11-04、デバッガをつないだ状態。上記）
