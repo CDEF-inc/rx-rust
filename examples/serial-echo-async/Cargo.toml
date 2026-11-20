@@ -6,13 +6,15 @@ publish = false
 
 [dependencies]
 rx-rt = { path = "../../crates/rx-rt", features = ["critical-section", "executor"] }
+rx72-hal = { path = "../../crates/rx72-hal", optional = true, features = ["async", "embassy-time-driver"] }
 rx74-hal = { path = "../../crates/rx74-hal", optional = true, features = ["async", "embassy-time-driver"] }
 embedded-io-async = "0.7"
 embassy-executor = "0.10"
 embassy-time = "0.5"
 
 [features]
-# The board: exactly one of these (build.rs picks its memory.x).
+# The board: exactly one of these (src/main.rs, build.rs picks its memory.x).
+ap-rx72m = ["dep:rx72-hal", "rx72-hal/rx72m"]
 ek-rx74n = ["dep:rx74-hal", "rx74-hal/rx74n"]
 ek-rx74m = ["dep:rx74-hal", "rx74-hal/rx74m"]
 
@@ -28,8 +30,13 @@ debug = true
 [profile.dev]
 opt-level = 1
 
-# The generated PAC is about 47 MB of source: with debug info rustc takes
-# minutes on it.
+# The generated PACs are about 23 MB (RX72) and 47 MB (RX74) of source: with
+# debug info rustc takes minutes on them.
+[profile.release.package.rx72-pac]
+debug = false
+[profile.dev.package.rx72-pac]
+debug = false
+opt-level = "s"
 [profile.release.package.rx74-pac]
 debug = false
 [profile.dev.package.rx74-pac]

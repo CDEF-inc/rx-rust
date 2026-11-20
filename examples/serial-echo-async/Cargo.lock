@@ -569,6 +569,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "rx72-hal"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "embassy-time-driver",
+ "embassy-time-queue-utils",
+ "embedded-hal 1.0.0",
+ "embedded-io",
+ "embedded-io-async",
+ "rx72-pac",
+]
+
+[[package]]
+name = "rx72-pac"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "sfrx-pac",
+ "vcell",
+]
+
+[[package]]
 name = "rx74-hal"
 version = "0.1.0"
 dependencies = [
@@ -634,6 +656,7 @@ dependencies = [
  "embassy-time",
  "embedded-io-async",
  "rx-rt",
+ "rx72-hal",
  "rx74-hal",
 ]
 

@@ -61,7 +61,7 @@ case $board in
                  "hw-irq:-relax:-C target-feature=+relax")
     all=(insns rom codegen rust rt examples lldb)
     insns=(cmt) extra_defs=() board_feature=ap-rx72m
-    examples=(blinky serial-echo) ;;
+    examples=(blinky serial-echo serial-echo-async) ;;
   rx74n)
     out=$root/build/hw-rx74n cpu=rxv3e v3e=1 ram_ld=rx74n-ram.ld rom_ld=rx74n-rom.ld
     memory_x=rx74n-memory.x
