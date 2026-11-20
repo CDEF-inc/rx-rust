@@ -343,9 +343,10 @@ pub use asynch::{AsyncSerial, on_groupbl0, on_rxi2, on_txi2};
 ///   each time TDR empties; its handler marks TDR free and wakes the
 ///   writer, which writes the next byte.
 ///
-/// The three vectors belong to this driver: register its handlers with
-/// [`bind_serial_interrupts!`](crate::bind_serial_interrupts), and leave
-/// group BL0's other sources off.
+/// RXI2 / TXI2 belong to this driver: register their handlers with
+/// [`bind_serial_interrupts!`](crate::bind_serial_interrupts). Group BL0
+/// is shared with other drivers (the async simple I2C): register its
+/// handler with [`bind_group_bl0!`](crate::bind_group_bl0).
 #[cfg(feature = "async")]
 mod asynch {
     use core::cell::{Cell, RefCell};
@@ -558,9 +559,10 @@ mod asynch {
         })
     }
 
-    /// The group BL0 handler (vector 110): a receive error (ERI2) is
-    /// cleared and kept for the next `read`.
-    pub extern "C" fn on_groupbl0() {
+    /// This driver's part of the group BL0 handler (vector 110,
+    /// [`icu::on_group_bl0`](crate::icu::on_group_bl0)): a receive error
+    /// (ERI2) is cleared and kept for the next `read`.
+    pub fn on_groupbl0() {
         if unsafe { read_volatile(GRPBL0) } & ERI2 == 0 {
             return;
         }
@@ -584,14 +586,14 @@ mod asynch {
 }
 
 /// Registers the interrupt-driven SCI2's handlers (feature `async`) with
-/// rx-rt's `interrupt!`: RXI2 (62), TXI2 (63), group BL0 (110). Use it
-/// once, in a crate that depends on rx-rt.
+/// rx-rt's `interrupt!`: RXI2 (62), TXI2 (63). Its receive errors come
+/// through group BL0: use [`bind_group_bl0!`](crate::bind_group_bl0) too.
+/// Use it once, in a crate that depends on rx-rt.
 #[cfg(feature = "async")]
 #[macro_export]
 macro_rules! bind_serial_interrupts {
     () => {
         rx_rt::interrupt!(62, $crate::serial::on_rxi2);
         rx_rt::interrupt!(63, $crate::serial::on_txi2);
-        rx_rt::interrupt!(110, $crate::serial::on_groupbl0);
     };
 }

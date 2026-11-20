@@ -163,3 +163,24 @@ pub fn trigger_swint() {
 pub fn trigger_swint2() {
     unsafe { write_volatile(SWINT2R, 1) }
 }
+
+/// The handler of group interrupt BL0 (vector 110), which the async
+/// drivers share: SCI2's receive error (ERI2, `serial`) and SCI6's
+/// condition end in simple I2C mode (TEI6 = STI6, `sci_i2c`). Each part
+/// looks at its own GRPBL0 bits. Register it with
+/// [`bind_group_bl0!`](crate::bind_group_bl0).
+#[cfg(feature = "async")]
+pub extern "C" fn on_group_bl0() {
+    crate::serial::on_groupbl0();
+    crate::sci_i2c::on_groupbl0();
+}
+
+/// Registers [`on_group_bl0`] (vector 110) with rx-rt's `interrupt!`: use
+/// it once with the async serial port or simple I2C (feature `async`).
+#[cfg(feature = "async")]
+#[macro_export]
+macro_rules! bind_group_bl0 {
+    () => {
+        rx_rt::interrupt!(110, $crate::icu::on_group_bl0);
+    };
+}

@@ -568,7 +568,7 @@ async の `Delay`（embedded-hal-async の `DelayNs`）が使える。rx-rt の 
 ## 割り込みで動く UART: AsyncSerial（2026-11-20、rx74-hal の RSCI12、rx72-hal の SCI2）
 
 feature `async` で `Serial::into_async(priority)` が `serial::AsyncSerial`（embedded-io-async の `Read` / `Write`）を
-返す。ハンドラは `rx74_hal::bind_serial_interrupts!()`。
+返す。ハンドラは `rx74_hal::bind_serial_interrupts!()`（RXI12 / TXI12）と `bind_group_al1!()`（受信エラーの入るグループ AL1。async の I2C と共用。下の「割り込みで動く I2C」）。
 
 - RXI12 / TXI12 は RX74N / RX74M では選択型割り込みで、決まったベクタがない。SLIRn（ICU + 920h + 2 × (n − 144)、
   16 ビット）に要因の番号を書くとベクタ n に割り当たる（SLIXR128〜143 は ICU + 900h）。番号は FSP の
@@ -740,6 +740,39 @@ feature `async` で `Spi::into_async(tx, rx)`（DMA の 2 チャネル）が `sp
   （DMA の転送 2 回）。1 回 poll して捨てた転送のあと、async とブロッキングの転送が自分のバイトを受け取る（17〜19。
   捨てるのを外すと 17 のあとで止まる）。RSPI の要求が CPU に来ない。AP-RX72M-0A と EK-RX74M（RX74N 用のビルド）で
   release / dev とも通る（2026-11-20。17〜19 は EK-RX74M のみ）。
+
+## 割り込みで動く I2C: AsyncI2c / AsyncSciI2c（2026-11-20、#188、rx74-hal の RI3C0、rx72-hal の SCI6）
+
+feature `async` で `I2c::into_async(priority)`（RX74）/ `SciI2c::into_async(priority)`（RX72M）が
+embedded-hal-async の `I2c` を返す。`free()` でブロッキングのドライバに戻る。
+
+- 転送の手順はブロッキングのドライバと同じコードで、待ち方だけを差し替える（内部の `Waiter` トレイト: `Spin` は
+  フラグをポーリングし、`Irq` は割り込みで起こされるまで眠る）。ブロッキングの `transaction` は `Spin` で動かす
+  （その future は最初の poll で終わる）。差し替えたあとも、ブロッキングの hw-i2c は両ボードで通る。
+- RX74（RI3C0）: 待つものの割り込みだけを許可する。RDRF / TDRE は ICCSIER（RXI0 / TXI0 は選択型割り込みで、SLIR148 /
+  SLIR149 にイベント番号 2B8h / 2B9h を書いてベクタ 148 / 149 にする）、START / STOP / NACKF / AL / TMOF / TEND は
+  ICSIER（EEI0 / TEI0 はグループ AL1、ベクタ 105、GRPAL1_S の bit 16 / 15）。ICSIER / ICCSIER のビットは ICSR2 /
+  ICCSR のフラグと同じ位置。ハンドラは許可を全部落として起こし、転送がフラグを見る。ハンドラは
+  `bind_i2c_interrupts!()` と `bind_group_al1!()`。
+- RX72M（SCI6 の簡易 I2C）: RXI6 / TXI6（ベクタ 86 / 87）を許可する。CPU が受け付けると IR が消える（ブロッキングの
+  ドライバはこの IR を見ている）ので、ハンドラが「来た」印を付けて起こす。条件の終わり（IICSTIF）は STI6 = TEI6 で
+  グループ BL0（ベクタ 110、GRPBL0 の bit 12）。待つあいだだけ SCR.TEIE を立て、ハンドラが落とす。ハンドラは
+  `bind_sci_i2c_interrupts!()` と `bind_group_bl0!()`。100 kHz だけ。待ちに上限はない（SCL を保持し続ける相手には
+  `with_timeout` で包む）。
+- グループ割り込み（RX74 の AL1、RX72M の BL0）は async のシリアルと I2C で共用するので、ハンドラは
+  `icu::on_group_al1` / `on_group_bl0` にまとめ、それぞれのドライバの部分が自分の GRPxx のビットを見る。
+  そのため `bind_serial_interrupts!()` はグループのベクタを登録しなくなった。async のシリアルにも
+  `bind_group_al1!()` / `bind_group_bl0!()` が要る（examples/serial-echo-async も直した。EK-RX74M（COM16）と
+  AP-RX72M-0A（COM8）で serial-echo.ps1 の 4 チェックが通る）。グループの優先度（IPR105 / IPR110）は共用で、最後に `into_async` したものになる。
+- future を途中で捨てると、エラーのときと同じ後始末（停止条件、だめなら RI3C の内部リセット / 42.7.7 の解放）を
+  する。
+- test/rust/hw-i2c-async（11 チェック、EEPROM は読むだけ）: 応答のないアドレスへの書き込みと読み出しの NACK、
+  ブロッキングで読んだ先頭 16 バイトを `write_read` で、1 / 4 バイトのランダムリード、書き込みと 2 つの読み出しの
+  トランザクション、アドレスだけ書いたあとのカレントアドレスリード、1 回 poll して捨てたトランザクションのあとの
+  読み出し、（RX74）Fast mode、`free` してブロッキングで読み出し。RX72M は SCI6 の 24LC16B（ワードアドレス
+  1 バイト。Fast mode がないので 10 チェック）、RX74 は RI3C0 の U13（2 バイト）。AP-RX72M-0A と EK-RX74M で
+  release / dev とも通る（2026-11-20）。RX72M では最初、SIMR3 を SCI6 + 0Fh と書いていて（正しくは + 0Bh）、
+  ブロッキングの hw-i2c まで条件の終わりを待ちきれずに失敗した。いまは PAC のポインタで読む。
 
 ## 予定
 

@@ -295,31 +295,12 @@ impl I2c {
         (self.ri3c, self.scl, self.sda)
     }
 
-    /// Waits for any of `flags` in ICCSR (`ccsr`) or ICSR2, and ends with
-    /// an error on NACKF, AL or TMOF.
-    fn wait(&self, ccsr: u32, sr2: u32) -> Result<(), Error> {
-        loop {
-            let s = rd(ICSR2);
-            if s & AL != 0 {
-                return Err(Error::ArbitrationLoss);
-            }
-            if s & TMOF != 0 {
-                return Err(Error::Timeout);
-            }
-            if s & NACKF != 0 {
-                return Err(Error::NoAcknowledge(NoAcknowledgeSource::Unknown));
-            }
-            if rd(ICCSR) & ccsr != 0 || s & sr2 != 0 {
-                return Ok(());
-            }
-        }
-    }
-
     /// Requests START (or repeated START) and sends the address byte. A
     /// read that ended with `then_restart` has already requested the
     /// repeated START (`requested`), so it is only waited for.
-    fn address(
+    async fn address(
         &mut self,
+        w: &mut impl Waiter,
         addr: u8,
         read: bool,
         restart: bool,
@@ -338,11 +319,11 @@ impl I2c {
             }
             wr(ICCGR, ST);
         }
-        self.wait(0, START)?;
+        w.until(0, START, ERRORS).await?;
         // Data written while RS is still 1 is not sent. START was detected,
         // so the request clears at once; 10 SCL periods is a fault.
         timeout::wait(self.ten_scl, || rd(ICCGR) & (ST | RS) == 0).map_err(|_| Error::Timeout)?;
-        self.wait(TDRE, 0)?;
+        w.until(TDRE, 0, ERRORS).await?;
         wr(ICDR, (addr as u32) << 1 | read as u32);
         Ok(())
     }
@@ -355,7 +336,7 @@ impl I2c {
     /// 44.5.5.2): with TDRE = 0 the NACKed item is the one before the last
     /// byte written (the address if that was the first data byte), with
     /// TDRE = 1 the last byte itself.
-    fn write_bytes(&mut self, bytes: &[u8], first: bool) -> Result<(), Error> {
+    async fn write_bytes(&mut self, w: &mut impl Waiter, bytes: &[u8], first: bool) -> Result<(), Error> {
         if bytes.is_empty() {
             // No completion flag for the address alone: wait 10 SCL
             // periods, then look for its NACK. The volatile read keeps the
@@ -387,23 +368,28 @@ impl I2c {
             e => e,
         };
         for &b in bytes {
-            self.wait(TDRE, 0).map_err(|e| nacked(last, e))?;
+            w.until(TDRE, 0, ERRORS).await.map_err(|e| nacked(last, e))?;
             wr(ICDR, b as u32);
             last += 1;
         }
-        self.wait(0, TEND).map_err(|e| nacked(last, e))
+        w.until(0, TEND, ERRORS).await.map_err(|e| nacked(last, e))
     }
 
     /// Receives into the read operations `ops` (one run) after the address
     /// byte, then requests a STOP, or a repeated START if `then_restart`.
-    fn read_bytes(&mut self, ops: &mut [Operation<'_>], then_restart: bool) -> Result<(), Error> {
+    async fn read_bytes(
+        &mut self,
+        w: &mut impl Waiter,
+        ops: &mut [Operation<'_>],
+        then_restart: bool,
+    ) -> Result<(), Error> {
         let len = |op: &Operation<'_>| if let Operation::Read(b) = op { b.len() } else { 0 };
         let wanted: usize = ops.iter().map(len).sum();
         // A read of nothing still reads (and drops) one byte.
         let total = wanted.max(1);
         let mut dropped = [0u8; 1];
         // The address: RDRF once the target ACKed it (TRS = 0).
-        self.wait(RDRF, 0).map_err(|e| no_ack(e, true))?;
+        w.until(RDRF, 0, ERRORS).await.map_err(|e| no_ack(e, true))?;
         wr(ICCSCR, WAITRE);
         wr(ICACKR, if total == 1 { NACK } else { ACK });
         // The dummy read starts the first byte.
@@ -418,7 +404,7 @@ impl I2c {
             if wanted == 0 { &mut spare.iter_mut().map(|b| &mut **b) } else { &mut bufs };
         for buf in bufs {
             for b in buf.iter_mut() {
-                self.wait(RDRF, 0)?;
+                w.until(RDRF, 0, ERRORS).await?;
                 n += 1;
                 if n == total {
                     // The end, requested before the last read releases SCL.
@@ -442,20 +428,13 @@ impl I2c {
 
     /// Requests a STOP (unless one is already on its way) and waits for it.
     /// A timeout (SCL held low) leaves TMOF set for `recover`.
-    fn stop(&mut self, requested: bool) -> Result<(), Error> {
+    async fn stop(&mut self, w: &mut impl Waiter, requested: bool) -> Result<(), Error> {
         if !requested {
             clear(STOP);
             wr(ICCGR, SP);
         }
-        loop {
-            let s = rd(ICSR2);
-            if s & STOP != 0 {
-                break;
-            }
-            if s & TMOF != 0 {
-                return Err(Error::Timeout);
-            }
-        }
+        // Only a timeout ends it: NACKF may still be set from the transfer.
+        w.until(0, STOP, TMOF).await?;
         clear(STOP | NACKF | START | TEND);
         wr(ICACKR, ACK);
         Ok(())
@@ -467,7 +446,7 @@ impl I2c {
     fn recover(&mut self) {
         let s = rd(ICSR2);
         wr(ICCSCR, 0);
-        if s & (AL | TMOF) != 0 || self.stop(false).is_err() {
+        if s & (AL | TMOF) != 0 || block_on(self.stop(&mut Spin, false)).is_err() {
             wr(ICRCR, ISRST);
             wr(ICRCR, 0);
         }
@@ -475,7 +454,7 @@ impl I2c {
         wr(ICACKR, ACK);
     }
 
-    fn run(&mut self, addr: u8, ops: &mut [Operation<'_>]) -> Result<(), Error> {
+    async fn run(&mut self, w: &mut impl Waiter, addr: u8, ops: &mut [Operation<'_>]) -> Result<(), Error> {
         let mut i = 0;
         let mut started = false;
         // Set when the previous read run requested the STOP or the
@@ -488,15 +467,15 @@ impl I2c {
             while j < ops.len() && matches!(ops[j], Operation::Read(_)) == read {
                 j += 1;
             }
-            self.address(addr, read, started, end_requested)?;
+            self.address(w, addr, read, started, end_requested).await?;
             if read {
                 let last = j == ops.len();
-                self.read_bytes(&mut ops[i..j], !last)?;
+                self.read_bytes(w, &mut ops[i..j], !last).await?;
                 end_requested = true;
             } else {
                 for (k, op) in ops[i..j].iter().enumerate() {
-                    if let Operation::Write(w) = op {
-                        self.write_bytes(w, k == 0)?;
+                    if let Operation::Write(ww) = op {
+                        self.write_bytes(w, ww, k == 0).await?;
                     }
                 }
                 end_requested = false;
@@ -505,9 +484,66 @@ impl I2c {
             i = j;
         }
         if started {
-            self.stop(end_requested)?;
+            self.stop(w, end_requested).await?;
         }
         Ok(())
+    }
+}
+
+/// The ICSR2 flags that end a wait with an error.
+const ERRORS: u32 = NACKF | AL | TMOF;
+
+/// Whether any of `ccsr` (ICCSR) or `sr2` (ICSR2) is set, or one of
+/// `errors` (ICSR2): `None` while neither.
+fn check(ccsr: u32, sr2: u32, errors: u32) -> Option<Result<(), Error>> {
+    let s = rd(ICSR2);
+    let e = s & errors;
+    if e & AL != 0 {
+        return Some(Err(Error::ArbitrationLoss));
+    }
+    if e & TMOF != 0 {
+        return Some(Err(Error::Timeout));
+    }
+    if e & NACKF != 0 {
+        return Some(Err(Error::NoAcknowledge(NoAcknowledgeSource::Unknown)));
+    }
+    if rd(ICCSR) & ccsr != 0 || s & sr2 != 0 {
+        return Some(Ok(()));
+    }
+    None
+}
+
+/// How a transfer waits for the RI3C's flags: [`Spin`] polls (the
+/// blocking `I2c`), `Irq` sleeps until an interrupt (`AsyncI2c`). The
+/// transfer itself is the same code.
+trait Waiter {
+    /// Waits for any of `ccsr` / `sr2`; any of `errors` ends it with that
+    /// error.
+    async fn until(&mut self, ccsr: u32, sr2: u32, errors: u32) -> Result<(), Error>;
+}
+
+/// The polling waiter.
+struct Spin;
+
+impl Waiter for Spin {
+    async fn until(&mut self, ccsr: u32, sr2: u32, errors: u32) -> Result<(), Error> {
+        loop {
+            if let Some(r) = check(ccsr, sr2, errors) {
+                return r;
+            }
+        }
+    }
+}
+
+/// Runs a future that never waits (one with [`Spin`]): it is ready at the
+/// first poll.
+fn block_on<F: core::future::Future>(f: F) -> F::Output {
+    let mut f = core::pin::pin!(f);
+    let mut cx = core::task::Context::from_waker(core::task::Waker::noop());
+    loop {
+        if let core::task::Poll::Ready(r) = f.as_mut().poll(&mut cx) {
+            return r;
+        }
     }
 }
 
@@ -553,10 +589,212 @@ impl ErrorType for I2c {
 
 impl I2cTrait<SevenBitAddress> for I2c {
     fn transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
-        let r = self.run(address, operations);
+        let r = block_on(self.run(&mut Spin, address, operations));
         if r.is_err() {
             self.recover();
         }
         r
     }
+}
+
+
+#[cfg(feature = "async")]
+pub use asynch::{AsyncI2c, on_groupal1, on_ri3c0};
+
+/// RI3C0 as an interrupt-driven embedded-hal-async `I2c` (feature
+/// `async`): the same transfer as the blocking driver, sleeping where that
+/// one polls.
+///
+/// A wait enables the interrupt of what it waits for: RDRF / TDRE through
+/// ICCSIER (RXI0 / TXI0, routed to vectors 148 / 149 by SLIR148 / SLIR149,
+/// FSP's `ICU_EVENT_RI3C0_RXI` / `_TXI` = 2B8h / 2B9h), START / STOP /
+/// NACKF / AL / TMOF / TEND through ICSIER (EEI0 / TEI0, group interrupt
+/// AL1, vector 105, GRPAL1_S bits 16 / 15). The handler turns them off
+/// again and wakes the transfer, which looks at the flags. The short waits
+/// for the RI3C to take a START or STOP request, for the bus to be free,
+/// and the 10 SCL periods after an address alone still poll.
+///
+/// Register the handlers with [`bind_i2c_interrupts!`](crate::bind_i2c_interrupts)
+/// and [`bind_group_al1!`](crate::bind_group_al1) (shared with the async
+/// serial port). Dropping a transaction's future ends it as an error does:
+/// a STOP, or the internal reset of the flags and requests.
+#[cfg(feature = "async")]
+mod asynch {
+    use core::cell::RefCell;
+    use core::future::poll_fn;
+    use core::ptr::{read_volatile, write_volatile};
+    use core::task::{Poll, Waker};
+
+    use critical_section::Mutex;
+    use embedded_hal::i2c::{ErrorType, Operation, SevenBitAddress};
+
+    use super::{BASE, Error, I2c, Waiter, check, wr};
+    use crate::icu::{Interrupt, Priority};
+
+    const ICSIER: usize = BASE + 0x1d8;
+    const ICCSIER: usize = BASE + 0x1e8;
+
+    /// RXI0 / TXI0 on vectors 148 / 149.
+    const RXI: Interrupt = unsafe { Interrupt::new(148, 148) };
+    const TXI: Interrupt = unsafe { Interrupt::new(149, 149) };
+    const SLIR148: *mut u16 = 0x8700_6928usize as _;
+    const SLIR149: *mut u16 = 0x8700_692ausize as _;
+    const EVENT_RXI: u16 = 0x2b8;
+    const EVENT_TXI: u16 = 0x2b9;
+
+    /// Group AL1: TEI0 is bit 15, EEI0 bit 16 (FSP's
+    /// `ICU_EVENT_GROUP_RI3C0_TEI` / `_EEI`).
+    const GROUP_AL1: Interrupt = unsafe { Interrupt::new(105, 105) };
+    const GRPAL1: *const u32 = 0x8700_6744usize as _;
+    const GENAL1: *mut u32 = 0x8700_67c4usize as _;
+    const TEI_EEI: u32 = 1 << 15 | 1 << 16;
+
+    static WAKER: Mutex<RefCell<Option<Waker>>> = Mutex::new(RefCell::new(None));
+
+    fn quiet() {
+        wr(ICSIER, 0);
+        wr(ICCSIER, 0);
+    }
+
+    fn wake() {
+        quiet();
+        critical_section::with(|cs| {
+            if let Some(w) = WAKER.borrow_ref_mut(cs).take() {
+                w.wake();
+            }
+        });
+    }
+
+    /// The handler of RXI0 / TXI0 (vectors 148 / 149).
+    pub extern "C" fn on_ri3c0() {
+        wake();
+    }
+
+    /// This driver's part of the group AL1 handler
+    /// ([`icu::on_group_al1`](crate::icu::on_group_al1)).
+    pub fn on_groupal1() {
+        if unsafe { read_volatile(GRPAL1) } & TEI_EEI != 0 {
+            wake();
+        }
+    }
+
+    /// The interrupt waiter.
+    struct Irq;
+
+    impl Waiter for Irq {
+        async fn until(&mut self, ccsr: u32, sr2: u32, errors: u32) -> Result<(), Error> {
+            poll_fn(|cx| {
+                if let Some(r) = check(ccsr, sr2, errors) {
+                    return Poll::Ready(r);
+                }
+                critical_section::with(|cs| {
+                    *WAKER.borrow_ref_mut(cs) = Some(cx.waker().clone());
+                });
+                // The ICSIER bits sit where the ICSR2 flags do, the ICCSIER
+                // bits where the ICCSR flags do.
+                wr(ICSIER, sr2 | errors);
+                wr(ICCSIER, ccsr);
+                // It may have come before the enables.
+                match check(ccsr, sr2, errors) {
+                    Some(r) => {
+                        quiet();
+                        Poll::Ready(r)
+                    }
+                    None => Poll::Pending,
+                }
+            })
+            .await
+        }
+    }
+
+    /// The interrupt-driven I2C; see the [module](self).
+    pub struct AsyncI2c {
+        i2c: I2c,
+    }
+
+    impl I2c {
+        /// Routes RXI0 / TXI0 to vectors 148 / 149, enables them and group
+        /// AL1 with TEI0 / EEI0 at `priority` (group AL1's priority is
+        /// shared with the async serial port's ERI12), and returns the
+        /// interrupt-driven I2C.
+        pub fn into_async(self, priority: Priority) -> AsyncI2c {
+            quiet();
+            critical_section::with(|_| unsafe {
+                write_volatile(SLIR148, EVENT_RXI);
+                write_volatile(SLIR149, EVENT_TXI);
+                write_volatile(GENAL1, read_volatile(GENAL1) | TEI_EEI);
+            });
+            for i in [RXI, TXI] {
+                i.clear_pending();
+            }
+            for i in [RXI, TXI, GROUP_AL1] {
+                i.set_priority(priority);
+                i.enable();
+            }
+            AsyncI2c { i2c: self }
+        }
+    }
+
+    impl AsyncI2c {
+        /// Disables its interrupts and gives back the blocking I2C.
+        pub fn free(self) -> I2c {
+            quiet();
+            RXI.disable();
+            TXI.disable();
+            critical_section::with(|_| unsafe {
+                write_volatile(GENAL1, read_volatile(GENAL1) & !TEI_EEI);
+            });
+            self.i2c
+        }
+
+        /// The SCL timing in use.
+        pub fn timing(&self) -> super::Timing {
+            self.i2c.timing()
+        }
+    }
+
+    /// Ends a transaction cut short (its future dropped) as an error does.
+    struct Recover<'a>(&'a mut I2c, bool);
+
+    impl Drop for Recover<'_> {
+        fn drop(&mut self) {
+            if !self.1 {
+                quiet();
+                self.0.recover();
+            }
+        }
+    }
+
+    impl ErrorType for AsyncI2c {
+        type Error = Error;
+    }
+
+    impl embedded_hal_async::i2c::I2c<SevenBitAddress> for AsyncI2c {
+        async fn transaction(
+            &mut self,
+            address: u8,
+            operations: &mut [Operation<'_>],
+        ) -> Result<(), Error> {
+            let mut g = Recover(&mut self.i2c, false);
+            let r = g.0.run(&mut Irq, address, operations).await;
+            quiet();
+            if r.is_err() {
+                g.0.recover();
+            }
+            g.1 = true;
+            r
+        }
+    }
+}
+
+/// Registers the async I2C's RXI0 / TXI0 handlers (vectors 148 / 149) with
+/// rx-rt's `interrupt!`; its other interrupts come through group AL1: use
+/// [`bind_group_al1!`](crate::bind_group_al1) too. Feature `async`.
+#[cfg(feature = "async")]
+#[macro_export]
+macro_rules! bind_i2c_interrupts {
+    () => {
+        rx_rt::interrupt!(148, $crate::i2c::on_ri3c0);
+        rx_rt::interrupt!(149, $crate::i2c::on_ri3c0);
+    };
 }
