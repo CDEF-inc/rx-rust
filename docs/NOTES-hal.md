@@ -637,8 +637,9 @@ feature `async` で `Serial::into_async(priority)` が `serial::AsyncSerial`（e
 - `reset::software_reset()`: 割り込みを止め、PRCR（RX74 は PRCR_S）の PRC1 を立てて SWRR に A501h。
 - `watchdog::Iwdt` / `Wdt`: レジスタスタートモード（OFS0 が既定の全ビット 1 のとき）。`start(p, config)` が
   IWDTCR / WDTCR（TOPS、CKS、RPES、RPSS）と IWDTRCR / WDTRCR（RSTIRQS: 1 ならリセット）を書き、最初の `feed`（リフレッシュ
-  レジスタに 00h、FFh）でカウントが始まる。設定はリセット後に 1 回しか書けず、読み返して違えば `StartError::Locked`（もう
-  書いたか、OFS0 のオートスタートモード）。止められない。
+  レジスタに 00h、FFh）でカウントが始まる。設定はリセット後に 1 回しか書けない。カウンタがもう動いている（0 でない）か、
+  書いた値が読み返せなければ `StartError::Locked`（もう起動したか、OFS0 のオートスタートモード）。オートスタート
+  モードでも IWDTCR / IWDTRCR は書いた値を読み返す（AP-RX72M-0A で確認）ので、読み返しだけでは分からない。止められない。
   - RX72M: IWDT は専用の 120 kHz、タイムアウトは 1024〜16384 カウント。WDT は PCLKB、1024〜16384。
     IWDT 専用のオシレータはリセット後に止まっている（ILOCOCR.ILCSTP = 1、マニュアル 9.2.11）ので、`Iwdt::start` が
     PRC0 を立てて ILCSTP を 0 にし、OSCOVFSR.ILCOVF を待つ（`StartError::Clock`）。止まったままだとカウンタは 0 の
