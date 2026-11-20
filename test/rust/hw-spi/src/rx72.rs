@@ -108,9 +108,9 @@ fn main() -> ! {
     }
 
     // --- internal loopbacks: SPLP2 (as sent), SPLP (inverted)
-    spi.set_loopback(Some(false));
+    spi.set_loopback(Some(false)).unwrap();
     check(14, all_bytes_back(&mut spi, false));
-    spi.set_loopback(Some(true));
+    spi.set_loopback(Some(true)).unwrap();
     check(15, all_bytes_back(&mut spi, true));
     // read sends FFh; write drops what comes back
     let mut buf = [0u8; 3];
@@ -125,7 +125,7 @@ fn main() -> ! {
     check(17, short == [0xf0, 0x0f] && long == [0xc3, 0x00, 0x00]);
 
     // MOSI keeps the last bit (the LSB) when idle; RSPCK idles low in mode 0.
-    spi.set_loopback(Some(false));
+    spi.set_loopback(Some(false)).unwrap();
     spi.write(&[0x01]).unwrap();
     spi.flush().unwrap();
     let high = mosi_high();
@@ -144,7 +144,7 @@ fn main() -> ! {
     };
     let t1 = time(&mut spi);
     let mut spi = reopen(spi, MODE_0, 500_000, &clocks);
-    spi.set_loopback(Some(false));
+    spi.set_loopback(Some(false)).unwrap();
     let t2 = time(&mut spi);
     unsafe {
         write_volatile(&raw mut spi_counts_1m, t1);
@@ -160,7 +160,7 @@ fn main() -> ! {
     for (i, mode) in [MODE_1, MODE_2, MODE_3, MODE_0].into_iter().enumerate() {
         for hz in [1_000_000, 30_000_000] {
             spi = reopen(spi, mode, hz, &clocks);
-            spi.set_loopback(Some(false));
+            spi.set_loopback(Some(false)).unwrap();
             modes_ok &= all_bytes_back(&mut spi, false);
             spi.flush().unwrap();
             let cpol = matches!(i, 1 | 2);

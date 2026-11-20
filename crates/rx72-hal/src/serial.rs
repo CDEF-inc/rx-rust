@@ -29,6 +29,7 @@ use embedded_io::{ErrorKind, ErrorType, Read, ReadReady, Write, WriteReady};
 use crate::clock::Clocks;
 use crate::gpio::{Function, Pin};
 use crate::mstp::{self, Mstpcr};
+use crate::timeout::{self, OutOfRange};
 use crate::pac;
 
 /// PFS.PSEL of the SCI functions (TXDn / RXDn).
@@ -45,12 +46,17 @@ const FER: u8 = 1 << 4;
 const PER: u8 = 1 << 3;
 const TEND: u8 = 1 << 2;
 
-/// A receive error. The received data with the error is dropped.
+/// A receive error (the received data with the error is dropped), or a
+/// transmission that did not finish in time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     Overrun,
     Framing,
     Parity,
+    /// TDR did not empty (TXI2) or the last byte did not leave (TEND)
+    /// within four character times.
+    Timeout,
 }
 
 impl fmt::Display for Error {
@@ -59,6 +65,7 @@ impl fmt::Display for Error {
             Error::Overrun => "overrun",
             Error::Framing => "framing error",
             Error::Parity => "parity error",
+            Error::Timeout => "transmit timeout",
         })
     }
 }
@@ -70,6 +77,7 @@ impl embedded_io::Error for Error {
         match self {
             Error::Overrun => ErrorKind::Other,
             Error::Framing | Error::Parity => ErrorKind::InvalidData,
+            Error::Timeout => ErrorKind::TimedOut,
         }
     }
 }
@@ -126,6 +134,8 @@ pub struct Serial {
     /// A receive error met after the first byte of a `read`, returned by
     /// the next `read`.
     pending: Option<Error>,
+    /// The bound of a transmit wait: four character times.
+    tx_spins: u32,
     _tx: Pin<0x01, 3, Function>,
     _rx: Pin<0x01, 2, Function>,
 }
@@ -134,7 +144,8 @@ impl Serial {
     /// Sets up SCI2 (taking it out of module stop) at `baud` bit/s on
     /// P13 / P12, receiving and transmitting.
     ///
-    /// Panics if no setting is within 3% of `baud`.
+    /// Panics if no setting is within 3% of `baud` (see
+    /// [`try_sci2`](Self::try_sci2)).
     pub fn sci2<TM, RM>(
         sci: pac::Sci2,
         tx: Pin<0x01, 3, TM>,
@@ -142,8 +153,23 @@ impl Serial {
         baud: u32,
         clocks: &Clocks,
     ) -> Self {
-        let s = BaudSettings::new(clocks.pclkb, baud).expect("baud rate out of range");
-        assert!((s.baud as u64).abs_diff(baud as u64) * 100 <= 3 * baud as u64);
+        Self::try_sci2(sci, tx, rx, baud, clocks).expect("baud rate out of range")
+    }
+
+    /// [`sci2`](Self::sci2), or [`OutOfRange`] (the peripheral and pins
+    /// untouched, and dropped) if no setting is within 3% of `baud`.
+    pub fn try_sci2<TM, RM>(
+        sci: pac::Sci2,
+        tx: Pin<0x01, 3, TM>,
+        rx: Pin<0x01, 2, RM>,
+        baud: u32,
+        clocks: &Clocks,
+    ) -> Result<Self, OutOfRange> {
+        let s = BaudSettings::new(clocks.pclkb, baud).ok_or(OutOfRange)?;
+        if (s.baud as u64).abs_diff(baud as u64) * 100 > 3 * baud as u64 {
+            return Err(OutOfRange);
+        }
+        let tx_spins = timeout::spins(clocks.iclk, 4 * 10_000_000 / s.baud + 1);
         mstp::start(Mstpcr::B, 29);
         sci.scr().write(|w| unsafe { w.bits(0) });
         let tx = tx.into_function(PSEL_SCI);
@@ -173,7 +199,7 @@ impl Serial {
         sci.ssr().write(|w| unsafe { w.bits((v & !(ORER | FER | PER)) | SSR_KEEP) });
         sci.scr()
             .write(|w| w.te().set_bit().re().set_bit().tie().set_bit().rie().set_bit());
-        Serial { sci, settings: s, pending: None, _tx: tx, _rx: rx }
+        Ok(Serial { sci, settings: s, pending: None, tx_spins, _tx: tx, _rx: rx })
     }
 
     /// Whether TDR can take a byte (TXI2 requested).
@@ -230,20 +256,21 @@ impl ErrorType for Serial {
 }
 
 impl Write for Serial {
-    /// Writes the whole buffer, waiting for TXI2 before each byte.
+    /// Writes the whole buffer, waiting for TXI2 before each byte;
+    /// [`Error::Timeout`] if it does not come within four character times.
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         for &b in buf {
-            while !self.tx_ready() {}
+            timeout::wait(self.tx_spins, || self.tx_ready()).map_err(|_| Error::Timeout)?;
             unsafe { write_volatile(IR_TXI2, 0) };
             self.sci.tdr().write(|w| unsafe { w.bits(b) });
         }
         Ok(buf.len())
     }
 
-    /// Waits until the last byte has left the shift register (TEND).
+    /// Waits until the last byte has left the shift register (TEND);
+    /// [`Error::Timeout`] after four character times.
     fn flush(&mut self) -> Result<(), Error> {
-        while self.ssr() & TEND == 0 {}
-        Ok(())
+        timeout::wait(self.tx_spins, || self.ssr() & TEND != 0).map_err(|_| Error::Timeout)
     }
 }
 

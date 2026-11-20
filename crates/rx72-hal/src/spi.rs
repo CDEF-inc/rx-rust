@@ -17,17 +17,41 @@
 //! The driver polls SPSR.SPTEF / SPRF, which the manual allows with
 //! SPCR.SPTIE / SPRIE cleared (45.5.4), and transfers one byte at a time:
 //! it reads each byte before writing the next, so the receive buffer
-//! cannot overrun and there are no errors.
+//! cannot overrun. The waits are bounded: a byte that does not finish
+//! within four byte times gives [`Error::Timeout`].
 
-use core::convert::Infallible;
+use core::fmt;
 use core::ptr::{read_volatile, write_volatile};
 
-use embedded_hal::spi::{ErrorType, Mode, Phase, Polarity, SpiBus};
+use embedded_hal::spi::{ErrorKind, ErrorType, Mode, Phase, Polarity, SpiBus};
 
 use crate::clock::Clocks;
 use crate::gpio::{Function, Pin};
 use crate::mstp::{self, Mstpcr};
 use crate::pac;
+use crate::timeout::{self, OutOfRange};
+
+/// An SPI transfer that did not finish in time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Error {
+    /// SPTEF, SPRF or IDLNF did not change within four byte times.
+    Timeout,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("SPI timeout")
+    }
+}
+
+impl core::error::Error for Error {}
+
+impl embedded_hal::spi::Error for Error {
+    fn kind(&self) -> ErrorKind {
+        ErrorKind::Other
+    }
+}
 
 /// PFS.PSEL of the RSPI functions (RSPCKx, MOSIx, MISOx, SSLxn).
 const PSEL_RSPI: u8 = 0b001101;
@@ -72,6 +96,8 @@ impl BitRate {
 pub struct Spi {
     rspi: pac::Rspi2,
     rate: BitRate,
+    /// The bound of a wait: four byte times (about 11 RSPCK each).
+    spins: u32,
     sck: Pin<0x05, 6, Function>,
     mosi: Pin<0x05, 4, Function>,
     miso: Pin<0x05, 5, Function>,
@@ -81,7 +107,8 @@ impl Spi {
     /// Sets up RSPI2 (taking it out of module stop) as a master on P56 /
     /// P54 / P55 in SPI `mode` at the highest bit rate not above `hz`.
     ///
-    /// Panics if `hz` is below PCLKA / 4096.
+    /// Panics if `hz` is below PCLKA / 4096 (see
+    /// [`try_rspi2`](Self::try_rspi2)).
     pub fn rspi2<CM, OM, IM>(
         rspi: pac::Rspi2,
         sck: Pin<0x05, 6, CM>,
@@ -91,7 +118,22 @@ impl Spi {
         hz: u32,
         clocks: &Clocks,
     ) -> Self {
-        let rate = BitRate::new(clocks.pclka, hz).expect("bit rate out of range");
+        Self::try_rspi2(rspi, sck, mosi, miso, mode, hz, clocks).expect("bit rate out of range")
+    }
+
+    /// [`rspi2`](Self::rspi2), or [`OutOfRange`] (the peripheral and pins
+    /// untouched, and dropped) if `hz` is below PCLKA / 4096.
+    pub fn try_rspi2<CM, OM, IM>(
+        rspi: pac::Rspi2,
+        sck: Pin<0x05, 6, CM>,
+        mosi: Pin<0x05, 4, OM>,
+        miso: Pin<0x05, 5, IM>,
+        mode: Mode,
+        hz: u32,
+        clocks: &Clocks,
+    ) -> Result<Self, OutOfRange> {
+        let rate = BitRate::new(clocks.pclka, hz).ok_or(OutOfRange)?;
+        let spins = timeout::spins(clocks.iclk, 4 * 11_000_000 / rate.hz + 1);
         mstp::start(Mstpcr::C, 22);
         rspi.spcr().write(|w| unsafe { w.bits(0) });
         let sck = sck.into_function(PSEL_RSPI);
@@ -125,7 +167,7 @@ impl Spi {
         // Clock synchronous master, full duplex, then enabled.
         rspi.spcr().write(|w| w.spms().set_bit().mstr().set_bit());
         rspi.spcr().modify(|_, w| w.spe().set_bit());
-        Spi { rspi, rate, sck, mosi, miso }
+        Ok(Spi { rspi, rate, spins, sck, mosi, miso })
     }
 
     /// The bit rate settings in use.
@@ -133,13 +175,14 @@ impl Spi {
         self.rate
     }
 
-    /// Waits for the last transfer, disables the RSPI and gives it and its
-    /// pins back (still in the RSPI function, for `rspi2` again).
+    /// Waits for the last transfer (at most four byte times), disables the
+    /// RSPI and gives it and its pins back (still in the RSPI function, for
+    /// `rspi2` again).
     #[allow(clippy::type_complexity)]
     pub fn free(
         self,
     ) -> (pac::Rspi2, Pin<0x05, 6, Function>, Pin<0x05, 4, Function>, Pin<0x05, 5, Function>) {
-        self.flush_idle();
+        let _ = self.flush_idle();
         self.rspi.spcr().write(|w| unsafe { w.bits(0) });
         (self.rspi, self.sck, self.mosi, self.miso)
     }
@@ -148,9 +191,10 @@ impl Spi {
     /// (SPPCR.SPLP2 = 1, `inverted` = false) or through an inverter
     /// (SPLP = 1), or back to MISO (`None`). A self-test of the RSPI
     /// without wiring; RSPCK and MOSI still go out on their pins. The RSPI
-    /// is disabled while SPPCR changes.
-    pub fn set_loopback(&mut self, loopback: Option<bool>) {
-        self.flush_idle();
+    /// is disabled while SPPCR changes, after the last transfer
+    /// ([`Error::Timeout`] if that does not end).
+    pub fn set_loopback(&mut self, loopback: Option<bool>) -> Result<(), Error> {
+        self.flush_idle()?;
         self.rspi.spcr().modify(|_, w| w.spe().clear_bit());
         self.rspi.sppcr().write(|w| match loopback {
             None => w,
@@ -158,39 +202,42 @@ impl Spi {
             Some(true) => w.splp().set_bit(),
         });
         self.rspi.spcr().modify(|_, w| w.spe().set_bit());
+        Ok(())
     }
 
     /// Sends `b` and returns the byte received at the same time.
-    fn transfer_byte(&mut self, b: u8) -> u8 {
-        while self.rspi.spsr().read().sptef().bit_is_clear() {}
+    fn transfer_byte(&mut self, b: u8) -> Result<u8, Error> {
+        let spsr = || self.rspi.spsr().read();
+        timeout::wait(self.spins, || spsr().sptef().bit_is_set()).map_err(|_| Error::Timeout)?;
         unsafe { write_volatile(SPDR_RSPI2, b) };
-        while self.rspi.spsr().read().sprf().bit_is_clear() {}
-        unsafe { read_volatile(SPDR_RSPI2) }
+        timeout::wait(self.spins, || spsr().sprf().bit_is_set()).map_err(|_| Error::Timeout)?;
+        Ok(unsafe { read_volatile(SPDR_RSPI2) })
     }
 
     /// Waits until the RSPI is idle (SPSR.IDLNF = 0): the transmit buffer
     /// empty and the last frame and its delays over.
-    fn flush_idle(&self) {
-        while self.rspi.spsr().read().idlnf().bit_is_set() {}
+    fn flush_idle(&self) -> Result<(), Error> {
+        timeout::wait(self.spins, || self.rspi.spsr().read().idlnf().bit_is_clear())
+            .map_err(|_| Error::Timeout)
     }
 }
 
 impl ErrorType for Spi {
-    type Error = Infallible;
+    type Error = Error;
 }
 
 impl SpiBus<u8> for Spi {
     /// Reads `words`, sending FFh for each.
-    fn read(&mut self, words: &mut [u8]) -> Result<(), Infallible> {
+    fn read(&mut self, words: &mut [u8]) -> Result<(), Error> {
         for w in words {
-            *w = self.transfer_byte(READ_FILL);
+            *w = self.transfer_byte(READ_FILL)?;
         }
         Ok(())
     }
 
-    fn write(&mut self, words: &[u8]) -> Result<(), Infallible> {
+    fn write(&mut self, words: &[u8]) -> Result<(), Error> {
         for &w in words {
-            self.transfer_byte(w);
+            self.transfer_byte(w)?;
         }
         Ok(())
     }
@@ -198,9 +245,9 @@ impl SpiBus<u8> for Spi {
     /// Sends `write` and fills `read`; the longer one sets the length, with
     /// FFh sent past the end of `write` and the bytes past the end of
     /// `read` dropped.
-    fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Infallible> {
+    fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
         for i in 0..read.len().max(write.len()) {
-            let r = self.transfer_byte(write.get(i).copied().unwrap_or(READ_FILL));
+            let r = self.transfer_byte(write.get(i).copied().unwrap_or(READ_FILL))?;
             if let Some(slot) = read.get_mut(i) {
                 *slot = r;
             }
@@ -208,15 +255,14 @@ impl SpiBus<u8> for Spi {
         Ok(())
     }
 
-    fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Infallible> {
+    fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Error> {
         for w in words {
-            *w = self.transfer_byte(*w);
+            *w = self.transfer_byte(*w)?;
         }
         Ok(())
     }
 
-    fn flush(&mut self) -> Result<(), Infallible> {
-        self.flush_idle();
-        Ok(())
+    fn flush(&mut self) -> Result<(), Error> {
+        self.flush_idle()
     }
 }

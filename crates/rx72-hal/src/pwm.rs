@@ -27,6 +27,7 @@ use crate::clock::Clocks;
 use crate::gpio::{Function, Pin};
 use crate::mstp::{self, Mstpcr};
 use crate::pac;
+use crate::timeout::OutOfRange;
 
 const TCR: *mut u8 = 0x000c_1a00 as _;
 const TMDR1: *mut u8 = 0x000c_1a02 as _;
@@ -106,10 +107,24 @@ impl Pwm {
     /// PWM mode 1 at the frequency nearest `hz` and starts it with duty 0
     /// (low), then switches PJ1 to MTIOC6A.
     ///
-    /// Panics if `hz` is out of range (see [`Timing::new`]).
+    /// Panics if `hz` is out of range (see [`Timing::new`] and
+    /// [`try_mtu6`](Self::try_mtu6)).
     pub fn mtu6<M>(mtu: pac::Mtu6, pin: Pin<0x12, 1, M>, hz: u32, clocks: &Clocks) -> Self {
-        let timing = Timing::new(clocks.pclka, hz).expect("PWM frequency out of range");
-        let &(_, tpsc, tpsc2) = PRESCALERS.iter().find(|p| p.0 == timing.div).unwrap();
+        Self::try_mtu6(mtu, pin, hz, clocks).expect("PWM frequency out of range")
+    }
+
+    /// [`mtu6`](Self::mtu6), or [`OutOfRange`] (the peripheral and pin
+    /// untouched, and dropped) if `hz` is out of range.
+    pub fn try_mtu6<M>(
+        mtu: pac::Mtu6,
+        pin: Pin<0x12, 1, M>,
+        hz: u32,
+        clocks: &Clocks,
+    ) -> Result<Self, OutOfRange> {
+        let timing = Timing::new(clocks.pclka, hz).ok_or(OutOfRange)?;
+        // Timing::new picks its divider from PRESCALERS.
+        let &(_, tpsc, tpsc2) =
+            PRESCALERS.iter().find(|p| p.0 == timing.div).ok_or(OutOfRange)?;
         mstp::start(Mstpcr::A, 9);
         set_running(false);
         unsafe {
@@ -126,7 +141,7 @@ impl Pwm {
         }
         set_running(true);
         let pin = pin.into_function(PSEL_MTIOC6A);
-        Pwm { mtu, timing, pin }
+        Ok(Pwm { mtu, timing, pin })
     }
 
     /// The prescaler, the period and the frequency in use.

@@ -25,6 +25,10 @@
 //!
 //! The two units have the same register layout at 0x89000 and 0x89100,
 //! which the driver addresses directly.
+//!
+//! A conversion that does not end within 1 ms gives [`Error::Timeout`]
+//! (the scan is stopped); a 5 us sampling time ADCLK cannot give,
+//! [`Error::SamplingTime`].
 
 use core::marker::PhantomData;
 use core::ptr::{read_volatile, write_volatile};
@@ -33,6 +37,7 @@ use crate::clock::Clocks;
 use crate::gpio::{Analog, Pin};
 use crate::mstp::{self, Mstpcr};
 use crate::pac;
+use crate::timeout::{self, OutOfRange};
 
 // Register offsets from the unit's base.
 const ADCSR: usize = 0x00;
@@ -178,11 +183,41 @@ fn spin_us(iclk: u32, us: u32) {
     }
 }
 
+/// A conversion that did not end, or a sampling time ADCLK cannot give.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Error {
+    /// ADST did not clear within 1 ms; the scan was stopped.
+    Timeout,
+    /// ADCLK is above 51 MHz: the 8-bit sampling state register cannot
+    /// give the 5 us the temperature sensor and the internal reference
+    /// voltage need.
+    SamplingTime,
+}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Error::Timeout => "A/D conversion timeout",
+            Error::SamplingTime => "ADCLK too fast for a 5 us sampling time",
+        })
+    }
+}
+
+impl core::error::Error for Error {}
+
 impl Adc<Unit0> {
     /// Sets up unit 0 (taking it out of module stop, MSTPCRA.MSTPA17).
     ///
-    /// Panics if PCLKB : PCLKC is not 1, 2, 4 or 8.
+    /// Panics if PCLKB : PCLKC is not 1, 2, 4 or 8 (see
+    /// [`try_s12ad`](Self::try_s12ad)).
     pub fn s12ad(adc: pac::S12ad, clocks: &Clocks) -> Self {
+        Self::try_s12ad(adc, clocks).expect("PCLKB : PCLKC not 1, 2, 4 or 8")
+    }
+
+    /// [`s12ad`](Self::s12ad), or [`OutOfRange`] if PCLKB : PCLKC is not
+    /// 1, 2, 4 or 8.
+    pub fn try_s12ad(adc: pac::S12ad, clocks: &Clocks) -> Result<Self, OutOfRange> {
         Self::init(adc, 17, clocks.pclkc, clocks)
     }
 }
@@ -192,9 +227,16 @@ impl Adc<Unit1> {
     /// the medium speed conversion time (ADSAM.SAM = 1, as the manual asks
     /// for this unit).
     ///
-    /// Panics if PCLKB : PCLKD is not 1, 2, 4 or 8.
+    /// Panics if PCLKB : PCLKD is not 1, 2, 4 or 8 (see
+    /// [`try_s12ad1`](Self::try_s12ad1)).
     pub fn s12ad1(adc: pac::S12ad1, clocks: &Clocks) -> Self {
-        let adc = Self::init(adc, 16, clocks.pclkd, clocks);
+        Self::try_s12ad1(adc, clocks).expect("PCLKB : PCLKD not 1, 2, 4 or 8")
+    }
+
+    /// [`s12ad1`](Self::s12ad1), or [`OutOfRange`] if PCLKB : PCLKD is not
+    /// 1, 2, 4 or 8.
+    pub fn try_s12ad1(adc: pac::S12ad1, clocks: &Clocks) -> Result<Self, OutOfRange> {
+        let adc = Self::init(adc, 16, clocks.pclkd, clocks)?;
         // ADSAM is protected by ADSAMPR and written with interrupts
         // disabled (critical-section clears PSW.I).
         critical_section::with(|_| unsafe {
@@ -202,36 +244,36 @@ impl Adc<Unit1> {
             wr16(Unit1::BASE + ADSAM, 1 << 5);
             write_volatile((Unit1::BASE + ADSAMPR) as *mut u8, 0b10);
         });
-        adc
+        Ok(adc)
     }
 
     /// Converts the internal reference voltage (ADEXICR.OCSA, ADOCDR),
-    /// 1.13-1.23 V. Its sampling time (ADSSTRO) is set to 5 us.
-    ///
-    /// Panics if ADCLK (PCLKD) is above 51 MHz.
-    pub fn read_internal_reference(&mut self) -> u16 {
-        unsafe { write_volatile((Unit1::BASE + ADSSTRO) as *mut u8, self.states_5us()) };
+    /// 1.13-1.23 V. Its sampling time (ADSSTRO) is set to 5 us
+    /// ([`Error::SamplingTime`] if ADCLK, PCLKD, is above 51 MHz).
+    pub fn read_internal_reference(&mut self) -> Result<u16, Error> {
+        unsafe { write_volatile((Unit1::BASE + ADSSTRO) as *mut u8, self.states_5us()?) };
         wr16(Unit1::BASE + ADEXICR, OCSA);
         // 400 ns after OCSA before the conversion starts.
         spin_us(self.iclk, 1);
-        self.scan();
+        let r = self.scan();
         let v = rd16(Unit1::BASE + ADOCDR);
         wr16(Unit1::BASE + ADEXICR, 0);
-        v
+        r.map(|()| v)
     }
 
     /// ADCLK states for a 5 us sampling time, for the temperature sensor
     /// and the internal reference voltage.
-    fn states_5us(&self) -> u8 {
+    fn states_5us(&self) -> Result<u8, Error> {
         let states = (self.adclk as u64 * 5).div_ceil(1_000_000);
-        assert!(states <= 255, "ADCLK too fast for a 5 us sampling time");
-        states as u8
+        u8::try_from(states).map_err(|_| Error::SamplingTime)
     }
 }
 
 impl<U: Unit> Adc<U> {
-    fn init(adc: U::Periph, mstpa: u32, adclk: u32, clocks: &Clocks) -> Self {
-        assert!(matches!(clocks.pclkb / adclk, 1 | 2 | 4 | 8) && clocks.pclkb % adclk == 0);
+    fn init(adc: U::Periph, mstpa: u32, adclk: u32, clocks: &Clocks) -> Result<Self, OutOfRange> {
+        if !(matches!(clocks.pclkb / adclk, 1 | 2 | 4 | 8) && clocks.pclkb % adclk == 0) {
+            return Err(OutOfRange);
+        }
         mstp::start(Mstpcr::A, mstpa);
         // 1 us after leaving module stop before converting.
         spin_us(clocks.iclk, 1);
@@ -245,8 +287,9 @@ impl<U: Unit> Adc<U> {
             wr16(U::BASE + ADEXICR, 0);
         }
         let mut adc = Adc { _adc: adc, adclk, iclk: clocks.iclk, _unit: PhantomData };
-        adc.set_sampling_states(adc.rated_sampling_states());
-        adc
+        // At least 5 by construction.
+        let _ = adc.set_sampling_states(adc.rated_sampling_states());
+        Ok(adc)
     }
 
     /// The sampling states of the electrical characteristics, scaled to
@@ -261,15 +304,19 @@ impl<U: Unit> Adc<U> {
     /// AN116-AN120 of unit 1). The temperature sensor and the internal
     /// reference voltage keep their own (5 us).
     ///
-    /// Panics if `states` is below 5 (manual 58.2.18).
-    pub fn set_sampling_states(&mut self, states: u8) {
-        assert!(states >= 5);
+    /// [`OutOfRange`] (nothing changed) if `states` is below 5 (manual
+    /// 58.2.18).
+    pub fn set_sampling_states(&mut self, states: u8) -> Result<(), OutOfRange> {
+        if states < 5 {
+            return Err(OutOfRange);
+        }
         for n in 0..U::SSTR_COUNT {
             unsafe { write_volatile((U::BASE + ADSSTR0 + n) as *mut u8, states) };
         }
         if U::BASE == Unit1::BASE {
             unsafe { write_volatile((U::BASE + ADSSTRL) as *mut u8, states) };
         }
+        Ok(())
     }
 
     /// The unit's A/D conversion clock in Hz.
@@ -277,28 +324,36 @@ impl<U: Unit> Adc<U> {
         self.adclk
     }
 
-    /// Starts a single scan and waits for its end (ADST cleared).
-    fn scan(&mut self) {
+    /// Starts a single scan and waits for its end (ADST cleared), at most
+    /// 1 ms; then stops it (ADST written 0) and gives [`Error::Timeout`].
+    fn scan(&mut self) -> Result<(), Error> {
         wr16(U::BASE + ADCSR, ADST);
-        while rd16(U::BASE + ADCSR) & ADST != 0 {}
+        let r = timeout::wait(timeout::spins(self.iclk, 1000), || {
+            rd16(U::BASE + ADCSR) & ADST == 0
+        });
+        if r.is_err() {
+            wr16(U::BASE + ADCSR, 0);
+        }
+        r.map_err(|_| Error::Timeout)
     }
 
     /// Converts the input of `pin` and returns the 12-bit result.
-    pub fn read<PIN: Channel<U>>(&mut self, _pin: &PIN) -> u16 {
+    pub fn read<PIN: Channel<U>>(&mut self, _pin: &PIN) -> Result<u16, Error> {
         let ch = PIN::CHANNEL as usize;
         let (ansa, bit) = if ch < 16 { (ADANSA0, ch) } else { (ADANSA1, ch - 16) };
         wr16(U::BASE + ansa, 1 << bit);
-        self.scan();
+        let r = self.scan();
         wr16(U::BASE + ansa, 0);
-        rd16(U::BASE + ADDR0 + 2 * ch)
+        r.map(|()| rd16(U::BASE + ADDR0 + 2 * ch))
     }
 
     /// Converts the internal voltage `v` (ADCER.DIAGM with DIAGLD, the
     /// fixed voltage mode; no channel selected) and returns ADRD.
-    pub fn self_diagnosis(&mut self, v: DiagVoltage) -> Diagnosis {
+    pub fn self_diagnosis(&mut self, v: DiagVoltage) -> Result<Diagnosis, Error> {
         wr16(U::BASE + ADCER, DIAGM | DIAGLD | (v as u16) << 8);
-        self.scan();
+        let scanned = self.scan();
         wr16(U::BASE + ADCER, 0);
+        scanned?;
         let r = rd16(U::BASE + ADRD);
         let voltage = match r >> 14 {
             0b01 => Some(DiagVoltage::Zero),
@@ -306,7 +361,7 @@ impl<U: Unit> Adc<U> {
             0b11 => Some(DiagVoltage::Full),
             _ => None,
         };
-        Diagnosis { voltage, value: r & 0x0fff }
+        Ok(Diagnosis { voltage, value: r & 0x0fff })
     }
 }
 
@@ -333,11 +388,10 @@ impl TemperatureSensor {
 
     /// Converts the sensor output (manual figure 60.3): TSEN, 30 us, TSOE,
     /// a single scan of ADEXICR.TSSA with a 5 us sampling time (ADSSTRT),
-    /// then the sensor off again. Returns ADTSDR.
-    ///
-    /// Panics if unit 1's ADCLK (PCLKD) is above 51 MHz.
-    pub fn read_raw(&mut self, adc: &mut Adc<Unit1>) -> u16 {
-        let states = adc.states_5us();
+    /// then the sensor off again. Returns ADTSDR; [`Error::SamplingTime`]
+    /// if unit 1's ADCLK (PCLKD) is above 51 MHz.
+    pub fn read_raw(&mut self, adc: &mut Adc<Unit1>) -> Result<u16, Error> {
+        let states = adc.states_5us()?;
         unsafe {
             write_volatile((Unit1::BASE + ADSSTRT) as *mut u8, states);
             write_volatile(TSCR, TSEN);
@@ -345,14 +399,14 @@ impl TemperatureSensor {
         spin_us(adc.iclk, 30);
         unsafe { write_volatile(TSCR, TSEN | TSOE) };
         wr16(Unit1::BASE + ADEXICR, TSSA);
-        adc.scan();
+        let r = adc.scan();
         let v = rd16(Unit1::BASE + ADTSDR);
         wr16(Unit1::BASE + ADEXICR, 0);
         unsafe {
             write_volatile(TSCR, TSEN);
             write_volatile(TSCR, 0);
         }
-        v
+        r.map(|()| v)
     }
 
     /// The die temperature in millidegrees Celsius from one conversion,
@@ -360,8 +414,8 @@ impl TemperatureSensor {
     /// T = 125 + (raw - TSCDR) x 3.3 V / 4096 / 4 mV. It assumes AVCC1 =
     /// 3.3 V, the calibration's condition; a single-point calibration is
     /// within about ±7 °C (manual figure 60.2).
-    pub fn read_millicelsius(&mut self, adc: &mut Adc<Unit1>) -> i32 {
-        let raw = self.read_raw(adc) as i32;
-        125_000 + (raw - self.calibration() as i32) * 3_300_000 / (4096 * 4)
+    pub fn read_millicelsius(&mut self, adc: &mut Adc<Unit1>) -> Result<i32, Error> {
+        let raw = self.read_raw(adc)? as i32;
+        Ok(125_000 + (raw - self.calibration() as i32) * 3_300_000 / (4096 * 4))
     }
 }

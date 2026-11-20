@@ -22,6 +22,12 @@
 //! - `time` (feature `embassy-time-driver`): an embassy-time driver on
 //!   CMTW0 / CMTW1.
 //!
+//! Waits for the hardware are bounded: a clock that does not start or a
+//! peripheral that does not finish gives [`Timeout`] instead of hanging.
+//! The constructors that check their settings have `try_*` versions that
+//! return [`OutOfRange`]; the others panic on such settings (they are
+//! `try_*(..).expect(..)`).
+//!
 //! Register access goes through [`pac`] (rx72-pac, generated from e2
 //! studio's RX72M.sfrx / RX72N.sfrx) where its types fit, and directly by address for
 //! the uniform port registers, the A/D converter units and MTU6.
@@ -48,3 +54,6 @@ pub mod serial;
 pub mod spi;
 #[cfg(feature = "embassy-time-driver")]
 pub mod time;
+mod timeout;
+
+pub use timeout::{OutOfRange, Timeout};

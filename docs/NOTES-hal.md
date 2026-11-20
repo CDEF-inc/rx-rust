@@ -587,6 +587,36 @@ feature `async` で `Serial::into_async(priority)` が `serial::AsyncSerial`（e
 - E2 Lite が `Failed to initialise the emulator` で接続できなくなったことがある（EK-RX74M の例のあと）。USB の
   1 回目の挿し直しとボードの電源の確認では戻らず、もう一度 E2 Lite の USB を挿し直すと戻った。
 
+## タイムアウトと panic（2026-11-20、#189、rx72-hal）
+
+ハードウェアの異常（発振しない水晶、止まった周辺）で黙って止まらないように、待ちに上限を付け、設定の誤りを
+`Result` で返せるようにした。
+
+- 上限: `timeout::wait(spins, f)` が `f` を最大 `spins` 回呼ぶ。`spins(iclk, us)` は 1 回が 1 ICLK 以上かかる
+  前提で、`us` マイクロ秒より短くならない回数（実際には数倍長い）。エラーは crate の `Timeout`。
+- クロック: `Config::try_configure` が `ClockError`（`OutOfRange` は何も変えない、`MainOscillator` /
+  `Pll` は 100 ms 待っても MOOVF / PLOVF が立たない。システムクロックは元のまま）。待ちの上限は、そのときの
+  システムクロックの最大（SCKCR3 の源と SCKCR の分周: LOCO 264 kHz、HOCO 20 MHz、メイン 24 MHz、PLL 240 MHz）
+  から計算する。`configure` は `try_configure(..).expect(..)`。
+- UART: 送信（TXI2）と `flush`（TEND）の待ちは 4 文字時間まで、超えると `serial::Error::Timeout`
+  （`ErrorKind::TimedOut`）。受信の `read` はデータが来るまで待つのが仕様なので上限はない（`ReadReady` か
+  `AsyncSerial` を使う）。
+- SPI: エラー型が `Infallible` から `spi::Error::Timeout` に（SPTEF / SPRF / IDLNF の待ちは 4 バイト時間まで）。
+  `set_loopback` も `Result`。
+- ADC: 変換（ADST）の待ちは 1 ms まで、超えたらスキャンを止めて `adc::Error::Timeout`。`read`、
+  `self_diagnosis`、`read_internal_reference`、`TemperatureSensor::read_raw` / `read_millicelsius` は
+  `Result`。5 µs のサンプリングが取れない ADCLK は panic ではなく `adc::Error::SamplingTime`。
+  `set_sampling_states` は 5 未満で `OutOfRange`（何も変えない）。
+- コンストラクタ: `Serial::try_sci2`、`Spi::try_rspi2`、`I2c::try_riic0`、`SciI2c::try_sci6`、
+  `Pwm::try_mtu6`、`Adc::try_s12ad` / `try_s12ad1` が `OutOfRange` を返す。元の関数は `try_*(..).expect(..)`。
+  エラーのときは渡した周辺と端子は触らずに捨てる。
+- そのままのもの: I2C の転送は RIIC のタイムアウト検出（TMOF）と BBSY の回数制限で、もともと止まらない。
+  `gpio::Pin::into_function` の PSEL の範囲（64 未満）はプログラムの誤りなので `assert` のまま。
+- エラー型（`serial::Error`、`spi::Error`、`adc::Error`、`ClockError`）は `#[non_exhaustive]`。
+- 試験: hw-hal に範囲外のクロック設定がエラーで何も変えないこと（18、19）、hw-adc に 5 未満のサンプリング
+  ステート数がエラーで設定が残ること（30、31）を足した。AP-RX72M-0A で rt の 40 本がすべて通る（2026-11-20）。
+  タイムアウトそのもの（水晶を外す、周辺を止める）はボードでは起こしていない。
+
 ## 予定
 
 1. ~~クロック設定~~、~~GPIO~~、~~MPC~~、~~遅延~~、~~UART（送信）~~（2026-10-28）、~~UART（受信）~~（2026-11-04、デバッガをつないだ状態。上記）

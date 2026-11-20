@@ -9,7 +9,7 @@
 use core::ptr::write_volatile;
 
 use embedded_hal::digital::{InputPin, OutputPin, StatefulOutputPin};
-use hw_board::hal::clock::Config;
+use hw_board::hal::clock::{ClockError, Config};
 use hw_board::hal::gpio::Parts;
 use hw_board::hal::pac::Peripherals;
 use hw_board::check;
@@ -34,6 +34,12 @@ fn main() -> ! {
     check(7, p.system.mofcr().read().modrv2().bits() == 0);
     let sckcr = p.system.sckcr().read();
     check(8, sckcr.ick().bits() == 0 && sckcr.pckb().bits() == 2 && sckcr.pcka().bits() == 1);
+    // A setting out of range (PLL x30.5 = 732 MHz): an error, nothing
+    // changed (still the PLL at x10).
+    let bad = Config { pll_mul_x2: 61, ..Config::pll_240mhz_from_24mhz() };
+    check(18, bad.try_configure(&p.system) == Err(ClockError::OutOfRange));
+    check(19, p.system.pllcr().read().stc().bits() == 19
+        && p.system.sckcr3().read().cksel().bits() == 0b100);
 
     // --- GPIO
     let pins = Parts::take().unwrap();

@@ -26,6 +26,7 @@ use crate::gpio::{Function, Pin};
 use crate::i2c::{bytes_to_read, read_len, runs};
 use crate::mstp::{self, Mstpcr};
 use crate::pac;
+use crate::timeout::OutOfRange;
 
 /// PFS.PSEL of SSDA6 / SSCL6 (the SCI function, as TXD6 / RXD6).
 const PSEL_SCI: u8 = 0b01010;
@@ -122,13 +123,27 @@ impl SciI2c {
     /// Sets up SCI6 (taking it out of module stop) as a simple I2C master
     /// at 100 kHz or just under (98.7 kHz at PCLKB 60 MHz) on P00 = SSDA6 /
     /// P01 = SSCL6, N-channel open drain (manual 42.7.4).
+    ///
+    /// Panics if PCLKB cannot give 100 kHz (see
+    /// [`try_sci6`](Self::try_sci6)).
     pub fn sci6<DM, CM>(
         sci: pac::Sci6,
         sda: Pin<0x00, 0, DM>,
         scl: Pin<0x00, 1, CM>,
         clocks: &Clocks,
     ) -> Self {
-        let rate = Rate::new(clocks.pclkb, 100_000).expect("PCLKB out of range");
+        Self::try_sci6(sci, sda, scl, clocks).expect("PCLKB out of range")
+    }
+
+    /// [`sci6`](Self::sci6), or [`OutOfRange`] (the peripheral and pins
+    /// untouched, and dropped) if PCLKB cannot give 100 kHz.
+    pub fn try_sci6<DM, CM>(
+        sci: pac::Sci6,
+        sda: Pin<0x00, 0, DM>,
+        scl: Pin<0x00, 1, CM>,
+        clocks: &Clocks,
+    ) -> Result<Self, OutOfRange> {
+        let rate = Rate::new(clocks.pclkb, 100_000).ok_or(OutOfRange)?;
         mstp::start(Mstpcr::B, 25);
         sci.scr().write(|w| unsafe { w.bits(0) });
         let sda = sda.into_open_drain_function(PSEL_SCI);
@@ -143,7 +158,7 @@ impl SciI2c {
         sci.simr2().write(|w| unsafe { w.bits(simr2(true)) });
         sci.spmr().write(|w| unsafe { w.bits(0) });
         sci.scr().write(|w| unsafe { w.bits(SCR_ON) });
-        SciI2c { sci, rate, polls: clocks.iclk / 1000, sda, scl }
+        Ok(SciI2c { sci, rate, polls: clocks.iclk / 1000, sda, scl })
     }
 
     /// The bit rate setting in use.
