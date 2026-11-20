@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 rx-rt = { path = "../../../crates/rx-rt", features = ["critical-section"] }
 hw-board = { path = "../hw-board" }
-embedded-hal = { git = "https://github.com/CDEF-inc/embedded-hal", rev = "41f29f6bfced1cae0cbe712ba96ee32c075b3125" }
+embedded-hal = "1.0"
 
 [features]
 # The board: exactly one of these (hw-board).
