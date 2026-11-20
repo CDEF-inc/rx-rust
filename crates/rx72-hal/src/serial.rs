@@ -256,11 +256,16 @@ impl ErrorType for Serial {
 }
 
 impl Write for Serial {
-    /// Writes the whole buffer, waiting for TXI2 before each byte;
-    /// [`Error::Timeout`] if it does not come within four character times.
+    /// Writes the whole buffer, waiting for TXI2 before each byte. If one
+    /// does not come within four character times: [`Error::Timeout`] if no
+    /// byte was written yet, else the number written.
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        for &b in buf {
-            timeout::wait(self.tx_spins, || self.tx_ready()).map_err(|_| Error::Timeout)?;
+        for (n, &b) in buf.iter().enumerate() {
+            if timeout::wait(self.tx_spins, || self.tx_ready()).is_err() {
+                // embedded-io: an error means nothing was written, so a
+                // timeout after some bytes returns how many went out.
+                return if n == 0 { Err(Error::Timeout) } else { Ok(n) };
+            }
             unsafe { write_volatile(IR_TXI2, 0) };
             self.sci.tdr().write(|w| unsafe { w.bits(b) });
         }

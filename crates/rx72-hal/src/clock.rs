@@ -95,11 +95,16 @@ impl Config {
 
     /// Whether the settings are within the chip's limits.
     fn valid(&self) -> bool {
-        let c = self.clocks();
-        (8_000_000..=24_000_000).contains(&self.main_hz)
+        // The raw fields first: clocks() divides by pll_input_div, and
+        // these ranges keep its arithmetic within u32.
+        if !((8_000_000..=24_000_000).contains(&self.main_hz)
             && (1..=3).contains(&self.pll_input_div)
-            && (20..=60).contains(&self.pll_mul_x2)
-            && (120_000_000..=240_000_000).contains(&c.pll)
+            && (20..=60).contains(&self.pll_mul_x2))
+        {
+            return false;
+        }
+        let c = self.clocks();
+        (120_000_000..=240_000_000).contains(&c.pll)
             && c.iclk <= 240_000_000
             && c.pclka <= 120_000_000
             && c.bclk <= 120_000_000
