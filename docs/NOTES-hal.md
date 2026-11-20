@@ -655,7 +655,20 @@ feature `async` で `Serial::into_async(priority)` が `serial::AsyncSerial`（e
   AP-RX72M-0A と EK-RX74M で release / dev とも通る（2026-11-20）。RX74M の IWDT は、起動のリフレッシュのあと
   IWDT のクロックで数サイクルのあいだカウンタが 0 と読め、それから 7Fh（128 カウント）から数える（試験は 0 でなく
   なるのを待って読む）。
-- まだのもの: オプション設定メモリ（OFS0 / OFS1 / MDE / ID コード。IWDT のオートスタートなど）、LVD。
+- `ofs`（RX72M のみ）: オプション設定メモリ（FE7F 5D00h〜: MDE、OFS0、OFS1）。`Ofs0`（`iwdt_auto_start` /
+  `iwdt_stop_in_sleep` / `wdt_auto_start`）、`Ofs1`（`lvd0_reset` / `hoco_at_reset`）を const で組み、
+  `option_setting!(ofs0:, ofs1:)` が `.rx_option_setting` セクションに置く（memory.x に OFSM 領域が要る。
+  test/hw/rx72m-memory.x）。プログラムと一緒にデバッガが書き、次に書くまで残る。オートスタートしたタイマは
+  `Iwdt::running` / `Wdt::running` で受け取って `feed` する（`start` は `Locked`）。
+  - 書かないもの: MDE は FFFF FFFFh 固定（リトルエンディアン、リニアモード）。ID コード（OSIS）、FAW、ROMCODE、SPCC、
+    TMEF、BANKSEL には触れない（値を誤るとデバッガやフラッシュから締め出される）。RX74N / RX74M のオプション設定
+    メモリ（OTP / セキュリティ領域）も扱わない。
+  - hw-board: `own-option-setting` のない AP-RX72M-0A の試験は、消去値（全ビット 1）を置く。オプションを変えた試験の
+    あとに走る試験が、それを引き継がないように。
+  - test/rust/hw-ofs（AP-RX72M-0A のみ）: OFS0 で IWDT をオートスタート（256 分周、16384 カウント、約 35 秒）。
+    読み返し（1〜4）、起動しなくてもカウンタが減る（5）、`start` が `Locked`（6）、`feed` で戻る（7）。release / dev
+    とも通る（2026-11-20）。書き込む前のボードのオプション設定メモリは全部 FFh、hw-pac のあとも FFh に戻る。
+- まだのもの: LVD（電圧監視。OFS1 の `lvd0_reset` はリセットの設定だけ）。
 
 ## 予定
 

@@ -258,6 +258,13 @@ macro_rules! watchdog {
                 Ok($name { _p: p, regs })
             }
 
+            /// The timer as it runs, to feed it: nothing is written. For a
+            /// timer that OFS0's auto-start mode started at the reset (or
+            /// that `start` started before).
+            pub fn running(p: $periph) -> Self {
+                $name { _p: p, regs: Regs { base: $base } }
+            }
+
             /// Starts the count over (refresh register: 00h, then FFh). A
             /// feed outside the window is a refresh error.
             pub fn feed(&mut self) {

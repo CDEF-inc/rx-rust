@@ -7,4 +7,15 @@ MEMORY
 {
   RAM (rwx) : ORIGIN = 0x00004000, LENGTH = 0x7B000
   ROM (rx)  : ORIGIN = 0xFFC00000, LENGTH = 4M
+  /* The option-setting memory's MDE, OFS0 and OFS1 only (rx72-hal's
+     option_setting!; not the ID code, FAW or ROMCODE after them). */
+  OFSM (r)  : ORIGIN = 0xFE7F5D00, LENGTH = 12
+}
+
+SECTIONS
+{
+  .rx_option_setting :
+  {
+    KEEP(*(.rx_option_setting))
+  } > OFSM
 }
