@@ -126,6 +126,13 @@ impl Interrupt {
         unsafe { write_volatile(self.ipr(), priority.0) }
     }
 
+    /// Sets the priority to 0: the CPU never accepts the request. A source
+    /// that only activates the DMAC ([`crate::dma`]) can stay there: the
+    /// request reaches the DMAC whatever its priority.
+    pub fn clear_priority(self) {
+        unsafe { write_volatile(self.ipr(), 0) }
+    }
+
     /// The priority, or `None` while it is 0 (never accepted).
     pub fn priority(self) -> Option<Priority> {
         Priority::new(unsafe { read_volatile(self.ipr()) } & 0x0f)

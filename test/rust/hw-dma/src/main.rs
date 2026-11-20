@@ -6,7 +6,7 @@
 //! - a fill (fixed source) and a reversed copy (decrementing source);
 //! - a transfer paced by CMT0's compare match (CMI0, vector 28) at 1 kHz:
 //!   one unit per request, none of the requests reaching the CPU while the
-//!   channel is enabled;
+//!   channel is enabled, also with CMI0's priority 0;
 //! - with the feature `async`: `copy_async` on channel 3 (DMAC3I, vector
 //!   123) and channel 5 (DMAC74I, vector 124), and `done` on CMI0-paced
 //!   transfers on channels 3 and 4 (which end in the interrupt), with
@@ -76,12 +76,20 @@ fn setup(p: Peripherals) -> Board {
 /// CMT0 at 1 kHz with its compare match interrupt request (CMIE), and CMI0
 /// enabled in the ICU, so that its requests reach the DMAC.
 fn cmt0_start(cmt: &pac::Cmt, cmt0: &pac::Cmt0) {
+    cmt0_start_at(cmt, cmt0, Some(Priority::P1));
+}
+
+/// [`cmt0_start`] with CMI0 at `priority` (`None`: 0, never to the CPU).
+fn cmt0_start_at(cmt: &pac::Cmt, cmt0: &pac::Cmt0, priority: Option<Priority>) {
     cmt.cmstr0().modify(|_, w| w.str0().clear_bit());
     cmt0.cmcnt().write(|w| unsafe { w.bits(0) });
     cmt0.cmcor().write(|w| unsafe { w.bits(CMCOR_1KHZ) });
     cmt0.cmcr().write(|w| unsafe { w.cks().bits(3) }.cmie().set_bit());
     Interrupt::CMI0.clear_pending();
-    Interrupt::CMI0.set_priority(Priority::P1);
+    match priority {
+        Some(p) => Interrupt::CMI0.set_priority(p),
+        None => Interrupt::CMI0.clear_priority(),
+    }
     Interrupt::CMI0.enable();
     cmt.cmstr0().modify(|_, w| w.str0().set_bit());
 }
@@ -194,6 +202,14 @@ fn blocking(b: &mut Board) {
     cmt0_stop(&b.cmt);
     check(11, done && d32[..10] == s32[..10] && d32[10] == 0);
     check(12, cpu == 0);
+
+    // The same with CMI0 at priority 0: the requests still reach the DMAC.
+    d32.fill(0);
+    unsafe { b.dma.ch2.start(&t) };
+    cmt0_start_at(&b.cmt, &b.cmt0, None);
+    let done = wait_for(&mut b.delay, 30, || b.dma.ch2.is_done());
+    cmt0_stop(&b.cmt);
+    check(19, done && d32[..10] == s32[..10]);
 }
 
 /// A CMI0-paced transfer of 20 units on `ch`, awaited: whether it moved
