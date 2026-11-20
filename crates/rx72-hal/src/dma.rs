@@ -7,8 +7,9 @@
 //!   (DMAST.DMST); it returns the channels [`Channel<0>`](Channel) to
 //!   `Channel<7>`.
 //! - [`Channel::copy`] copies a slice to another and waits (bounded) for
-//!   the end; with the feature `async`, [`Channel::copy_async`] waits for
-//!   the transfer end interrupt instead.
+//!   the end; with the feature `async`, [`Channel::copy_async`] (unsafe:
+//!   its future must not be leaked) waits for the transfer end interrupt
+//!   instead.
 //! - [`Channel::start`] (unsafe: raw addresses) starts any [`Transfer`],
 //!   for example from a buffer to a peripheral's data register, one unit
 //!   per request of an [`Interrupt`](crate::icu::Interrupt).
@@ -33,6 +34,7 @@
 
 use core::marker::PhantomData;
 use core::ptr::{read_volatile, write_volatile};
+use core::sync::atomic::{Ordering, compiler_fence};
 
 use crate::icu::Interrupt;
 use crate::mstp::{self, Mstpcr};
@@ -232,6 +234,10 @@ impl<const N: u8> Channel<N> {
                 (t.src_step as u16) << 14 | (t.dst_step as u16) << 6,
             );
             write_volatile(reg8(n, DMINT), 0);
+            // The buffers are the DMAC's from here: the accesses to them
+            // before this stay before it (volatile accesses do not order
+            // the ordinary ones).
+            compiler_fence(Ordering::Release);
             write_volatile(reg8(n, DMCNT), 1);
             if dctg == 0 {
                 write_volatile(reg8(n, DMREQ), DMREQ_CLRS | DMREQ_SWREQ);
@@ -240,8 +246,13 @@ impl<const N: u8> Channel<N> {
     }
 
     /// Whether the last transfer has ended (DMSTS.DTIF): its count is done.
+    /// Once it says so, the accesses to the buffers after it stay after it.
     pub fn is_done(&self) -> bool {
-        unsafe { read_volatile(reg8(N, DMSTS)) & DMSTS_DTIF != 0 }
+        let done = unsafe { read_volatile(reg8(N, DMSTS)) & DMSTS_DTIF != 0 };
+        if done {
+            compiler_fence(Ordering::Acquire);
+        }
+        done
     }
 
     /// The units not transferred yet (DMCRA).
@@ -258,6 +269,8 @@ impl<const N: u8> Channel<N> {
             let _ = timeout::wait(100_000, || read_volatile(reg8(N, DMSTS)) & DMSTS_ACT == 0);
             write_volatile(reg8(N, DMINT), 0);
         }
+        // The buffers are the CPU's again.
+        compiler_fence(Ordering::Acquire);
     }
 
     /// Copies `src` to `dst` (the same length, 1 to 65535 units) and waits
@@ -397,7 +410,19 @@ mod asynch {
         /// Copies `src` to `dst` (the same length, 1 to 65535 units) and
         /// waits for the transfer end interrupt. Dropping the future stops
         /// the transfer.
-        pub async fn copy_async<T: Word>(&mut self, src: &[T], dst: &mut [T]) -> Result<(), Error> {
+        ///
+        /// # Safety
+        ///
+        /// The future must be awaited to the end or dropped, not leaked
+        /// (`core::mem::forget`, a reference cycle): a leaked future ends
+        /// the borrows of `src` / `dst` without stopping the DMAC, which
+        /// keeps reading and writing them. A drop guard cannot enforce
+        /// this, so it is the caller's to keep.
+        pub async unsafe fn copy_async<T: Word>(
+            &mut self,
+            src: &[T],
+            dst: &mut [T],
+        ) -> Result<(), Error> {
             let t = slice_transfer(src, dst)?;
             unsafe { self.start(&t) };
             let guard = StopOnDrop(self);

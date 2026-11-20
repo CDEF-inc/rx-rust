@@ -689,7 +689,13 @@ DMAC の 8 チャネルを、ノーマル転送モードで使う。`Dma::new(p.
 - feature `async`: `dma::enable_interrupts(priority)` が転送終了割り込み DMAC0I〜DMAC3I（ベクタ 120〜123）と
   DMAC74I（124。チャネル 4〜7 で共有し、DMIST で見分ける）を許可する。ハンドラは `bind_dma_interrupts!()`。
   `Channel::done().await` は DMINT.DTIE を立てて待ち、ハンドラが DTIE を下ろして起こす（DTIF は future が見る）。
-  `copy_async` は途中で future を捨てるとチャネルを止める。
+  `copy_async` は途中で future を捨てるとチャネルを止める。ただし future を drop せずに漏らす（`mem::forget`、
+  参照の循環）と、止めないまま `src` / `dst` の借用が終わり、DMAC が書き続ける。drop のガードでは防げないので、
+  `copy_async` は `unsafe` にした（漏らさないのが呼ぶ側の責任。#214 のレビュー）。
+- 順序: DTE を立てる前に `compiler_fence(Release)`、`is_done` が終わりを見たときと `stop` のあとに
+  `compiler_fence(Acquire)`。volatile のレジスタ操作は普通のメモリ操作の順序を決めないので、これがないと最適化で
+  バッファの書き込みが開始のあとに、読み出しが終わりの前に動きうる（#214 のレビュー）。RX はキャッシュがなく
+  シングルコアなので、コンパイラのフェンスで足りる。
 - アドレス: RX72M は DMAC0 0008 2000h（チャネルごとに + 40h）、DMAST 0008 2200h、DMRSRn 0008 7400h + 4n、
   モジュールストップは MSTPCRA.MSTPA28（DTC と共通）。RX74N / RX74M はセキュアの DMAC0 8700 7000h、DMAST 8700 7800h、
   DMRSRn 8700 6400h + 4n、MSTPCRA.MSTPA22（FSP の `BSP_MSTP_BIT_FSP_IP_DMAC`）。DMCRB が 32 ビットで、DMCTL などが

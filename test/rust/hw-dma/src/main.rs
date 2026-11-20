@@ -251,10 +251,10 @@ async fn run(_spawner: Spawner, mut b: Board) {
 
     // copy_async on channel 3 (DMAC3I) and 5 (DMAC74I).
     d8.fill(0);
-    check(13, b.dma.ch3.copy_async(&s8[..], &mut d8[..]).await == Ok(()));
+    check(13, unsafe { b.dma.ch3.copy_async(&s8[..], &mut d8[..]) }.await == Ok(()));
     check(14, d8 == s8);
     d8.fill(0);
-    check(15, b.dma.ch5.copy_async(&s8[..200], &mut d8[..200]).await == Ok(()));
+    check(15, unsafe { b.dma.ch5.copy_async(&s8[..200], &mut d8[..200]) }.await == Ok(()));
     check(16, d8[..200] == s8[..200] && d8[200] == 0);
 
     // done on CMI0-paced transfers (20 units, about 20 ms, the executor
