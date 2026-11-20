@@ -637,17 +637,21 @@ feature `async` で `Serial::into_async(priority)` が `serial::AsyncSerial`（e
 - `reset::software_reset()`: 割り込みを止め、PRCR（RX74 は PRCR_S）の PRC1 を立てて SWRR に A501h。
 - `watchdog::Iwdt` / `Wdt`: レジスタスタートモード（OFS0 が既定の全ビット 1 のとき）。`start(p, config)` が
   IWDTCR / WDTCR（TOPS、CKS、RPES、RPSS）と IWDTRCR / WDTRCR（RSTIRQS: 1 ならリセット）を書き、最初の `feed`（リフレッシュ
-  レジスタに 00h、FFh）でカウントが始まる。設定はリセット後に 1 回しか書けず、読み返して違えば `Locked`（もう書いた
-  か、OFS0 のオートスタートモード）。止められない。
+  レジスタに 00h、FFh）でカウントが始まる。設定はリセット後に 1 回しか書けず、読み返して違えば `StartError::Locked`（もう
+  書いたか、OFS0 のオートスタートモード）。止められない。
   - RX72M: IWDT は専用の 120 kHz、タイムアウトは 1024〜16384 カウント。WDT は PCLKB、1024〜16384。
+    IWDT 専用のオシレータはリセット後に止まっている（ILOCOCR.ILCSTP = 1、マニュアル 9.2.11）ので、`Iwdt::start` が
+    PRC0 を立てて ILCSTP を 0 にし、OSCOVFSR.ILCOVF を待つ（`StartError::Clock`）。止まったままだとカウンタは 0 の
+    まま動かず、リセットも来ない（最初はこれで、0 のカウンタを `feed` の試験が素通りしていた）。
   - RX74N / RX74M: IWDT は 16384 Hz（FSP の `BSP_FEATURE_IWDT_CLOCK_FREQUENCY`）、タイムアウトは 128 / 512 / 1024 / 2048
     カウント（`IwdtTimeout`。FSP の `g_iwdt_timeout`）。リフレッシュ直後のカウンタが 7Fh 以下であることをボードで確かめた。
     WDT0 は PCLKB、1024〜16384。CKS の値は両チップで同じ（IWDT: 1 / 16 / 32 / 64 / 128 / 256 分周、WDT: 4〜8192 分周）。
 - test/rust/hw-reset: 実際にリセットさせて 4 回走る（リセット要因で区別し、結果は rx-rt の `.uninit` に置いて最後に
   報告する）。① ランナーのリセット後: フラグを消し、ウォームスタートにしてソフトウェアリセット。② SWRF だけが立ち、
   ウォームスタートのまま。IWDT を最短のタイムアウトで起動し、半分で 20 回 `feed` してリセットされないこと、そのあと
-  `feed` をやめる。③ IWDTRF。WDT で同じことをする。④ WDTRF。消してフラグがなくなること。14 チェック。E2 Lite で
-  デバッグ中でも、どのリセットのあともそのまま走る。EK-RX74M で release / dev とも通る（2026-11-20）。
+  `feed` をやめる。③ IWDTRF。WDT で同じことをする。④ WDTRF。消してフラグがなくなること。カウンタが 0 でなく、
+  減っていくことも確かめる（17、18）。16 チェック。E2 Lite でデバッグ中でも、どのリセットのあともそのまま走る。
+  AP-RX72M-0A で release / dev とも通る（2026-11-20）。
 - まだのもの: オプション設定メモリ（OFS0 / OFS1 / MDE / ID コード。IWDT のオートスタートなど）、LVD。
 
 ## 予定

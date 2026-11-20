@@ -39,6 +39,7 @@ const WDT: (WdtConfig, u16) =
 
 const MAGIC: u32 = 0x5245_5345; // "RESE"
 
+
 /// What survives the resets: the run, and each check's result (bit `id` of
 /// `done` says it ran, of `ok` that it passed).
 #[repr(C)]
@@ -134,8 +135,11 @@ fn main() -> ! {
         let iwdt = Iwdt::start(p.iwdt, config);
         record(6, iwdt.is_ok());
         let Ok(mut iwdt) = iwdt else { report() };
-        // Started from its timeout: the counter is at most its start value.
-        record(7, iwdt.counter() <= top);
+        // Started from its timeout: the counter is at most its start value,
+        // and it counts down (a counter stuck at 0 would pass the feeds).
+        let first = iwdt.counter();
+        record(7, first <= top && first > 0);
+        record(17, wait_half(top, || iwdt.counter()) && iwdt.counter() < first);
         // Fed 20 times at half the timeout: no reset meanwhile.
         let mut fed_ok = true;
         for _ in 0..20 {
@@ -159,7 +163,9 @@ fn main() -> ! {
         record(11, wdt.is_ok());
         let Ok(mut wdt) = wdt else { report() };
         let top = WDT.1;
-        record(12, wdt.counter() <= top);
+        let first = wdt.counter();
+        record(12, first <= top && first > 0);
+        record(18, wait_half(top, || wdt.counter()) && wdt.counter() < first);
         let mut fed_ok = true;
         for _ in 0..20 {
             fed_ok &= wait_half(top, || wdt.counter());

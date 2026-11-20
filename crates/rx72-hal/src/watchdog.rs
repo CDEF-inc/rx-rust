@@ -10,24 +10,33 @@
 //! all ones). The settings can be written once after a reset, and the
 //! first feed starts the counter; neither can be stopped afterwards. In
 //! auto-start mode (OFS0) the counter already runs with OFS0's settings,
-//! and `start` reports [`Locked`].
+//! and `start` reports [`StartError::Locked`].
 
 use core::ptr::{read_volatile, write_volatile};
 
 use crate::pac;
 
-/// The settings did not take (they are written once after a reset, and
-/// OFS0's auto-start mode uses its own): the timer is not this one's.
+/// Why `start` failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Locked;
+#[non_exhaustive]
+pub enum StartError {
+    /// The settings did not take (they are written once after a reset, and
+    /// OFS0's auto-start mode uses its own): the timer is not this one's.
+    Locked,
+    /// The IWDT's clock did not start.
+    Clock,
+}
 
-impl core::fmt::Display for Locked {
+impl core::fmt::Display for StartError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("watchdog settings already fixed")
+        f.write_str(match self {
+            StartError::Locked => "watchdog settings already fixed",
+            StartError::Clock => "IWDT clock not running",
+        })
     }
 }
 
-impl core::error::Error for Locked {}
+impl core::error::Error for StartError {}
 
 /// The timeout in cycles of the divided clock (TOPS).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -174,7 +183,7 @@ struct Regs {
 }
 
 impl Regs {
-    fn start(&self, cr: u16, reset: bool) -> Result<(), Locked> {
+    fn start(&self, cr: u16, reset: bool) -> Result<(), StartError> {
         unsafe {
             write_volatile((self.base + 2) as *mut u16, cr);
             write_volatile((self.base + 6) as *mut u8, (reset as u8) << 7);
@@ -182,7 +191,7 @@ impl Regs {
             // TOPS b1-0). A control that does not read back is fixed
             // already (written before, or OFS0's auto-start).
             if read_volatile((self.base + 2) as *const u16) & 0x33f3 != cr {
-                return Err(Locked);
+                return Err(StartError::Locked);
             }
         }
         self.feed();
@@ -218,7 +227,7 @@ impl From<WdtDiv> for u16 {
 }
 
 macro_rules! watchdog {
-    ($name:ident, $periph:ty, $base:expr, $config:ty, $what:literal) => {
+    ($name:ident, $periph:ty, $base:expr, $config:ty, $prepare:expr, $what:literal) => {
         #[doc = concat!("The ", $what, " in register start mode; see the [module](self).")]
         pub struct $name {
             _p: $periph,
@@ -227,10 +236,11 @@ macro_rules! watchdog {
 
         impl $name {
             /// Writes the settings and starts the counter (the first feed).
-            /// [`Locked`] if the settings did not take (already written
-            /// since the reset, or OFS0's auto-start mode): the counter
-            /// then runs as set before, and is not fed.
-            pub fn start(p: $periph, config: $config) -> Result<Self, Locked> {
+            /// [`StartError::Locked`] if the settings did not take (already
+            /// written since the reset, or OFS0's auto-start mode): the
+            /// counter then runs as set before, and is not fed.
+            pub fn start(p: $periph, config: $config) -> Result<Self, StartError> {
+                $prepare;
                 let regs = Regs { base: $base };
                 regs.start(cr(&config), config.reset)?;
                 Ok($name { _p: p, regs })
@@ -251,5 +261,27 @@ macro_rules! watchdog {
     };
 }
 
-watchdog!(Iwdt, pac::Iwdt, 0x0008_8030, IwdtConfig, "independent watchdog timer (IWDT)");
-watchdog!(Wdt, pac::Wdt, 0x0008_8020, WdtConfig, "watchdog timer (WDT)");
+/// Starts the IWDT's own 120 kHz oscillator, which a reset leaves stopped in
+/// register start mode (ILOCOCR.ILCSTP = 1; manual 9.2.11), and waits for
+/// OSCOVFSR.ILCOVF: 34 LOCO cycles, bounded at a few ms at 240 MHz.
+fn start_iwdt_clock() -> Result<(), StartError> {
+    const ILOCOCR: *mut u8 = 0x0008_0035 as _;
+    const OSCOVFSR: *const u8 = 0x0008_003c as _;
+    const PRCR: *mut u16 = 0x0008_03fe as _;
+    const ILCOVF: u8 = 1 << 4;
+    unsafe {
+        if read_volatile(ILOCOCR) & 1 != 0 {
+            critical_section::with(|_| {
+                let prc = read_volatile(PRCR) & 0x000f;
+                write_volatile(PRCR, 0xa500 | prc | 1);
+                write_volatile(ILOCOCR, 0);
+                write_volatile(PRCR, 0xa500 | prc);
+            });
+        }
+        crate::timeout::wait(1_000_000, || read_volatile(OSCOVFSR) & ILCOVF != 0)
+            .map_err(|_| StartError::Clock)
+    }
+}
+
+watchdog!(Iwdt, pac::Iwdt, 0x0008_8030, IwdtConfig, start_iwdt_clock()?, "independent watchdog timer (IWDT)");
+watchdog!(Wdt, pac::Wdt, 0x0008_8020, WdtConfig, (), "watchdog timer (WDT)");

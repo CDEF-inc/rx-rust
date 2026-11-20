@@ -10,24 +10,33 @@
 //! all ones). The settings can be written once after a reset, and the
 //! first feed starts the counter; neither can be stopped afterwards. In
 //! auto-start mode (OFS0) the counter already runs with OFS0's settings,
-//! and `start` reports [`Locked`].
+//! and `start` reports [`StartError::Locked`].
 
 use core::ptr::{read_volatile, write_volatile};
 
 use crate::pac;
 
-/// The settings did not take (they are written once after a reset, and
-/// OFS0's auto-start mode uses its own): the timer is not this one's.
+/// Why `start` failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Locked;
+#[non_exhaustive]
+pub enum StartError {
+    /// The settings did not take (they are written once after a reset, and
+    /// OFS0's auto-start mode uses its own): the timer is not this one's.
+    Locked,
+    /// The IWDT's clock did not start.
+    Clock,
+}
 
-impl core::fmt::Display for Locked {
+impl core::fmt::Display for StartError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("watchdog settings already fixed")
+        f.write_str(match self {
+            StartError::Locked => "watchdog settings already fixed",
+            StartError::Clock => "IWDT clock not running",
+        })
     }
 }
 
-impl core::error::Error for Locked {}
+impl core::error::Error for StartError {}
 
 /// The IWDT's timeout in cycles of the divided clock (TOPS).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -196,7 +205,7 @@ struct Regs {
 }
 
 impl Regs {
-    fn start(&self, cr: u16, reset: bool) -> Result<(), Locked> {
+    fn start(&self, cr: u16, reset: bool) -> Result<(), StartError> {
         unsafe {
             write_volatile((self.base + 2) as *mut u16, cr);
             write_volatile((self.base + 6) as *mut u8, (reset as u8) << 7);
@@ -204,7 +213,7 @@ impl Regs {
             // TOPS b1-0). A control that does not read back is fixed
             // already (written before, or OFS0's auto-start).
             if read_volatile((self.base + 2) as *const u16) & 0x33f3 != cr {
-                return Err(Locked);
+                return Err(StartError::Locked);
             }
         }
         self.feed();
@@ -252,7 +261,7 @@ impl From<WdtDiv> for u16 {
 }
 
 macro_rules! watchdog {
-    ($name:ident, $periph:ty, $base:expr, $config:ty, $what:literal) => {
+    ($name:ident, $periph:ty, $base:expr, $config:ty, $prepare:expr, $what:literal) => {
         #[doc = concat!("The ", $what, " in register start mode; see the [module](self).")]
         pub struct $name {
             _p: $periph,
@@ -261,10 +270,11 @@ macro_rules! watchdog {
 
         impl $name {
             /// Writes the settings and starts the counter (the first feed).
-            /// [`Locked`] if the settings did not take (already written
-            /// since the reset, or OFS0's auto-start mode): the counter
-            /// then runs as set before, and is not fed.
-            pub fn start(p: $periph, config: $config) -> Result<Self, Locked> {
+            /// [`StartError::Locked`] if the settings did not take (already
+            /// written since the reset, or OFS0's auto-start mode): the
+            /// counter then runs as set before, and is not fed.
+            pub fn start(p: $periph, config: $config) -> Result<Self, StartError> {
+                $prepare;
                 let regs = Regs { base: $base };
                 regs.start(cr(&config), config.reset)?;
                 Ok($name { _p: p, regs })
@@ -285,5 +295,5 @@ macro_rules! watchdog {
     };
 }
 
-watchdog!(Iwdt, pac::Iwdt, 0x8780_2200, IwdtConfig, "independent watchdog timer (IWDT)");
-watchdog!(Wdt, pac::Wdt0, 0x8780_2600, WdtConfig, "watchdog timer (WDT0)");
+watchdog!(Iwdt, pac::Iwdt, 0x8780_2200, IwdtConfig, (), "independent watchdog timer (IWDT)");
+watchdog!(Wdt, pac::Wdt0, 0x8780_2600, WdtConfig, (), "watchdog timer (WDT0)");
