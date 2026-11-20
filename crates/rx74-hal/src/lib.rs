@@ -11,12 +11,15 @@
 //! - [`delay`]: `DelayNs` on CMT2.
 //! - [`icu`]: the interrupt controller (enable, priority and request flag
 //!   per source, the software interrupts).
-//! - [`serial`]: RSCI12 as a UART (`embedded-io` `Read` / `Write`).
+//! - [`serial`]: RSCI12 as a UART (`embedded-io` `Read` / `Write`; with the
+//!   feature `async`, interrupt-driven `embedded-io-async` too).
 //! - [`spi`]: RSPIA0 as an SPI master (`SpiBus`).
 //! - [`pwm`]: GPTW8 PWM on PF05 (the LED LED1) as `SetDutyCycle`.
 //! - [`i2c`]: RI3C0 as an I2C master (`I2c`) on P102 / P103.
 //! - [`adc`]: the 16-bit A/D converter (unit 0, SAR) and the temperature
 //!   sensor.
+//! - `time` (feature `embassy-time-driver`): an embassy-time driver on
+//!   CMTW0 / CMTW1.
 //!
 //! Everything runs in the root world, as a reset leaves it (a Flat-Project
 //! in the hardware manual's terms), and uses the registers' secure
@@ -43,3 +46,5 @@ mod mstp;
 pub mod pwm;
 pub mod serial;
 pub mod spi;
+#[cfg(feature = "embassy-time-driver")]
+pub mod time;

@@ -293,3 +293,273 @@ impl ReadReady for Serial {
         Ok(self.pending.is_some() || self.rx_ready() || self.ssr() & (ORER | FER | PER) != 0)
     }
 }
+
+#[cfg(feature = "async")]
+pub use asynch::{AsyncSerial, on_groupbl0, on_rxi2, on_txi2};
+
+/// The interrupt-driven SCI2 (feature `async`): `embedded-io-async`
+/// `Read` / `Write`, with the ICU taking the requests the blocking driver
+/// polls.
+///
+/// - **Receiving:** RXI2 (vector 62) puts each byte into a 128-byte ring
+///   buffer and wakes the reader. A receive error comes as ERI2, in group
+///   interrupt BL0 (vector 110, GRPBL0.IS5): the handler clears the error
+///   and keeps it, with its place in the stream: `read` returns the bytes
+///   before it, then the error, then the bytes after it. A full buffer
+///   drops the byte and counts as an overrun.
+/// - **Transmitting:** SCR.TIE stays set, so TXI2 (vector 63) comes once
+///   each time TDR empties; its handler marks TDR free and wakes the
+///   writer, which writes the next byte.
+///
+/// The three vectors belong to this driver: register its handlers with
+/// [`bind_serial_interrupts!`](crate::bind_serial_interrupts), and leave
+/// group BL0's other sources off.
+#[cfg(feature = "async")]
+mod asynch {
+    use core::cell::{Cell, RefCell};
+    use core::future::poll_fn;
+    use core::ptr::{read_volatile, write_volatile};
+    use core::task::{Poll, Waker};
+
+    use critical_section::Mutex;
+    use embedded_io::ErrorType;
+
+    use super::{Error, FER, ORER, PER, SSR_KEEP, Serial, TEND};
+    use crate::icu::{Interrupt, Priority};
+    use crate::pac;
+
+    /// Group interrupt BL0, which has ERI2.
+    const GROUPBL0_VECTOR: u8 = 110;
+    /// GRPBL0 (request status) / GENBL0 (enable): ERI2 is bit 5.
+    const GRPBL0: *const u32 = 0x0008_7630 as _;
+    const GENBL0: *mut u32 = 0x0008_7670 as _;
+    const ERI2: u32 = 1 << 5;
+
+    const RX_BUF: usize = 128;
+
+    struct Rx {
+        buf: [u8; RX_BUF],
+        head: usize,
+        len: usize,
+        /// The first receive error not returned yet, and how many of the
+        /// buffered bytes came before it. Later errors are not kept: the
+        /// stream is already known to be damaged there.
+        error: Option<(Error, usize)>,
+        waker: Option<Waker>,
+    }
+
+    impl Rx {
+        /// Keeps `e` after the bytes buffered so far.
+        fn set_error(&mut self, e: Error) {
+            if self.error.is_none() {
+                self.error = Some((e, self.len));
+            }
+        }
+    }
+
+    static RX: Mutex<RefCell<Rx>> = Mutex::new(RefCell::new(Rx {
+        buf: [0; RX_BUF],
+        head: 0,
+        len: 0,
+        error: None,
+        waker: None,
+    }));
+    /// Whether TDR can take a byte (a TXI2 not used yet).
+    static TX_FREE: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
+    static TX_WAKER: Mutex<RefCell<Option<Waker>>> = Mutex::new(RefCell::new(None));
+
+    fn sci() -> pac::Sci2 {
+        // The handlers and AsyncSerial share SCI2: the handlers read RDR
+        // and clear SSR's errors, AsyncSerial writes TDR.
+        unsafe { pac::Sci2::steal() }
+    }
+
+    fn wake(w: &mut Option<Waker>) {
+        if let Some(w) = w.take() {
+            w.wake();
+        }
+    }
+
+    fn groupbl0() -> Interrupt {
+        unsafe { Interrupt::new(GROUPBL0_VECTOR, GROUPBL0_VECTOR) }
+    }
+
+    /// The interrupt-driven SCI2; see the [module](self).
+    pub struct AsyncSerial {
+        serial: Serial,
+    }
+
+    impl Serial {
+        /// Enables RXI2 / TXI2 (vectors 62 / 63) and ERI2 (group BL0,
+        /// vector 110) at `priority` and returns the interrupt-driven
+        /// serial port. Register the handlers with
+        /// [`bind_serial_interrupts!`](crate::bind_serial_interrupts).
+        pub fn into_async(self, priority: Priority) -> AsyncSerial {
+            critical_section::with(|cs| {
+                let mut rx = RX.borrow_ref_mut(cs);
+                rx.head = 0;
+                rx.len = 0;
+                rx.error = self.pending.map(|e| (e, 0));
+                rx.waker = None;
+                // IR062 / IR063 are left as the blocking driver left them: a
+                // byte in RDR or an empty TDR is taken by the handler as
+                // soon as it is enabled.
+                TX_FREE.borrow(cs).set(false);
+                unsafe { write_volatile(GENBL0, read_volatile(GENBL0) | ERI2) };
+            });
+            let group = groupbl0();
+            group.clear_pending();
+            for irq in [Interrupt::RXI2, Interrupt::TXI2, group] {
+                irq.set_priority(priority);
+                irq.enable();
+            }
+            AsyncSerial { serial: self }
+        }
+    }
+
+    impl AsyncSerial {
+        /// The baud rate settings in use.
+        pub fn settings(&self) -> super::BaudSettings {
+            self.serial.settings()
+        }
+    }
+
+    impl ErrorType for AsyncSerial {
+        type Error = Error;
+    }
+
+    impl embedded_io_async::Read for AsyncSerial {
+        /// Waits until a byte has arrived, then takes the buffered ones (up
+        /// to `buf.len()`), stopping at a receive error: the error is
+        /// returned by the next `read`, before the bytes after it.
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+            if buf.is_empty() {
+                return Ok(0);
+            }
+            poll_fn(|cx| {
+                critical_section::with(|cs| {
+                    let mut rx = RX.borrow_ref_mut(cs);
+                    if let Some((e, 0)) = rx.error {
+                        rx.error = None;
+                        Poll::Ready(Err(e))
+                    } else if rx.len > 0 {
+                        // Up to the error, if there is one.
+                        let before = rx.error.map_or(rx.len, |(_, at)| at);
+                        let n = before.min(buf.len());
+                        for b in buf.iter_mut().take(n) {
+                            *b = rx.buf[rx.head];
+                            rx.head = (rx.head + 1) % RX_BUF;
+                        }
+                        rx.len -= n;
+                        if let Some((_, at)) = &mut rx.error {
+                            *at -= n;
+                        }
+                        Poll::Ready(Ok(n))
+                    } else {
+                        rx.waker = Some(cx.waker().clone());
+                        Poll::Pending
+                    }
+                })
+            })
+            .await
+        }
+    }
+
+    impl embedded_io_async::Write for AsyncSerial {
+        /// Writes the whole buffer, sleeping until TXI2 says TDR is free.
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+            for &b in buf {
+                poll_fn(|cx| {
+                    critical_section::with(|cs| {
+                        let free = TX_FREE.borrow(cs);
+                        if free.get() {
+                            free.set(false);
+                            Poll::Ready(())
+                        } else {
+                            *TX_WAKER.borrow_ref_mut(cs) = Some(cx.waker().clone());
+                            Poll::Pending
+                        }
+                    })
+                })
+                .await;
+                self.serial.sci.tdr().write(|w| unsafe { w.bits(b) });
+            }
+            Ok(buf.len())
+        }
+
+        /// Waits until the last byte has left the shift register (TEND),
+        /// yielding meanwhile (at most a character time).
+        async fn flush(&mut self) -> Result<(), Error> {
+            poll_fn(|cx| {
+                if self.serial.ssr() & TEND != 0 {
+                    Poll::Ready(Ok(()))
+                } else {
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+            })
+            .await
+        }
+    }
+
+    /// The RXI2 handler (vector 62): buffers the received byte.
+    pub extern "C" fn on_rxi2() {
+        let b = sci().rdr().read().bits();
+        critical_section::with(|cs| {
+            let mut rx = RX.borrow_ref_mut(cs);
+            if rx.len < RX_BUF {
+                let at = (rx.head + rx.len) % RX_BUF;
+                rx.buf[at] = b;
+                rx.len += 1;
+            } else {
+                rx.set_error(Error::Overrun);
+            }
+            wake(&mut rx.waker);
+        })
+    }
+
+    /// The TXI2 handler (vector 63): TDR is empty; wakes the writer.
+    pub extern "C" fn on_txi2() {
+        critical_section::with(|cs| {
+            TX_FREE.borrow(cs).set(true);
+            wake(&mut TX_WAKER.borrow_ref_mut(cs));
+        })
+    }
+
+    /// The group BL0 handler (vector 110): a receive error (ERI2) is
+    /// cleared and kept for the next `read`.
+    pub extern "C" fn on_groupbl0() {
+        if unsafe { read_volatile(GRPBL0) } & ERI2 == 0 {
+            return;
+        }
+        let s = sci();
+        let ssr = s.ssr().read().bits();
+        let e = if ssr & ORER != 0 {
+            Error::Overrun
+        } else if ssr & FER != 0 {
+            Error::Framing
+        } else {
+            Error::Parity
+        };
+        let _ = s.rdr().read().bits();
+        s.ssr().write(|w| unsafe { w.bits((ssr & !(ORER | FER | PER)) | SSR_KEEP) });
+        critical_section::with(|cs| {
+            let mut rx = RX.borrow_ref_mut(cs);
+            rx.set_error(e);
+            wake(&mut rx.waker);
+        })
+    }
+}
+
+/// Registers the interrupt-driven SCI2's handlers (feature `async`) with
+/// rx-rt's `interrupt!`: RXI2 (62), TXI2 (63), group BL0 (110). Use it
+/// once, in a crate that depends on rx-rt.
+#[cfg(feature = "async")]
+#[macro_export]
+macro_rules! bind_serial_interrupts {
+    () => {
+        rx_rt::interrupt!(62, $crate::serial::on_rxi2);
+        rx_rt::interrupt!(63, $crate::serial::on_txi2);
+        rx_rt::interrupt!(110, $crate::serial::on_groupbl0);
+    };
+}
