@@ -91,6 +91,9 @@ fn error_text(e: Error) -> &'static [u8] {
         Error::Overrun => b"\r\n! overrun\r\n",
         Error::Framing => b"\r\n! framing error\r\n",
         Error::Parity => b"\r\n! parity error\r\n",
+        // The error enums are non_exhaustive (Timeout is a write's).
+        #[allow(unreachable_patterns)]
+        _ => b"\r\n! error\r\n",
     }
 }
 

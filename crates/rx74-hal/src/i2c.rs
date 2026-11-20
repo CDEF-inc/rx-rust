@@ -42,6 +42,7 @@ use crate::clock::Clocks;
 use crate::gpio::{Function, Pin};
 use crate::mstp::{self, Mstpcr};
 use crate::pac;
+use crate::timeout;
 
 const BASE: usize = 0x8745_f000;
 const ICCCR: usize = BASE + 0x010;
@@ -190,6 +191,27 @@ fn clear(flags: u32) {
     wr(ICSR2, !flags);
 }
 
+/// Why [`I2c::try_ri3c0`] failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SetupError {
+    /// PLL1 is not running, or no I3CCLK divider and timing fit.
+    Clock,
+    /// I3CCLK's switch or the RI3C reset (ICRCR.MRST) did not end in 1 ms.
+    Timeout,
+}
+
+impl core::fmt::Display for SetupError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            SetupError::Clock => "no I3CCLK from PLL1P",
+            SetupError::Timeout => "RI3C set-up timeout",
+        })
+    }
+}
+
+impl core::error::Error for SetupError {}
+
 /// RI3C0 as an I2C master.
 pub struct I2c {
     ri3c: pac::Ri3c0,
@@ -205,7 +227,7 @@ impl I2c {
     /// (MSTPCRB.MSTPB4) and starts it as an I2C master on P102 / P103 at
     /// `speed` (manual figure 44.17). The bus needs external pull-ups.
     ///
-    /// Panics if PLL1 is not running.
+    /// Panics where [`try_ri3c0`](Self::try_ri3c0) returns an error.
     pub fn ri3c0<CM, DM>(
         ri3c: pac::Ri3c0,
         scl: Pin<0x01, 2, CM>,
@@ -213,19 +235,33 @@ impl I2c {
         speed: Speed,
         clocks: &Clocks,
     ) -> Self {
+        Self::try_ri3c0(ri3c, scl, sda, speed, clocks).expect("RI3C set-up failed")
+    }
+
+    /// [`ri3c0`](Self::ri3c0), or [`SetupError::Clock`] if PLL1 is not
+    /// running (nothing changed), or [`SetupError::Timeout`]. The
+    /// peripheral and pins are dropped on an error.
+    pub fn try_ri3c0<CM, DM>(
+        ri3c: pac::Ri3c0,
+        scl: Pin<0x01, 2, CM>,
+        sda: Pin<0x01, 3, DM>,
+        speed: Speed,
+        clocks: &Clocks,
+    ) -> Result<Self, SetupError> {
         let &(div, code) = I3CCK_DIVS
             .iter()
             .find(|&&(d, _)| clocks.pll1p > 0 && clocks.pll1p / d <= 60_000_000)
-            .expect("PLL1 not running");
+            .ok_or(SetupError::Clock)?;
         let i3cclk = clocks.pll1p / div;
-        let timing = Timing::new(i3cclk, speed).unwrap();
+        let timing = Timing::new(i3cclk, speed).ok_or(SetupError::Clock)?;
+        let spins_1ms = timeout::spins(clocks.cpuclk, 1000);
         // One SCL period: high + low + 4 internal clock cycles, plus rise
         // and fall times (up to 1.3 us), rounded up generously.
         let period_ns = (timing.high as u64 + timing.low as u64 + 4) * 1_000_000_000
             / (i3cclk >> timing.cks) as u64
             + 1_300;
         let ten_scl = (clocks.cpuclk as u64 * period_ns * 10).div_ceil(1_000_000_000) as u32;
-        set_i3cclk(code);
+        set_i3cclk(code, spins_1ms)?;
         let scl = scl.into_function(PSEL_RI3C);
         let sda = sda.into_function(PSEL_RI3C);
         mstp::start(Mstpcr::B, 4);
@@ -233,7 +269,7 @@ impl I2c {
         wr(ICCCR, 1);
         wr(ICCR, 0);
         wr(ICRCR, MRST);
-        while rd(ICRCR) & MRST != 0 {}
+        timeout::wait(spins_1ms, || rd(ICRCR) & MRST == 0).map_err(|_| SetupError::Timeout)?;
         // The reserved bits that read 1 are written 1.
         wr(ICRCCR, 1 << 16 | timing.cks as u32);
         wr(ICFBR, 0x3f3f_0000 | (timing.high as u32) << 8 | timing.low as u32);
@@ -244,7 +280,7 @@ impl I2c {
         wr(ICSER, 0x0011_0113);
         wr(ICCSER, 0b11);
         wr(ICCR, ICE);
-        I2c { ri3c, timing, ten_scl, scl, sda }
+        Ok(I2c { ri3c, timing, ten_scl, scl, sda })
     }
 
     /// The SCL timing in use.
@@ -303,8 +339,9 @@ impl I2c {
             wr(ICCGR, ST);
         }
         self.wait(0, START)?;
-        // Data written while RS is still 1 is not sent.
-        while rd(ICCGR) & (ST | RS) != 0 {}
+        // Data written while RS is still 1 is not sent. START was detected,
+        // so the request clears at once; 10 SCL periods is a fault.
+        timeout::wait(self.ten_scl, || rd(ICCGR) & (ST | RS) == 0).map_err(|_| Error::Timeout)?;
         self.wait(TDRE, 0)?;
         wr(ICDR, (addr as u32) << 1 | read as u32);
         Ok(())
@@ -486,20 +523,28 @@ fn no_ack(e: Error, address: bool) -> Error {
 
 /// Selects PLL1P / the divider `code` as I3CCLK (manual 9.2: I3CCKSREQ,
 /// wait for I3CCKSRDY, the divider and the source, I3CCKSREQ off, wait
-/// for I3CCKSRDY to clear), with PRCR_S.PRC0 set.
-fn set_i3cclk(code: u8) {
+/// for I3CCKSRDY to clear), with PRCR_S.PRC0 set; each wait at most
+/// `spins` ([`SetupError::Timeout`], with I3CCKSREQ off and PRCR_S
+/// restored).
+fn set_i3cclk(code: u8, spins: u32) -> Result<(), SetupError> {
+    let rdy = || unsafe { read_volatile(I3CCKCR) } & I3CCKSRDY != 0;
     critical_section::with(|_| unsafe {
         let prc = read_volatile(PRCR_S) & 0x00ff;
         write_volatile(PRCR_S, 0xa500 | prc | 1);
         let sel = read_volatile(I3CCKCR) & 0x0f;
         write_volatile(I3CCKCR, sel | I3CCKSREQ);
-        while read_volatile(I3CCKCR) & I3CCKSRDY == 0 {}
-        write_volatile(I3CCKDIVCR, code);
-        write_volatile(I3CCKCR, I3CCKSEL_PLL1P | I3CCKSREQ);
-        write_volatile(I3CCKCR, I3CCKSEL_PLL1P);
-        while read_volatile(I3CCKCR) & I3CCKSRDY != 0 {}
+        let mut r = timeout::wait(spins, rdy);
+        if r.is_ok() {
+            write_volatile(I3CCKDIVCR, code);
+            write_volatile(I3CCKCR, I3CCKSEL_PLL1P | I3CCKSREQ);
+            write_volatile(I3CCKCR, I3CCKSEL_PLL1P);
+            r = timeout::wait(spins, || !rdy());
+        } else {
+            write_volatile(I3CCKCR, sel);
+        }
         write_volatile(PRCR_S, 0xa500 | prc);
-    });
+        r.map_err(|_| SetupError::Timeout)
+    })
 }
 
 impl ErrorType for I2c {

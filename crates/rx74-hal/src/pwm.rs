@@ -27,6 +27,7 @@ use crate::clock::Clocks;
 use crate::gpio::{Function, Pin};
 use crate::mstp::{self, Mstpcr};
 use crate::pac;
+use crate::timeout::OutOfRange;
 
 const BASE: usize = 0x8742_c800;
 const GTCR: *mut u32 = (BASE + 0x2c) as _;
@@ -105,17 +106,30 @@ impl Pwm {
     /// nearest `hz` of PCLKD and starts it with duty 0 (low), then switches
     /// PF05 to GTIOC8B.
     ///
-    /// Panics if `hz` is out of range (see [`Timing::new`]), or if the GPTW
-    /// already left module stop with the asynchronous clock (GTCLKCR can
-    /// only change before).
+    /// Panics where [`try_gptw8`](Self::try_gptw8) returns [`OutOfRange`].
     pub fn gptw8<M>(gpt: pac::Gptw8, pin: Pin<0x0f, 5, M>, hz: u32, clocks: &Clocks) -> Self {
-        let timing = Timing::new(clocks.pclkd, hz).expect("PWM frequency out of range");
+        Self::try_gptw8(gpt, pin, hz, clocks).expect("PWM frequency out of range")
+    }
+
+    /// [`gptw8`](Self::gptw8), or [`OutOfRange`] (the peripheral and pin
+    /// dropped) if `hz` is out of range (see [`Timing::new`]), or if the
+    /// GPTW already left module stop with the asynchronous clock (GTCLKCR
+    /// can only change before).
+    pub fn try_gptw8<M>(
+        gpt: pac::Gptw8,
+        pin: Pin<0x0f, 5, M>,
+        hz: u32,
+        clocks: &Clocks,
+    ) -> Result<Self, OutOfRange> {
+        let timing = Timing::new(clocks.pclkd, hz).ok_or(OutOfRange)?;
         unsafe {
             if read_volatile(MSTPCRE) & 1 << 31 != 0 {
                 write_volatile(GTCLKCR, 1);
                 mstp::start(Mstpcr::E, 31);
             }
-            assert!(read_volatile(GTCLKCR) & 1 != 0, "GPTW running on the asynchronous clock");
+            if read_volatile(GTCLKCR) & 1 == 0 {
+                return Err(OutOfRange);
+            }
             // Stopped, sawtooth-wave PWM mode 1, the prescaler.
             write_volatile(GTCR, (timing.tpcs as u32) << TPCS_SHIFT);
             write_volatile(GTUDDTYC, UD | OBDTY_0);
@@ -129,7 +143,7 @@ impl Pwm {
             write_volatile(GTCR, (timing.tpcs as u32) << TPCS_SHIFT | CST);
         }
         let pin = pin.into_function(PSEL_GTIOC8B);
-        Pwm { gpt, timing, pin }
+        Ok(Pwm { gpt, timing, pin })
     }
 
     /// The prescaler, the period and the frequency in use.

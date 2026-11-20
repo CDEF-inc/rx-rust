@@ -39,6 +39,7 @@ use crate::clock::Clocks;
 use crate::gpio::{Analog, Pin};
 use crate::mstp::{self, Mstpcr};
 use crate::pac;
+use crate::timeout::{self, OutOfRange};
 
 const BASE: usize = 0x8743_8000;
 const ADCLKENR: usize = BASE;
@@ -103,9 +104,33 @@ const CNVCS_DA0: u32 = 0x68;
 const FORMAT_12_UNSIGNED: u32 = 1 << 20 | 0b10 << 16;
 const FORMAT_16_SIGNED: u32 = 0;
 
-/// A conversion result marked invalid (ERR, bit 31 of the data register).
+/// Why a conversion or the set-up failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ConversionError;
+#[non_exhaustive]
+pub enum Error {
+    /// The result register's ERR bit: the conversion failed.
+    Conversion,
+    /// A wait (ADCLK, a scan, ADCCLK's switch) did not end in time.
+    Timeout,
+    /// The calibration reported an error (ADERSR.ADERF0) or did not end
+    /// within 100 ms.
+    Calibration,
+    /// PLL1 is not running, or no divider of PLL1P gives 25-60 MHz.
+    Clock,
+}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Error::Conversion => "A/D conversion error",
+            Error::Timeout => "A/D timeout",
+            Error::Calibration => "A/D calibration failed",
+            Error::Clock => "no ADCLK of 25-60 MHz from PLL1P",
+        })
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// The voltage of a self-diagnosis (ADSGDCRn.DIAGVAL), with its ideal
 /// 16-bit signed result.
@@ -164,6 +189,8 @@ pub struct Adc {
     adclk: u32,
     /// CPUCLK0 in Hz, for the waits.
     cpuclk: u32,
+    /// The bound of a wait: 1 ms.
+    spins_1ms: u32,
     /// CPUCLK0 cycles for 6 PCLKA cycles, the gap after a scan.
     scan_gap: u32,
     /// Sampling states of table 0 (the AN pins, the self-diagnosis) and
@@ -177,23 +204,33 @@ impl Adc {
     /// (MSTPCRD.MSTPD21), puts units 1 and 2 to sleep, starts ADCLK and
     /// calibrates unit 0.
     ///
-    /// Panics if PLL1 is not running, if no divider of PLL1P gives 25-60
-    /// MHz, or if the calibration reports an error (ADERSR.ADERF0).
+    /// Panics where [`try_adc16h`](Self::try_adc16h) returns an error.
     pub fn adc16h(adc: pac::AdcB, clocks: &Clocks) -> Self {
+        Self::try_adc16h(adc, clocks).expect("A/D set-up failed")
+    }
+
+    /// [`adc16h`](Self::adc16h), or [`Error::Clock`] if PLL1 is not
+    /// running or no divider of PLL1P gives 25-60 MHz (nothing changed),
+    /// [`Error::Timeout`] if ADCCLK or ADCLK does not start, or
+    /// [`Error::Calibration`].
+    pub fn try_adc16h(adc: pac::AdcB, clocks: &Clocks) -> Result<Self, Error> {
         let &(div, code) = ADCCK_DIVS
             .iter()
             .find(|&&(d, _)| clocks.pll1p / d <= 60_000_000)
-            .expect("PLL1 not running");
+            .ok_or(Error::Clock)?;
         let adclk = clocks.pll1p / div;
-        assert!(adclk >= 25_000_000, "no ADCLK of 25-60 MHz from PLL1P");
-        set_adcclk(code);
+        if adclk < 25_000_000 {
+            return Err(Error::Clock);
+        }
+        let spins_1ms = timeout::spins(clocks.cpuclk, 1000);
+        set_adcclk(code, spins_1ms)?;
         mstp::start(Mstpcr::D, 21);
         wr32(ADUSLPCR1, 1);
         wr32(ADUSLPCR2, 1);
         // ADCLK = ADCCLK / 1, then enabled.
         wr32(ADCLKCR, 0);
         wr32(ADCLKENR, 1);
-        while rd32(ADCLKSR) & 1 == 0 {}
+        timeout::wait(spins_1ms, || rd32(ADCLKSR) & 1 != 0).map_err(|_| Error::Timeout)?;
 
         // Successive conversion time of 100 ns or more, the same in all
         // units (ADCNVSTR.CST0-2), and for the calibration.
@@ -203,11 +240,13 @@ impl Adc {
             _adc: adc,
             adclk,
             cpuclk: clocks.cpuclk,
+            spins_1ms,
             scan_gap: 6 * clocks.cpuclk.div_ceil(clocks.pclka),
             sst0: 0,
             sst1: adclk.div_ceil(1_000_000) * 5,
         };
-        adc.set_sampling_states(adclk.div_ceil(1_000_000) as u16);
+        // 1 us, within the limits for any ADCLK of 25-60 MHz.
+        let _ = adc.set_sampling_states(adclk.div_ceil(1_000_000) as u16);
         // Scan group 0 on unit 0 (ADSGCR0 and ADMDR keep their reset
         // values: unit 0, SAR single scan).
         wr32(ADSGER, 1);
@@ -218,10 +257,13 @@ impl Adc {
         wr32(ADCALSTCR, cst << 16 | adc.sst0);
         wr32(ADERSCR, 1);
         wr32(ADCALSTR, 0b11);
-        while rd32(ADCALENDSR) & 1 == 0 {}
+        timeout::wait(timeout::spins(clocks.cpuclk, 100_000), || rd32(ADCALENDSR) & 1 != 0)
+            .map_err(|_| Error::Calibration)?;
         wr32(ADCALENDSCR, 1);
-        assert!(rd32(ADERSR) & 1 == 0, "A/D calibration failed");
-        adc
+        if rd32(ADERSR) & 1 != 0 {
+            return Err(Error::Calibration);
+        }
+        Ok(adc)
     }
 
     /// The A/D conversion clock in Hz.
@@ -232,13 +274,16 @@ impl Adc {
     /// Sets sampling table 0 (the AN pins and the self-diagnosis) to
     /// `states` ADCLK cycles (ADSSTR0, bits 9-0).
     ///
-    /// Panics if `states` is below 1 ADCLK cycle + 40 ns (table 67.116) or
-    /// above 1023.
-    pub fn set_sampling_states(&mut self, states: u16) {
+    /// [`OutOfRange`] (nothing changed) if `states` is below 1 ADCLK cycle
+    /// + 40 ns (table 67.116) or above 1023.
+    pub fn set_sampling_states(&mut self, states: u16) -> Result<(), OutOfRange> {
         let min = 1 + (self.adclk as u64 * 40).div_ceil(1_000_000_000) as u16;
-        assert!((min..=1023).contains(&states));
+        if !(min..=1023).contains(&states) {
+            return Err(OutOfRange);
+        }
         self.sst0 = states as u32;
         wr32(ADSSTR0, self.sst1 << 16 | self.sst0);
+        Ok(())
     }
 
     /// The sampling states of table 0.
@@ -255,21 +300,23 @@ impl Adc {
         sst: u32,
         format: u32,
         result: usize,
-    ) -> u32 {
+    ) -> Result<u32, Error> {
         wr32(ADCHCR0, 1 | cnvcs << 8 | (differential as u32) << 15 | sst << 16);
         wr32(ADDOPCRC0, format);
         wr32(ADSTR0, 1);
-        while rd32(ADSCANENDSR) & 1 == 0 {}
+        // A conversion takes microseconds: 1 ms is a fault.
+        timeout::wait(self.spins_1ms, || rd32(ADSCANENDSR) & 1 != 0)
+            .map_err(|_| Error::Timeout)?;
         wr32(ADSCANENDSCR, 1);
         // The next start comes at least 6 PCLKA cycles after the end.
         spin(self.scan_gap);
-        rd32(result)
+        Ok(rd32(result))
     }
 
     /// Converts the input of `pin` and returns the 12-bit result.
-    pub fn read<PIN: Channel>(&mut self, _pin: &PIN) -> Result<u16, ConversionError> {
+    pub fn read<PIN: Channel>(&mut self, _pin: &PIN) -> Result<u16, Error> {
         let ch = PIN::CHANNEL as usize;
-        let r = self.convert(ch as u32, false, 0, FORMAT_12_UNSIGNED, ADDR0 + 4 * ch);
+        let r = self.convert(ch as u32, false, 0, FORMAT_12_UNSIGNED, ADDR0 + 4 * ch)?;
         data(r)
     }
 
@@ -277,22 +324,22 @@ impl Adc {
     /// signed; ADSGDCR0.DIAGVAL, reset to 0 afterwards). The result of
     /// [`DiagVoltage::Zero`] is ideally 0, [`DiagVoltage::Negative`] 8000h
     /// (-32768), [`DiagVoltage::Positive`] 7FFFh.
-    pub fn self_diagnosis(&mut self, v: DiagVoltage) -> Result<i16, ConversionError> {
+    pub fn self_diagnosis(&mut self, v: DiagVoltage) -> Result<i16, Error> {
         wr32(ADSGDCR0, v as u32);
         let r = self.convert(CNVCS_SELF_DIAG, true, 0, FORMAT_16_SIGNED, ADEXDR0);
         wr32(ADSGDCR0, 0);
-        data(r).map(|d| d as i16)
+        data(r?).map(|d| d as i16)
     }
 
     /// Converts the internal reference voltage (ADREFCR.VDE, 0.77-0.84 V),
     /// with the 5 us sampling of table 1.
-    pub fn read_internal_reference(&mut self) -> Result<u16, ConversionError> {
+    pub fn read_internal_reference(&mut self) -> Result<u16, Error> {
         wr32(ADREFCR, 1);
         // No settling time is given; wait as long as the sampling.
         spin_us(self.cpuclk, 5);
         let r = self.convert(CNVCS_REFERENCE, false, 1, FORMAT_12_UNSIGNED, ADEXDR0 + 4 * 5);
         wr32(ADREFCR, 0);
-        data(r)
+        data(r?)
     }
 
     /// Converts the internal output of D/A converter `n` (0 or 1; the DAC
@@ -300,35 +347,42 @@ impl Adc {
     /// table 1 (at least 2 us).
     ///
     /// Panics if `n` is not 0 or 1.
-    pub fn read_da(&mut self, n: u8) -> Result<u16, ConversionError> {
+    pub fn read_da(&mut self, n: u8) -> Result<u16, Error> {
         assert!(n < 2);
         let cnvcs = CNVCS_DA0 + n as u32;
-        let r = self.convert(cnvcs, false, 1, FORMAT_12_UNSIGNED, ADEXDR0 + 4 * (8 + n as usize));
+        let r = self.convert(cnvcs, false, 1, FORMAT_12_UNSIGNED, ADEXDR0 + 4 * (8 + n as usize))?;
         data(r)
     }
 }
 
 /// The data of a result register (bits 15-0), or the error of ERR (bit 31).
-fn data(r: u32) -> Result<u16, ConversionError> {
-    if r & 1 << 31 != 0 { Err(ConversionError) } else { Ok(r as u16) }
+fn data(r: u32) -> Result<u16, Error> {
+    if r & 1 << 31 != 0 { Err(Error::Conversion) } else { Ok(r as u16) }
 }
 
 /// Selects PLL1P / the divider `code` as ADCCLK (manual 9.2.x: ADCCKSREQ,
 /// wait for ADCCKSRDY, write the divider and the source, ADCCKSREQ off,
-/// wait for ADCCKSRDY to clear), with PRCR_S.PRC0 set.
-fn set_adcclk(code: u8) {
+/// wait for ADCCKSRDY to clear), with PRCR_S.PRC0 set; each wait at most
+/// `spins` ([`Error::Timeout`], with ADCCKSREQ off and PRCR_S restored).
+fn set_adcclk(code: u8, spins: u32) -> Result<(), Error> {
+    let rdy = || unsafe { read_volatile(ADCCKCR) } & ADCCKSRDY != 0;
     critical_section::with(|_| unsafe {
         let prc = read_volatile(PRCR_S) & 0x00ff;
         write_volatile(PRCR_S, 0xa500 | prc | 1);
         let sel = read_volatile(ADCCKCR) & 0x0f;
         write_volatile(ADCCKCR, sel | ADCCKSREQ);
-        while read_volatile(ADCCKCR) & ADCCKSRDY == 0 {}
-        write_volatile(ADCCKDIVCR, code);
-        write_volatile(ADCCKCR, ADCCKSEL_PLL1P | ADCCKSREQ);
-        write_volatile(ADCCKCR, ADCCKSEL_PLL1P);
-        while read_volatile(ADCCKCR) & ADCCKSRDY != 0 {}
+        let mut r = timeout::wait(spins, rdy);
+        if r.is_ok() {
+            write_volatile(ADCCKDIVCR, code);
+            write_volatile(ADCCKCR, ADCCKSEL_PLL1P | ADCCKSREQ);
+            write_volatile(ADCCKCR, ADCCKSEL_PLL1P);
+            r = timeout::wait(spins, || !rdy());
+        } else {
+            write_volatile(ADCCKCR, sel);
+        }
         write_volatile(PRCR_S, 0xa500 | prc);
-    });
+        r.map_err(|_| Error::Timeout)
+    })
 }
 
 /// The temperature sensor (TEMPS), converted by ADC16H.
@@ -354,7 +408,7 @@ impl TemperatureSensor {
     /// Converts the sensor output (manual figure 62.3): TSEN, 30 us, TSOE,
     /// a conversion with the 5 us sampling of table 1, then the sensor off
     /// again.
-    pub fn read_raw(&mut self, adc: &mut Adc) -> Result<u16, ConversionError> {
+    pub fn read_raw(&mut self, adc: &mut Adc) -> Result<u16, Error> {
         unsafe { write_volatile(TSCR, TSEN) };
         spin_us(adc.cpuclk, 30);
         unsafe { write_volatile(TSCR, TSEN | TSOE) };
@@ -363,14 +417,14 @@ impl TemperatureSensor {
             write_volatile(TSCR, TSEN);
             write_volatile(TSCR, 0);
         }
-        data(r)
+        data(r?)
     }
 
     /// The die temperature in millidegrees Celsius from one conversion, on
     /// the line through the two calibration points: T = -40 + 165 x (raw -
     /// TSCDR2) / (TSCDR - TSCDR2). It assumes VREFH0 = AVCC0 = 3.3 V, the
     /// calibration's condition.
-    pub fn read_millicelsius(&mut self, adc: &mut Adc) -> Result<i32, ConversionError> {
+    pub fn read_millicelsius(&mut self, adc: &mut Adc) -> Result<i32, Error> {
         let raw = self.read_raw(adc)? as i32;
         let (c125, c40) = self.calibration();
         let (c125, c40) = (c125 as i32, c40 as i32);

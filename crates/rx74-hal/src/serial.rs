@@ -16,16 +16,21 @@ use crate::clock::Clocks;
 use crate::gpio::{Function, Pin};
 use crate::mstp::{self, Mstpcr};
 use crate::pac;
+use crate::timeout::{self, OutOfRange};
 
 /// PSEL of TXD012-B / RXD012-B.
 const PSEL_RSCI: u8 = 0b000_1010;
 
-/// A receive error. The received data with the error is dropped.
+/// A receive error (the received data with the error is dropped), or a
+/// transmission that did not finish in time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     Overrun,
     Framing,
     Parity,
+    /// TDRE or TEND did not come within four character times.
+    Timeout,
 }
 
 impl fmt::Display for Error {
@@ -34,6 +39,7 @@ impl fmt::Display for Error {
             Error::Overrun => "overrun",
             Error::Framing => "framing error",
             Error::Parity => "parity error",
+            Error::Timeout => "transmit timeout",
         })
     }
 }
@@ -45,6 +51,7 @@ impl embedded_io::Error for Error {
         match self {
             Error::Overrun => ErrorKind::Other,
             Error::Framing | Error::Parity => ErrorKind::InvalidData,
+            Error::Timeout => ErrorKind::TimedOut,
         }
     }
 }
@@ -107,6 +114,8 @@ pub struct Serial {
     /// A receive error met after the first byte of a `read`, returned by
     /// the next `read`.
     pending: Option<Error>,
+    /// The bound of a transmit wait: four character times.
+    tx_spins: u32,
     _tx: Pin<0x01, 14, Function>,
     _rx: Pin<0x01, 15, Function>,
 }
@@ -115,7 +124,8 @@ impl Serial {
     /// Sets up RSCI12 (taking it out of module stop) at `baud` bit/s on
     /// P114 / P115, receiving and transmitting.
     ///
-    /// Panics if no setting is within 3% of `baud`.
+    /// Panics if no setting is within 3% of `baud` (see
+    /// [`try_rsci12`](Self::try_rsci12)).
     pub fn rsci12<TM, RM>(
         rsci: pac::Rsci12,
         tx: Pin<0x01, 14, TM>,
@@ -123,8 +133,23 @@ impl Serial {
         baud: u32,
         clocks: &Clocks,
     ) -> Self {
-        let s = BaudSettings::new(clocks.sciclk, baud).expect("baud rate out of range");
-        assert!((s.baud as u64).abs_diff(baud as u64) * 100 <= 3 * baud as u64);
+        Self::try_rsci12(rsci, tx, rx, baud, clocks).expect("baud rate out of range")
+    }
+
+    /// [`rsci12`](Self::rsci12), or [`OutOfRange`] (the peripheral and pins
+    /// untouched, and dropped) if no setting is within 3% of `baud`.
+    pub fn try_rsci12<TM, RM>(
+        rsci: pac::Rsci12,
+        tx: Pin<0x01, 14, TM>,
+        rx: Pin<0x01, 15, RM>,
+        baud: u32,
+        clocks: &Clocks,
+    ) -> Result<Self, OutOfRange> {
+        let s = BaudSettings::new(clocks.sciclk, baud).ok_or(OutOfRange)?;
+        if (s.baud as u64).abs_diff(baud as u64) * 100 > 3 * baud as u64 {
+            return Err(OutOfRange);
+        }
+        let tx_spins = timeout::spins(clocks.cpuclk, 4 * 10_000_000 / s.baud + 1);
         mstp::start(Mstpcr::B, 0);
         rsci.scr0().write(|w| unsafe { w.bits(0) });
         // Asynchronous, 8 bits, 1 stop bit, LSB first, no FIFO. SCR3 keeps
@@ -141,7 +166,7 @@ impl Serial {
             w.rdrfc().set_bit().aferc().set_bit().aperc().set_bit().orerc().set_bit()
         });
         rsci.scr0().write(|w| w.te().set_bit().re().set_bit());
-        Serial { rsci, settings: s, pending: None, _tx: tx, _rx: rx }
+        Ok(Serial { rsci, settings: s, pending: None, tx_spins, _tx: tx, _rx: rx })
     }
 
     /// The baud rate settings in use.
@@ -185,19 +210,26 @@ impl ErrorType for Serial {
 }
 
 impl Write for Serial {
-    /// Writes the whole buffer, waiting for TDRE before each byte.
+    /// Writes the whole buffer, waiting for TDRE before each byte. If it
+    /// does not come within four character times: [`Error::Timeout`] if no
+    /// byte was written yet, else the number written.
     fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        for &b in buf {
-            while self.rsci.ssr().read().tdre().bit_is_clear() {}
+        for (n, &b) in buf.iter().enumerate() {
+            if timeout::wait(self.tx_spins, || self.rsci.ssr().read().tdre().bit_is_set()).is_err() {
+                // embedded-io: an error means nothing was written, so a
+                // timeout after some bytes returns how many went out.
+                return if n == 0 { Err(Error::Timeout) } else { Ok(n) };
+            }
             self.rsci.tdr().write(|w| unsafe { w.tdat().bits(b as u16) });
         }
         Ok(buf.len())
     }
 
-    /// Waits until the last byte has left the shift register (TEND).
+    /// Waits until the last byte has left the shift register (TEND);
+    /// [`Error::Timeout`] after four character times.
     fn flush(&mut self) -> Result<(), Error> {
-        while self.rsci.ssr().read().tend().bit_is_clear() {}
-        Ok(())
+        timeout::wait(self.tx_spins, || self.rsci.ssr().read().tend().bit_is_set())
+            .map_err(|_| Error::Timeout)
     }
 }
 
