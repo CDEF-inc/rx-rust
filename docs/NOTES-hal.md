@@ -716,18 +716,21 @@ feature `async` で `Spi::into_async(tx, rx)`（DMA の 2 チャネル）が `sp
   共通の長さ、残りの読み出し、残りの書き込みの 3 回に分ける。`transfer_in_place` は同じバッファを両方に使う
   （送信が常に先行するので、読む前に上書きされない）。65535 バイトを超えると DMA の転送を分ける。
 - 時間の上限はない（バスが止まりうるなら embassy-time の `with_timeout` で包む）。future を捨てると両チャネルを
-  止め、要求を切る。`flush` はブロッキングと同じく IDLNF を上限つきで待つ。
+  止め、要求を切る。送信バッファとシフトレジスタに残ったバイトは送り終えるのを（上限つきで）待ち、それが受信側に
+  持ち込んだデータは捨てる（RX72M は SPDR を読み、OVRF を消す。RX74 は SPFCLR で両 FIFO を空にし、SPRF / OVRF を
+  消す）。そうしないと、次の転送（async でも `free` 後のブロッキングでも）が古い応答を読む（#215 のレビュー）。`flush` はブロッキングと同じく IDLNF を上限つきで待つ。
 - RX72M: SPCR.SPE を落としてから SPTIE / SPRIE と SPE を同時に立てると、空の送信バッファで最初の SPTI2 が出る。
 - RX74N / RX74M: SPRI0 / SPTI0 は選択型割り込みなので、SLIR146 / SLIR147 にイベント番号（FSP の
   `ICU_EVENT_RSPI0_SPRI` = 2D3h、`_SPTI` = 2D4h）を書いてベクタ 146 / 147 にする。RSPIA の SPTEF / SPRF は
   SPSCLR か DMAC でしか消えないので、SPE を落として SPSCLR で消してから SPTIE / SPRIE と SPE を立てる。FIFO に
   空きがあるので SPTEF が立ち直り、最初の要求になる。最初は許可したあとで SPSCLR を書いていて、最初の SPRF を
   消してしまい、受信のチャネルが 1 バイト足りないまま止まった（送信は 64 バイト送り終えていた）。
-- test/rust/hw-spi-async（16 チェック）: 内部ループバック（SPLP2）、15 MHz で、同じ長さの `transfer`、
+- test/rust/hw-spi-async（19 チェック）: 内部ループバック（SPLP2）、15 MHz で、同じ長さの `transfer`、
   `transfer_in_place`、`read`（FFh が返る）、`write`、読み出しが長い / 書き込みが長い `transfer`、`flush`。
   `free` してブロッキングで反転ループバック（SPLP）、もう一度 async（反転して返る）。70000 バイトをその場で
-  （DMA の転送 2 回）。RSPI の要求が CPU に来ない。AP-RX72M-0A と EK-RX74M（RX74N 用のビルド）で release / dev
-  とも通る（2026-11-20）。
+  （DMA の転送 2 回）。1 回 poll して捨てた転送のあと、async とブロッキングの転送が自分のバイトを受け取る（17〜19。
+  捨てるのを外すと 17 のあとで止まる）。RSPI の要求が CPU に来ない。AP-RX72M-0A と EK-RX74M（RX74N 用のビルド）で
+  release / dev とも通る（2026-11-20。17〜19 は EK-RX74M のみ）。
 
 ## 予定
 

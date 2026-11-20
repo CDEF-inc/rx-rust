@@ -282,6 +282,17 @@ fn route_requests() {}
 
 #[cfg(feature = "async")]
 impl Spi {
+    /// Drops a received byte left in SPDR and clears an overrun (SPSR.OVRF,
+    /// cleared by writing 0 after reading 1).
+    fn discard_received(&self) {
+        if self.rspi.spsr().read().sprf().bit_is_set() {
+            let _ = unsafe { read_volatile(SPDR_RSPI2) };
+        }
+        if self.rspi.spsr().read().ovrf().bit_is_set() {
+            self.rspi.spsr().modify(|_, w| w.ovrf().clear_bit());
+        }
+    }
+
     /// SPCR.SPTIE / SPRIE on or off. SPE is set together with SPTIE, which
     /// gives the first SPTI2 while the transmit buffer is empty.
     fn irq_requests(&self, on: bool) {
@@ -380,11 +391,17 @@ mod asynch {
             self.spi.bit_rate()
         }
 
-        /// Interrupt requests off, channels stopped.
+        /// Interrupt requests off, channels stopped. A transfer cut short
+        /// (its future dropped) can leave bytes in the transmit buffer and
+        /// the shift register: they are let finish (bounded) and what they
+        /// brought into the receive side is discarded, so that the next
+        /// transfer, async or blocking, does not read an old response.
         fn end(&mut self) {
             self.spi.irq_requests(false);
             self.tx.stop();
             self.rx.stop();
+            let _ = self.spi.flush_idle();
+            self.spi.discard_received();
             for i in [super::RXI, super::TXI] {
                 i.disable();
                 i.clear_pending();

@@ -311,6 +311,16 @@ fn route_requests() {
 
 #[cfg(feature = "async")]
 impl Spi {
+    /// Empties both FIFOs (SPFCLR) and clears the receive flags and an
+    /// overrun (SPSCLR.SPRFC / OVRFC).
+    fn discard_received(&self) {
+        const SPSCLR: *mut u16 = (BASE + 0x6a) as _;
+        unsafe {
+            write_volatile(SPFCLR, 1);
+            write_volatile(SPSCLR, 1 << 15 | 1 << 8);
+        }
+    }
+
     /// SPCR.SPTIE / SPRIE on or off. On, SPTEF / SPRF are cleared first
     /// (SPSCLR, with the RSPIA disabled): SPTEF, set again once it is
     /// enabled (the transmit FIFO has room), gives the first SPTI0. The
@@ -421,11 +431,17 @@ mod asynch {
             self.spi.bit_rate()
         }
 
-        /// Interrupt requests off, channels stopped.
+        /// Interrupt requests off, channels stopped. A transfer cut short
+        /// (its future dropped) can leave bytes in the transmit buffer and
+        /// the shift register: they are let finish (bounded) and what they
+        /// brought into the receive side is discarded, so that the next
+        /// transfer, async or blocking, does not read an old response.
         fn end(&mut self) {
             self.spi.irq_requests(false);
             self.tx.stop();
             self.rx.stop();
+            let _ = self.spi.flush_idle();
+            self.spi.discard_received();
             for i in [super::RXI, super::TXI] {
                 i.disable();
                 i.clear_pending();

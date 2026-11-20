@@ -7,6 +7,8 @@
 //! - the inverted loopback (SPLP) after `free`, the blocking driver again,
 //!   and `into_async` once more;
 //! - 70000 bytes in place: more than one DMA transfer (65535 units);
+//! - a transfer cut short (its future dropped after one poll) leaves
+//!   nothing behind for the next async or blocking transfer;
 //! - none of the RSPI's receive / transmit requests reaches the CPU.
 //!
 //! Booted from the code flash / MRAM by scripts/hw-run.sh (scripts/hw-build.sh
@@ -16,7 +18,10 @@
 #![no_std]
 #![no_main]
 
+use core::future::Future;
 use core::mem::MaybeUninit;
+use core::pin::pin;
+use core::task::{Context, Waker};
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
 
 use embedded_hal::spi::{MODE_0, SpiBus as _};
@@ -121,6 +126,25 @@ async fn run(_spawner: Spawner, spi: Spi, dma: Dma) {
     }
     check(14, spi.transfer_in_place(big).await.is_ok());
     check(15, big.iter().enumerate().all(|(i, &x)| x == (i ^ (i >> 8)) as u8));
+
+    // A transfer cut short: polled once (started), then dropped. The bytes
+    // still on their way are discarded, so the next transfers, async and
+    // blocking, get their own bytes back.
+    {
+        let mut fut = pin!(spi.transfer_in_place(&mut big[..2000]));
+        let mut cx = Context::from_waker(Waker::noop());
+        check(17, fut.as_mut().poll(&mut cx).is_pending());
+    }
+    let mut r = [0u8; 64];
+    check(18, spi.transfer(&mut r, &tx).await.is_ok() && r == tx);
+    {
+        let mut fut = pin!(spi.write(&big[..2000]));
+        let mut cx = Context::from_waker(Waker::noop());
+        let _ = fut.as_mut().poll(&mut cx);
+    }
+    let (mut blocking, _, _) = spi.free();
+    let mut b = [0x12u8, 0x34, 0x56];
+    check(19, blocking.transfer_in_place(&mut b).is_ok() && b == [0x12, 0x34, 0x56]);
 
     check(16, CPU_RSPI.load(Relaxed) == 0);
     hw_board::finish()
